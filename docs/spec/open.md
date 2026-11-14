@@ -23,8 +23,11 @@
   a byte that is not UTF-8.
 - **OPEN-10** `[gap]` Elements after the first error are shown too, as far as they can be
   recovered. Today nothing after the error appears in the tree or grid.
-- **OPEN-11** `[planned]` Opening another file, or closing the window, asks first if there are
-  unsaved changes.
+- **OPEN-11** `[done]` Opening another file (File > Open, Ctrl+O, dropping a file), File >
+  Quit and the window's close button ask first if there are unsaved changes: Save, Don't save
+  or Cancel. The action goes ahead after Don't save, or after Save has written the file; if
+  saving fails or is cancelled, nothing is lost and the document stays open. Without unsaved
+  changes nothing is asked.
 - **OPEN-12** `[planned]` A list of recently opened files.
 - **OPEN-13** `[done]` A list below the text shows every warning and error of the document,
   as `Line N, column C: message`; it is there only when there are any. Clicking an entry
@@ -52,6 +55,8 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
 - Open `<a><b>one</b><c>two</a>`: the tree shows `a`, `b` and `c`; the status bar names the
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
+- Format a document, then close the window: the dialog asks. Cancel keeps it open; Don't save
+  closes and leaves the file as it was; Save writes the formatted file, then closes.
 - Open `crates/engine/tests/corpus/latin1.xml`: the list shows a warning on line 1 at
   `ISO-8859-1` and an error on line 2, column 10, at the `Ä`. Clicking the error outlines that
   byte.

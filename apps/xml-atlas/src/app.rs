@@ -14,9 +14,28 @@ use xml_atlas_engine::problems::{Problem, Severity};
 
 pub struct App {
     open: Option<Open>,
+    /// An action waiting for the answer to "save changes?" (OPEN-11).
+    confirm: Option<Action>,
+    /// Set once the user agreed to close, so the close request is not asked about again.
+    quitting: bool,
     find: crate::find_bar::FindBar,
     loading: Option<Loading>,
     message: Option<String>,
+}
+
+/// The answers of the "save changes?" dialog.
+enum Answer {
+    Save,
+    Discard,
+    Cancel,
+}
+
+/// Something that replaces or closes the open document, and so may lose unsaved changes.
+#[derive(Clone, Debug)]
+enum Action {
+    Open(PathBuf),
+    PickFile,
+    Quit,
 }
 
 struct Loading {
@@ -46,6 +65,8 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
         let mut app = Self {
             open: None,
+            confirm: None,
+            quitting: false,
             find: Default::default(),
             loading: None,
             message: None,
@@ -106,6 +127,75 @@ impl App {
         self.open = Some(open);
     }
 
+    /// Runs `action`, or first asks whether to save when the document has unsaved changes.
+    fn request(&mut self, ctx: &egui::Context, action: Action) {
+        if self.open.as_ref().is_some_and(|o| o.modified) {
+            self.confirm = Some(action);
+        } else {
+            self.perform(ctx, action);
+        }
+    }
+
+    fn perform(&mut self, ctx: &egui::Context, action: Action) {
+        match action {
+            Action::Open(path) => self.start_loading(ctx, path),
+            Action::PickFile => self.pick_file(ctx),
+            Action::Quit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// The "save changes?" dialog. Save runs the action only if saving worked.
+    fn confirm_dialog(&mut self, ui: &mut Ui) {
+        let Some(action) = self.confirm.clone() else {
+            return;
+        };
+        let ctx = ui.ctx().clone();
+        let name = self
+            .open
+            .as_ref()
+            .and_then(|o| o.doc.path.as_deref())
+            .map(file_name)
+            .unwrap_or_else(|| "the document".into());
+        let mut answer = None;
+        let modal = egui::Modal::new(egui::Id::unique("save-changes")).show(&ctx, |ui| {
+            ui.set_width(360.0);
+            ui.heading("Unsaved changes");
+            ui.label(format!("Save the changes to {name}?"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    answer = Some(Answer::Save);
+                }
+                if ui.button("Don't save").clicked() {
+                    answer = Some(Answer::Discard);
+                }
+                if ui.button("Cancel").clicked() {
+                    answer = Some(Answer::Cancel);
+                }
+            });
+        });
+        if modal.should_close() && answer.is_none() {
+            answer = Some(Answer::Cancel);
+        }
+        match answer {
+            Some(Answer::Save) => {
+                self.confirm = None;
+                if self.save() {
+                    self.perform(&ctx, action);
+                }
+            }
+            Some(Answer::Discard) => {
+                self.confirm = None;
+                self.perform(&ctx, action);
+            }
+            Some(Answer::Cancel) => self.confirm = None,
+            None => {}
+        }
+    }
+
     fn pick_file(&mut self, ctx: &egui::Context) {
         let dialog = rfd::FileDialog::new()
             .add_filter(
@@ -133,18 +223,27 @@ impl App {
         }
     }
 
-    fn save(&mut self) {
-        let Some(open) = &mut self.open else { return };
+    /// Saves the document. False if there is none, the user cancelled, or writing failed.
+    fn save(&mut self) -> bool {
+        let Some(open) = &mut self.open else {
+            return false;
+        };
         let path = match open.doc.path.clone() {
             Some(p) => p,
             None => match rfd::FileDialog::new().save_file() {
                 Some(p) => p,
-                None => return,
+                None => return false,
             },
         };
         match open.doc.save(&path) {
-            Ok(()) => open.modified = false,
-            Err(e) => self.message = Some(format!("Could not save {}: {e}", path.display())),
+            Ok(()) => {
+                open.modified = false;
+                true
+            }
+            Err(e) => {
+                self.message = Some(format!("Could not save {}: {e}", path.display()));
+                false
+            }
         }
     }
 
@@ -154,7 +253,7 @@ impl App {
             ui.menu_button("File", |ui| {
                 if ui.button("Open…    Ctrl+O").clicked() {
                     ui.close();
-                    self.pick_file(&ctx);
+                    self.request(&ctx, Action::PickFile);
                 }
                 let can_save = self.open.as_ref().is_some_and(|o| o.modified);
                 if ui
@@ -166,7 +265,8 @@ impl App {
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    ui.close();
+                    self.request(&ctx, Action::Quit);
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -253,12 +353,21 @@ impl eframe::App for App {
                 .find(|p| !p.as_os_str().is_empty())
         });
         if let Some(path) = dropped {
-            self.start_loading(&ctx, path);
+            self.request(&ctx, Action::Open(path));
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
         {
-            self.pick_file(&ctx);
+            self.request(&ctx, Action::PickFile);
         }
+        // The window's close button: hold the close until the user has answered.
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quitting
+            && self.open.as_ref().is_some_and(|o| o.modified)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Action::Quit);
+        }
+        self.confirm_dialog(ui);
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
         {
             self.save();
