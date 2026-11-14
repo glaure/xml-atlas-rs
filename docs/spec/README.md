@@ -39,6 +39,7 @@ Each area file ends with three lists:
 | `grid.md`      | Which rows and columns appear, cells, sorting, editing      |
 | `text.md`      | Source view, its link to tree and grid, editing             |
 | `format.md`    | Indentation rules, what whitespace is kept                  |
+| `window.md`    | Layout of the views, light and dark theme                   |
 | `reference.md` | What XML Marker and the Qt XML Atlas do, as observed        |
 
 Not written yet: find and replace, editing and undo, settings, keyboard shortcuts.

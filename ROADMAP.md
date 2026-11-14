@@ -41,6 +41,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Replace and Replace All (TEXT-14)
 - [ ] The same edits from the CLI
 - [ ] Recent files, settings
+- [ ] Light and dark theme, following the system by default (WIN-2)
 - [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
 - [ ] Format settings: indent size, tabs or spaces, attributes per tag line, remove comments,
       trim text (FMT-10 to FMT-13); compact (FMT-14); settings read from the document's
