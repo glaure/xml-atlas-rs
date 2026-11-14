@@ -29,6 +29,12 @@ pub struct FormatOptions {
     pub tabs: bool,
     /// A start tag with more attributes than this gets one attribute per line. 0: never.
     pub max_attributes: usize,
+    /// Leave out comments where Format controls the layout, except the settings comment
+    /// (FMT-12). Changes content, so off by default.
+    pub remove_comments: bool,
+    /// Trim whitespace at the start and end of elements that hold only text (FMT-13). Changes
+    /// content, so off by default.
+    pub trim_text: bool,
 }
 
 /// XML Marker's defaults (XM-50, FMT-10, FMT-11).
@@ -38,6 +44,8 @@ impl Default for FormatOptions {
             indent_size: 4,
             tabs: false,
             max_attributes: 6,
+            remove_comments: false,
+            trim_text: false,
         }
     }
 }
@@ -50,9 +58,16 @@ impl std::fmt::Display for FormatOptions {
             write!(f, "indent {}", self.indent_size)?;
         }
         match self.max_attributes {
-            0 => write!(f, ", attributes never wrapped"),
-            n => write!(f, ", at most {n} attributes per tag line"),
+            0 => write!(f, ", attributes never wrapped")?,
+            n => write!(f, ", at most {n} attributes per tag line")?,
         }
+        if self.remove_comments {
+            write!(f, ", comments removed")?;
+        }
+        if self.trim_text {
+            write!(f, ", text trimmed")?;
+        }
+        Ok(())
     }
 }
 
@@ -82,14 +97,44 @@ pub fn format_indexed(
     index: &Index,
     options: &FormatOptions,
 ) -> Result<Vec<u8>, FormatError> {
+    write(src, index, options, false)
+}
+
+/// The opposite of [`format`] (FMT-14): the whitespace Format would add or change is left out,
+/// so the document is one line. A start tag that spans lines is joined with one space between
+/// attributes. Everything Format keeps exactly is kept exactly here too. `remove_comments`
+/// and `trim_text` apply; indent and `max_attributes` do not.
+pub fn compact(src: &[u8], options: &FormatOptions) -> Result<Vec<u8>, FormatError> {
+    compact_indexed(src, &xml_atlas_xml::index(src), options)
+}
+
+/// [`compact`] for a source that is already indexed.
+pub fn compact_indexed(
+    src: &[u8],
+    index: &Index,
+    options: &FormatOptions,
+) -> Result<Vec<u8>, FormatError> {
+    write(src, index, options, true)
+}
+
+/// Writes `src` laid out by Format, or compacted.
+fn write(
+    src: &[u8],
+    index: &Index,
+    options: &FormatOptions,
+    compact: bool,
+) -> Result<Vec<u8>, FormatError> {
     if let Some(e) = &index.error {
         return Err(FormatError::Malformed(e.clone()));
     }
+    let newline = newline_style(src);
     let w = Writer {
         src,
         index,
         options,
-        newline: newline_style(src),
+        newline,
+        compact,
+        settings: settings_comment_id(src, index),
     };
     let mut out = Vec::with_capacity(src.len() + src.len() / 8);
     if src.starts_with(UTF8_BOM) {
@@ -101,9 +146,14 @@ pub fn format_indexed(
     while let Some(step) = stack.pop() {
         match step {
             Step::Node(id, depth) => {
-                w.indent(&mut out, depth);
                 let n = index.node(id);
-                let head_end = n.start as usize + n.head_len as usize;
+                if w.options.remove_comments
+                    && n.kind == NodeKind::Comment
+                    && w.settings != Some(id)
+                {
+                    continue;
+                }
+                w.indent(&mut out, depth);
                 if can_reindent(src, index, id) {
                     w.start_tag(&mut out, id, depth);
                     stack.push(Step::Close(id, depth));
@@ -111,9 +161,9 @@ pub fn format_indexed(
                     stack.extend(index.children(id).map(|c| Step::Node(c, depth + 1)));
                     stack[first..].reverse();
                 } else if n.kind == NodeKind::Element && !preserves_space(src, index, id) {
-                    // Content copied exactly; only the start tag may be wrapped.
+                    // Content copied exactly, or trimmed; only the start tag may change.
                     w.start_tag(&mut out, id, depth);
-                    out.extend_from_slice(&src[head_end..n.end as usize]);
+                    w.content(&mut out, id);
                 } else {
                     out.extend_from_slice(index.raw(src, id));
                 }
@@ -123,7 +173,12 @@ pub fn format_indexed(
                 out.extend_from_slice(end_tag(index.raw(src, id)));
             }
         }
-        out.extend_from_slice(w.newline);
+        if !compact {
+            out.extend_from_slice(newline);
+        }
+    }
+    if compact {
+        out.extend_from_slice(newline);
     }
     Ok(out)
 }
@@ -193,10 +248,17 @@ struct Writer<'a> {
     index: &'a Index,
     options: &'a FormatOptions,
     newline: &'static [u8],
+    /// Compact (FMT-14) instead of Format.
+    compact: bool,
+    /// The settings comment, which Remove comments keeps (FMT-12, FMT-15).
+    settings: Option<NodeId>,
 }
 
 impl Writer<'_> {
     fn indent(&self, out: &mut Vec<u8>, depth: usize) {
+        if self.compact {
+            return;
+        }
         if self.options.tabs {
             out.resize(out.len() + depth, b'\t');
         } else {
@@ -209,6 +271,10 @@ impl Writer<'_> {
     fn start_tag(&self, out: &mut Vec<u8>, id: NodeId, depth: usize) {
         let n = self.index.node(id);
         let head = &self.src[n.start as usize..n.start as usize + n.head_len as usize];
+        if self.compact {
+            self.joined_start_tag(out, id, head);
+            return;
+        }
         let max = self.options.max_attributes;
         // Every attribute has an `=`: with no more `=` than allowed, there is nothing to wrap,
         // and the attributes need not be found at all.
@@ -229,19 +295,80 @@ impl Writer<'_> {
         }
         out.extend_from_slice(if head.ends_with(b"/>") { b"/>" } else { b">" });
     }
+
+    /// A start tag that spans lines, on one line with one space between attributes (FMT-14).
+    /// A one-line start tag is copied exactly.
+    fn joined_start_tag(&self, out: &mut Vec<u8>, id: NodeId, head: &[u8]) {
+        if memchr::memchr2(b'\n', b'\r', head).is_none() {
+            out.extend_from_slice(head);
+            return;
+        }
+        let n = self.index.node(id);
+        out.extend_from_slice(&head[..1 + n.name_len as usize]);
+        for span in self.index.attribute_spans(self.src, id) {
+            out.push(b' ');
+            out.extend_from_slice(&self.src[span]);
+        }
+        out.extend_from_slice(if head.ends_with(b"/>") { b"/>" } else { b">" });
+    }
+
+    /// Writes what follows the start tag of an element whose content is copied: exactly, or
+    /// with the text trimmed when the element holds only text and `trim_text` is set (FMT-13).
+    fn content(&self, out: &mut Vec<u8>, id: NodeId) {
+        let n = self.index.node(id);
+        let rest = &self.src[n.start as usize + n.head_len as usize..n.end as usize];
+        // Look at the children only when trimming is asked for: this runs for most elements.
+        if !self.options.trim_text
+            || rest.is_empty()
+            || !self
+                .index
+                .children(id)
+                .all(|c| self.index.node(c).kind == NodeKind::Text)
+        {
+            out.extend_from_slice(rest);
+            return;
+        }
+        let (text, close) = rest.split_at(rest.len() - end_tag(rest).len());
+        let start = text
+            .iter()
+            .position(|&b| !is_xml_space(b))
+            .unwrap_or(text.len());
+        let end = text
+            .iter()
+            .rposition(|&b| !is_xml_space(b))
+            .map_or(start, |i| i + 1);
+        out.extend_from_slice(&text[start..end]);
+        out.extend_from_slice(close);
+    }
 }
 
-/// The text of the first comment before the root element that starts with
-/// [`SETTINGS_TITLE`].
+/// The text of the settings comment (FMT-15), without `<!--` and `-->`.
 fn settings_comment<'s>(src: &'s [u8], index: &Index) -> Option<&'s str> {
+    settings_comment_id(src, index).and_then(|id| comment_text(src, index, id))
+}
+
+/// The first comment before the root element whose text starts with [`SETTINGS_TITLE`].
+fn settings_comment_id(src: &[u8], index: &Index) -> Option<NodeId> {
     index
         .children(ROOT)
         .take_while(|&c| index.node(c).kind != NodeKind::Element)
         .filter(|&c| index.node(c).kind == NodeKind::Comment)
-        .map(|c| index.raw(src, c))
-        .filter_map(|raw| raw.strip_prefix(b"<!--")?.strip_suffix(b"-->"))
-        .filter_map(|body| std::str::from_utf8(body).ok())
-        .find(|text| text.trim_start().starts_with(SETTINGS_TITLE))
+        .find(|&c| {
+            comment_text(src, index, c).is_some_and(|t| t.trim_start().starts_with(SETTINGS_TITLE))
+        })
+}
+
+fn comment_text<'s>(src: &'s [u8], index: &Index, id: NodeId) -> Option<&'s str> {
+    let body = index
+        .raw(src, id)
+        .strip_prefix(b"<!--")?
+        .strip_suffix(b"-->")?;
+    std::str::from_utf8(body).ok()
+}
+
+/// Whitespace as XML defines it: space, tab, carriage return, line feed.
+fn is_xml_space(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n')
 }
 
 /// True if the whitespace inside the element is layout only, so its children can be put on
@@ -294,6 +421,8 @@ mod tests {
         indent_size: 2,
         tabs: false,
         max_attributes: 0,
+        remove_comments: false,
+        trim_text: false,
     };
 
     fn fmt_with(src: &str, options: &FormatOptions) -> String {
@@ -446,6 +575,7 @@ XML Marker: Tab size = 4 as spaces
             indent_size: 8,
             tabs: true,
             max_attributes: 0,
+            ..FormatOptions::default()
         };
         let got = options(SETTINGS, base);
         assert_eq!(
@@ -453,7 +583,8 @@ XML Marker: Tab size = 4 as spaces
             FormatOptions {
                 indent_size: 2,
                 tabs: false,
-                max_attributes: 3
+                max_attributes: 3,
+                ..FormatOptions::default()
             }
         );
         assert_eq!(
@@ -487,5 +618,67 @@ XML Marker: Tab size = 4 as spaces
         let got = options(SETTINGS, FormatOptions::default());
         let out = fmt_with(SETTINGS, &got.options);
         assert!(out.contains("<!--Indentation Settings\nXML Marker: Indent Size = 2\n"));
+    }
+
+    fn compact_with(src: &str, options: &FormatOptions) -> String {
+        String::from_utf8(compact(src.as_bytes(), options).unwrap()).unwrap()
+    }
+
+    /// FMT-12: comments go where Format controls the layout; the settings comment and
+    /// comments in content copied exactly stay.
+    #[test]
+    fn remove_comments() {
+        let o = FormatOptions {
+            remove_comments: true,
+            ..TWO
+        };
+        let src = "<!--Indentation Settings\nXML Marker: Indent Size = 2\n-->\n<!-- top -->\n<r><!-- a --><b/><p>x <!-- in text --> y</p><q xml:space=\"preserve\"><!-- kept --></q></r><!-- end -->";
+        assert_eq!(
+            fmt_with(src, &o),
+            "<!--Indentation Settings\nXML Marker: Indent Size = 2\n-->\n<r>\n  <b/>\n  <p>x <!-- in text --> y</p>\n  <q xml:space=\"preserve\"><!-- kept --></q>\n</r>\n"
+        );
+    }
+
+    /// FMT-13: only elements that hold nothing but text are trimmed.
+    #[test]
+    fn trim_text() {
+        let o = FormatOptions {
+            trim_text: true,
+            ..TWO
+        };
+        let src = "<r><t>  Gr\u{f6}\u{df}e &amp; mehr \n</t><w>   </w><e/><m> a <b> b </b> c </m><c><![CDATA[  x  ]]></c><k xml:space=\"preserve\">  y  </k></r>";
+        assert_eq!(
+            fmt_with(src, &o),
+            "<r>\n  <t>Gr\u{f6}\u{df}e &amp; mehr</t>\n  <w></w>\n  <e/>\n  <m> a <b> b </b> c </m>\n  <c><![CDATA[  x  ]]></c>\n  <k xml:space=\"preserve\">  y  </k>\n</r>\n"
+        );
+        // Off by default: text stays as written.
+        assert_eq!(fmt("<t> x </t>"), "<t> x </t>\n");
+    }
+
+    /// FMT-14: one line; layout whitespace and wrapped start tags undone; content exact.
+    #[test]
+    fn compact_is_one_line() {
+        let src = "<?xml version=\"1.0\"?>\n<r>\n  <e\n    a=\"1\"\n    b = 'x'>\n    <f/>\n  </e>\n  <p>Hello <b>big</b> world</p>\n  <!-- c -->\n</r>\n";
+        assert_eq!(
+            compact_with(src, &TWO),
+            "<?xml version=\"1.0\"?><r><e a=\"1\" b = 'x'><f/></e><p>Hello <b>big</b> world</p><!-- c --></r>\n"
+        );
+    }
+
+    #[test]
+    fn compact_keeps_bom_crlf_and_round_trips_with_format() {
+        let src = "\u{feff}<?xml version=\"1.0\"?>\r\n<a>\r\n  <b x=\"1\" y=\"2\" z=\"3\">t</b>\r\n  <c/>\r\n</a>\r\n";
+        let small = compact_with(src, &TWO);
+        assert_eq!(
+            small,
+            "\u{feff}<?xml version=\"1.0\"?><a><b x=\"1\" y=\"2\" z=\"3\">t</b><c/></a>\r\n"
+        );
+        assert_eq!(compact_with(&small, &TWO), small);
+        let wrap = FormatOptions {
+            max_attributes: 2,
+            ..TWO
+        };
+        assert_eq!(fmt_with(&small, &wrap), fmt_with(src, &wrap));
+        assert_eq!(compact_with(&fmt_with(src, &wrap), &TWO), small);
     }
 }

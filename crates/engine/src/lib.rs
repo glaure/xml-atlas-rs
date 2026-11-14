@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
-pub use format::{DocumentOptions, FormatError, FormatOptions, format, format_indexed};
+pub use format::{
+    DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
+};
 pub use xml_atlas_xml as xml;
 
 pub mod find;
@@ -79,6 +81,12 @@ impl Document {
     /// Re-indented copy of the source. See [`format`] for what is and is not changed.
     pub fn format(&self, options: &FormatOptions) -> Result<Vec<u8>, FormatError> {
         format_indexed(&self.src, &self.index, options)
+    }
+
+    /// One-line copy of the source; the opposite of [`format`](Self::format). See
+    /// [`compact`].
+    pub fn compact(&self, options: &FormatOptions) -> Result<Vec<u8>, FormatError> {
+        compact_indexed(&self.src, &self.index, options)
     }
 
     /// The options Format uses for this document: `base`, overridden by the document's own

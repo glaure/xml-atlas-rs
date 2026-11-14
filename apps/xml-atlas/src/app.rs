@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
-use xml_atlas_engine::{Document, FormatOptions};
+use xml_atlas_engine::{Document, FormatError, FormatOptions};
 
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
@@ -238,12 +238,9 @@ impl App {
     fn format_document(&mut self) {
         let Some(open) = &self.open else { return };
         let chosen = open.doc.format_options(self.format_options);
-        match open.doc.format(&chosen.options) {
-            Ok(out) => {
-                let path = open.doc.path.clone();
-                let mut doc = Document::from_bytes(out);
-                doc.path = path;
-                self.set_document(doc, true);
+        self.replace_with(
+            open.doc.format(&chosen.options),
+            |options| {
                 let source = if chosen.from_document.is_empty() {
                     String::new()
                 } else {
@@ -252,7 +249,48 @@ impl App {
                         chosen.from_document.join(", ")
                     )
                 };
-                self.notice = Some(format!("Formatted: {}{source}", chosen.options));
+                format!("Formatted: {options}{source}")
+            },
+            chosen.options,
+        );
+    }
+
+    /// Edit > Compact (FMT-14): the document on one line.
+    fn compact_document(&mut self) {
+        let Some(open) = &self.open else { return };
+        let options = self.format_options;
+        let result = open.doc.compact(&options);
+        self.replace_with(
+            result,
+            |o| {
+                let mut s = "Compacted".to_string();
+                if o.remove_comments {
+                    s.push_str(", comments removed");
+                }
+                if o.trim_text {
+                    s.push_str(", text trimmed");
+                }
+                s
+            },
+            options,
+        );
+    }
+
+    /// Replaces the document with the result of Format or Compact, marked as modified.
+    fn replace_with(
+        &mut self,
+        result: Result<Vec<u8>, FormatError>,
+        notice: impl FnOnce(FormatOptions) -> String,
+        options: FormatOptions,
+    ) {
+        let Some(open) = &self.open else { return };
+        match result {
+            Ok(out) => {
+                let path = open.doc.path.clone();
+                let mut doc = Document::from_bytes(out);
+                doc.path = path;
+                self.set_document(doc, true);
+                self.notice = Some(notice(options));
             }
             Err(e) => self.message = Some(format!("Cannot format: {e}")),
         }
@@ -291,6 +329,19 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.add(egui::DragValue::new(&mut edit.max_attributes).range(0..=99));
                         ui.label(RichText::new("at most; 0: never wrap").weak());
+                    });
+                    ui.end_row();
+                    ui.label("Also");
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut edit.remove_comments, "Remove comments");
+                        ui.checkbox(&mut edit.trim_text, "Trim text");
+                        ui.label(
+                            RichText::new(
+                                "These change the content. The settings comment, and comments \
+                                 and text inside mixed content, are kept.",
+                            )
+                            .weak(),
+                        );
                     });
                     ui.end_row();
                 });
@@ -390,6 +441,13 @@ impl App {
                 {
                     ui.close();
                     self.format_document();
+                }
+                if ui
+                    .add_enabled(self.open.is_some(), egui::Button::new("Compact"))
+                    .clicked()
+                {
+                    ui.close();
+                    self.compact_document();
                 }
                 if ui.button("Format options…").clicked() {
                     ui.close();

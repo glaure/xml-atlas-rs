@@ -41,6 +41,17 @@ enum Command {
         /// Use only the options given here, not the file's settings comment.
         #[arg(long)]
         ignore_document_settings: bool,
+        #[command(flatten)]
+        content: ContentArgs,
+        /// Output file; defaults to stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Put a file on one line: the opposite of format.
+    Compact {
+        file: PathBuf,
+        #[command(flatten)]
+        content: ContentArgs,
         /// Output file; defaults to stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -69,6 +80,7 @@ fn main() -> anyhow::Result<()> {
             tabs,
             max_attributes,
             ignore_document_settings,
+            content,
             output,
         } => {
             let doc =
@@ -77,6 +89,8 @@ fn main() -> anyhow::Result<()> {
                 indent_size: indent,
                 tabs,
                 max_attributes,
+                remove_comments: content.remove_comments,
+                trim_text: content.trim_text,
             };
             let options = if ignore_document_settings {
                 base
@@ -91,12 +105,21 @@ fn main() -> anyhow::Result<()> {
                 chosen.options
             };
             eprintln!("format: {options}");
-            let out = doc.format(&options)?;
-            match output {
-                Some(path) => std::fs::write(&path, out)?,
-                None => std::io::Write::write_all(&mut std::io::stdout().lock(), &out)?,
-            }
-            Ok(())
+            write_output(output, &doc.format(&options)?)
+        }
+        Command::Compact {
+            file,
+            content,
+            output,
+        } => {
+            let doc =
+                Document::open(&file).with_context(|| format!("opening {}", file.display()))?;
+            let options = FormatOptions {
+                remove_comments: content.remove_comments,
+                trim_text: content.trim_text,
+                ..FormatOptions::default()
+            };
+            write_output(output, &doc.compact(&options)?)
         }
         Command::Find {
             file,
@@ -114,6 +137,26 @@ fn main() -> anyhow::Result<()> {
             limit,
         ),
     }
+}
+
+/// Options of format and compact that change content, so both are off unless asked for.
+#[derive(clap::Args)]
+struct ContentArgs {
+    /// Leave out comments (not the "Indentation Settings" comment, nor comments inside text).
+    #[arg(long)]
+    remove_comments: bool,
+    /// Trim whitespace at the start and end of elements that hold only text.
+    #[arg(long)]
+    trim_text: bool,
+}
+
+/// Writes `bytes` to `output`, or to stdout.
+fn write_output(output: Option<PathBuf>, bytes: &[u8]) -> anyhow::Result<()> {
+    match output {
+        Some(path) => std::fs::write(&path, bytes)?,
+        None => std::io::Write::write_all(&mut std::io::stdout().lock(), bytes)?,
+    }
+    Ok(())
 }
 
 /// Characters of a matching line that are printed.
