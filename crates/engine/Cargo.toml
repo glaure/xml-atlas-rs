@@ -1,0 +1,17 @@
+[package]
+name = "xml-atlas-engine"
+description = "Document model and commands shared by the XML Atlas GUI, CLI and MCP server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+xml-atlas-xml.workspace = true
+memchr.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

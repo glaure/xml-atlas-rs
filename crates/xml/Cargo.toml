@@ -1,0 +1,16 @@
+[package]
+name = "xml-atlas-xml"
+description = "Fast XML tokenizer that builds a flat, span-based node index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+memchr.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

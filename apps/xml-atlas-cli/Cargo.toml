@@ -1,0 +1,21 @@
+[package]
+name = "xml-atlas-cli"
+description = "Command-line interface to XML Atlas: stats, benchmarks, formatting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "xml-atlas-cli"
+path = "src/main.rs"
+
+[dependencies]
+xml-atlas-engine.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+env_logger.workspace = true
+
+[lints]
+workspace = true
