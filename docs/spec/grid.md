@@ -38,6 +38,11 @@ this file needs the most observation.
 - **GRID-16** `[planned]` Clicking a cell shows what it stands for in a second pane: an element
   with its attributes and children, or a table when the cell stands for several elements
   (XM-37). The grid does not change. To be tried before it is kept.
+- **GRID-17** `[done]` Keyboard, after a click in the grid: Up and Down move the marked row,
+  Home and End go to the first and last, Page Up and Page Down move by 20 rows; the text
+  follows and the grid scrolls the row into view. Enter opens the marked row, as a double-click
+  does (GRID-7). Backspace goes back to the parent (Drill Up, TREE-10).
+- **GRID-18** `[done]` The row-number column is as wide as the largest row number.
 
 ## Known gaps
 
@@ -52,6 +57,8 @@ this file needs the most observation.
   which shows `<price>` because it has an attribute.
 - Select a `price` element: one row, the attribute table shows `currency`, the columns are
   `@currency` and `text()`.
+- Select `orders` in the fixture, click a row, press End: row 211,383 is marked and shown, its
+  number on one line.
 
 ## Seen in the reference programs
 
