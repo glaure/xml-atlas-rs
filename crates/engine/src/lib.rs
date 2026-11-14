@@ -13,6 +13,7 @@ use xml_atlas_xml::{Index, NodeId, NodeKind, ROOT, UTF8_BOM};
 pub use xml_atlas_xml as xml;
 
 pub mod grid;
+pub mod tree;
 
 /// An open XML document: the source bytes, its node index and a line index.
 pub struct Document {

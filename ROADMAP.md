@@ -19,8 +19,8 @@ The order follows `docs/decisions.md`, D15.
       (`docs/spec/reference.md`), decisions for the owner open
 - [ ] Find and replace: match case, whole word, direction (TEXT-12)
 - [ ] Error list with markers in the text (OPEN-13)
-- [ ] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1); icons per
-      kind of row (TREE-11)
+- [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
+- [ ] Tree: icons per kind of row (TREE-11)
 - [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
 - [ ] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
