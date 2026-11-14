@@ -38,17 +38,53 @@ this file needs the most observation.
 - Select one `items` element: one row per item, columns `@line`, `@sku`, `@qty`, `price`.
 - Select a `price` element: one row, columns `@currency` and `text()`.
 
+## Seen in the reference programs
+
+Details and limits in `reference.md`. This is where XML Atlas differs most from XML Marker
+today.
+
+- XML Marker shows, for the selected element, a table of its attributes and then one table
+  of its child elements, whatever their names (XM-30, XM-31). GRID-1 matches for the child
+  table. XML Atlas has no attribute table for the selected element.
+- Columns in XML Marker: tag name, text, the children's attributes, then the children's own
+  child elements (XM-32). GRID-2 has the same set in another order, with `@` before attribute
+  names instead of an icon.
+- A child element that has attributes or children of its own gets a column in XML Marker; the
+  cell shows its name, not its text (XM-34). In XML Atlas it gets no column (first known gap).
+- The same child twice in one row: XML Marker shows the name with a count (XM-34). XML Atlas
+  shows the first (second known gap).
+- Child names that occur in one row only share one "Unique Subtags" column in XML Marker,
+  controlled by a threshold (XM-33). The Qt XML Atlas copies this and adds "Unique
+  Attributes" (QT-5). XML Atlas makes a column for each.
+- XML Marker draws a cell with no value differently from an empty value (XM-35). XML Atlas
+  leaves both blank.
+- XML Marker's cells show raw source, `&amp;` included (XM-36). GRID-4 decodes on purpose.
+- Clicking a cell or row in XML Marker never moves the tree selection. It highlights the range
+  in the text and shows the item in a second pane, the Table Selection Browser; a cell that
+  stands for several elements opens as a table there (XM-37). Double-click does the same.
+  GRID-6 matches for the text highlight. GRID-7 differs: double-click moves the selection.
+- Clicking a header in XML Marker does not sort (XM-39). Its grid can hide empty columns per
+  row or for the visible rows, and copy the grid to the clipboard (XM-38).
+- "Table Selection Browser" in the Qt XML Atlas is a menu entry without code (QT-6).
+
+## Decisions needed
+
+1. A table of the selected element's own attributes above the child table, as in XML Marker?
+2. Nested children: adopt XML Marker's cells (name, or name with count) so that nothing is
+   hidden? This would close the first two known gaps.
+3. A second pane for what is clicked in the grid, or keep one grid and drill in with
+   double-click (GRID-7)? The second pane lets you look inside a row without losing your
+   place; the double-click is simpler.
+4. Unique consolidation: copy it, or leave wide tables wide and add column hiding instead?
+5. Mark absent values differently from empty ones?
+6. Keep decoding entities in cells (GRID-4)? It reads better; the raw form matters when
+   editing a cell (GRID-10).
+7. Sorting by a column. XML Marker has none; it would be an addition.
+
 ## Questions
 
-1. When does XML Marker show a table: for any selected element, or only when its children
-   repeat the same name?
-2. If the children have different names, what happens? One table, several, or none?
-3. Which columns does it make? Attributes, child elements, both? In what order?
-4. How does it show a child element that itself has children?
-5. How does it show a row that has the same child twice?
-6. Does clicking a column header sort? Can columns be reordered or hidden?
-7. Can you edit a cell? What happens in the text view when you do?
-8. The Qt XML Atlas has "Table Selection Browser" and "Unique consolidation" ("reduce the
-   number of unique columns by merging them to one"). What are they for?
-9. What does selecting several rows do?
-10. Is there anything you wish XML Marker's grid did differently?
+1. Is there anything you wish XML Marker's grid did differently?
+2. Which of its grid commands do you use: in-place edit, copy grid to clipboard, minimize
+   empty columns?
+3. What does the drop-down in a column header offer? Not opened yet.
+4. What does selecting several rows do? Not tried yet.

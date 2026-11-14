@@ -41,12 +41,37 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
 
+## Seen in the reference programs
+
+Details and limits in `reference.md`.
+
+- XML Marker and the Qt XML Atlas both hold one document in one window (XM-5, QT-1). OPEN-5
+  matches.
+- XML Marker opens a file that is not well-formed without a dialog and switches to an error
+  list with warnings and errors; each error is marked in the text (XM-10). For an unclosed tag
+  its tree is empty (XM-11); for a stray `<` in a start tag the tree stayed complete (XM-12).
+  OPEN-9 already shows more than XML Marker in the first case; OPEN-10 asks for what it does
+  in the second.
+- XML Marker shows UTF-8 files with wrong characters and the byte order mark as stray
+  characters; Latin-1 is right; UTF-16 opens but loses characters outside the code page (XM-6
+  to XM-8, under wine). OPEN-7 and OPEN-8 ask for more than XML Marker does.
+- XML Marker starts with the root collapsed and nothing selected (XM-9). OPEN-3 differs on
+  purpose: a file you just opened should show something.
+- XML Marker marks unsaved changes with `*` in the title and asks before closing (XM-13).
+  OPEN-11 matches. The Qt XML Atlas does not ask (QT-11).
+- XML Marker's status bar shows only the cursor position (XM-4). OPEN-4 shows more.
+
+## Decisions needed
+
+1. Errors: keep the single message in the status bar (OPEN-9), or add an error list like XML
+   Marker's, with warnings and errors and a marker in the text?
+2. Do you want several documents at once (tabs or windows)? Neither reference program has it.
+
 ## Questions
 
-1. Does XML Marker open several files at once (tabs or windows), or one at a time? Do you
-   want several in XML Atlas?
-2. What does XML Marker show for a file that is not well-formed: an error dialog, a partial
-   tree, nothing?
-3. What does it do when the file changes on disk while it is open?
-4. Which encodings do your real files use? Are any of them UTF-16?
-5. How large are the files you work with, typically and at most?
+Only you can answer these.
+
+1. Which encodings do your real files use? Are any of them UTF-16?
+2. How large are the files you work with, typically and at most?
+3. What should happen when the file changes on disk while it is open? Not observed in XML
+   Marker yet.
