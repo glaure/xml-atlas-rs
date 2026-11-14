@@ -27,7 +27,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
 - [ ] Integer scrolling for very tall views (D16)
-- [ ] Keyboard navigation in tree and grid; Drill Up and Drill Down (TREE-10)
+- [x] Keyboard navigation in tree and grid (TREE-8, GRID-17); Drill Up and Drill Down (TREE-10)
 - [x] Ask before closing with unsaved changes (OPEN-11)
 - [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
 

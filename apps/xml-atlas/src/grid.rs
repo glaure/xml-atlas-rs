@@ -6,7 +6,7 @@ use egui_extras::{Column as TableColumn, TableBuilder};
 use xml_atlas_engine::grid::{Cell, Column, Grid};
 use xml_atlas_engine::xml::NodeId;
 
-use crate::app::Open;
+use crate::app::{Open, Pane};
 
 /// Rows of the attribute table shown before it scrolls.
 const ATTRIBUTE_ROWS: f32 = 6.0;
@@ -30,11 +30,13 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     });
     attributes(ui, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
+    let scroll = open.grid_scroll_to.take();
     let action = ui.scope(|ui| {
         ui.style_mut().interaction.selectable_labels = false;
-        table(ui, open)
+        table(ui, open, scroll)
     });
     if let Some(action) = action.inner {
+        open.keys = Pane::Grid;
         match action {
             Action::Focus(id) => open.focus(id),
             Action::Enter(id) => open.select(id),
@@ -77,18 +79,27 @@ fn attributes(ui: &mut Ui, grid: &Grid) {
 }
 
 /// The child table. Returns what a click asked for.
-fn table(ui: &mut Ui, open: &Open) -> Option<Action> {
+fn table(ui: &mut Ui, open: &Open, scroll: Option<usize>) -> Option<Action> {
     let grid = open.grid.as_ref()?;
     let doc = &open.doc;
     let mut action = None;
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-    TableBuilder::new(ui)
+    let digits = grid.rows.len().to_string().len() as f32;
+    let number_width = digits
+        * ui.fonts_mut(|f| f.glyph_width(&egui::TextStyle::Body.resolve(ui.style()), '0'))
+        + 16.0;
+    let mut builder = TableBuilder::new(ui);
+    if let Some(row) = scroll {
+        builder = builder.scroll_to_row(row, None);
+    }
+    builder
         .id_salt(("grid", grid.parent))
         .striped(true)
         .resizable(true)
         .auto_shrink(false)
         .sense(egui::Sense::click())
-        .column(TableColumn::auto().at_least(40.0))
+        // Wide enough for the largest row number, so it never wraps.
+        .column(TableColumn::initial(number_width).at_least(number_width))
         .column(TableColumn::initial(110.0).at_least(40.0).clip(true))
         .columns(
             TableColumn::initial(140.0).at_least(40.0).clip(true),
@@ -185,4 +196,54 @@ fn hatch(ui: &Ui, rect: Rect) {
         painter.line_segment([pos2(x, rect.bottom()), pos2(x + h, rect.top())], stroke);
         x += HATCH_STEP;
     }
+}
+
+/// Keys the grid answers to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridKey {
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    /// Opens the marked row, as a double-click does (GRID-7).
+    Enter,
+}
+
+/// Rows moved by Page Up and Page Down.
+const PAGE_ROWS: usize = 20;
+
+/// Moves the marked row, or opens it.
+pub fn key(open: &mut Open, key: GridKey) {
+    let Some(grid) = &open.grid else { return };
+    let Some(last) = grid.rows.len().checked_sub(1) else {
+        return;
+    };
+    // The marked row: the focused one, or the one whose child is focused (a nested cell).
+    let cur = open.focus.and_then(|f| {
+        let parent = open.doc.index.node(f).parent;
+        grid.rows.iter().position(|&r| r == f || r == parent)
+    });
+    if key == GridKey::Enter {
+        if let Some(c) = cur
+            && grid.rows[c] != grid.parent
+        {
+            open.select(grid.rows[c]);
+        }
+        return;
+    }
+    let target = match (cur, key) {
+        (None, _) => 0,
+        (Some(c), GridKey::Up) => c.saturating_sub(1),
+        (Some(c), GridKey::Down) => (c + 1).min(last),
+        (Some(_), GridKey::Home) => 0,
+        (Some(_), GridKey::End) => last,
+        (Some(c), GridKey::PageUp) => c.saturating_sub(PAGE_ROWS),
+        (Some(c), GridKey::PageDown) => (c + PAGE_ROWS).min(last),
+        (Some(_), GridKey::Enter) => unreachable!("handled above"),
+    };
+    let row = grid.rows[target];
+    open.focus(row);
+    open.grid_scroll_to = Some(target);
 }

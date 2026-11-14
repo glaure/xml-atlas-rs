@@ -23,12 +23,19 @@ The tree shows the structure of the document and is the main way to move around 
 - **TREE-6** `[built]` When an element is selected from the grid or the text view, the tree
   expands its ancestors and scrolls to it.
 - **TREE-7** `[built]` The tree stays responsive with hundreds of thousands of rows expanded.
-- **TREE-8** `[planned]` Keyboard: up and down move the selection, right expands, left
-  collapses or goes to the parent.
+- **TREE-8** `[done]` Keyboard, after a click in the tree: Up and Down move the selection,
+  Right expands (on an expanded element it moves to the first row inside), Left collapses (on
+  a collapsed element, an attribute or a text row it moves to the parent element), Home and End
+  go to the first and last row, Page Up and Page Down move by a screen. The tree scrolls only
+  when the selection would leave the screen. Keys are not taken while a text field, such as
+  Find, has the keyboard.
 - **TREE-9** `[planned]` Editing from the tree: rename, delete, duplicate and move an element.
   XML Marker's tree cannot do this (XM-23); renaming is the one the owner has missed most.
-- **TREE-10** `[planned]` Drill Up (Alt+Up) selects the parent of the selected row. Drill Down
-  (Alt+Down) selects the child that leads towards the text cursor (XM-43).
+- **TREE-10** `[done]` Drill Up (Alt+Up), from anywhere, selects the parent of the selected
+  element and outlines the element it came from. Drill Down (Alt+Down) selects the child that
+  contains the outlined place, or the first child element when nothing inside is outlined; so
+  Drill Up then Drill Down returns to where it started. XML Marker drills towards the text
+  cursor (XM-43); the text here is not editable yet, so the outline stands in for the cursor.
 - **TREE-11** `[planned]` Each row has an icon for its kind: element with children, element
   with text, empty element, attribute, text. The icons come from the theme.
 - **TREE-12** `[planned]` A click in the text moves the tree to that element (TREE-6, TEXT-7).
@@ -42,6 +49,10 @@ The tree shows the structure of the document and is the main way to move around 
   `items`. With View > Attributes in the tree off, only `customer` and `items`.
 - Expand an element that holds only text, like `name` under `customer`: one text row.
 - Click a line deep in the text view: the tree expands down to that element and shows it.
+- In the 100 MiB fixture, click `orders` and press Page Down twice: about 80 orders down, the
+  selection stays on screen and the grid follows.
+- Select an `order`, press Alt+Down (its `customer`), then Alt+Up: the `order` again, with
+  `customer` outlined; Alt+Down returns to `customer`.
 
 ## Seen in the reference programs
 

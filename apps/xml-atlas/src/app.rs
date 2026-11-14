@@ -59,6 +59,18 @@ pub struct Open {
     pub scroll_text_to: Option<usize>,
     /// Warnings and errors, in document order (OPEN-13).
     pub problems: Vec<Problem>,
+    /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
+    pub keys: Pane,
+    /// Grid row to scroll into view on the next frame.
+    pub grid_scroll_to: Option<usize>,
+}
+
+/// A view that takes arrow keys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Pane {
+    #[default]
+    Tree,
+    Grid,
 }
 
 impl App {
@@ -119,6 +131,8 @@ impl App {
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),
+            keys: Pane::Tree,
+            grid_scroll_to: None,
         };
         open.problems = open.doc.problems();
         if let Some(root) = open.doc.index.root_element() {
@@ -374,6 +388,11 @@ impl eframe::App for App {
         }
 
         self.find.shortcuts(&ctx, self.open.as_mut());
+        if self.confirm.is_none()
+            && let Some(open) = &mut self.open
+        {
+            crate::nav::handle(&ctx, open);
+        }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
