@@ -45,7 +45,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
 - [x] Format settings: indent size, tabs or spaces, attributes per tag line (FMT-10, FMT-11);
       settings read from the document's own settings comment (FMT-15)
-- [ ] Format: remove comments, trim text (FMT-12, FMT-13); compact (FMT-14)
+- [x] Format: remove comments, trim text (FMT-12, FMT-13); compact (FMT-14)
 - [ ] Grid: sort by column (GRID-14), hide columns (GRID-15), second pane for the clicked
       cell, to be tried (GRID-16)
 

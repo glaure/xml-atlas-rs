@@ -278,6 +278,19 @@ Still open, found by the same review:
   - "Fast" for XML Marker users probably means how it feels while working: instant start,
     instant selection and scrolling. That needs measuring before we claim to match it.
 
+## D18: Open time moves with code layout
+
+- **Seen:** in PRs #4, #8, #9 and #15, open time on the 100 MiB fixture moved by 20 to 60 ms
+  although no open-path code changed: sometimes in the GUI, once in the CLI, sometimes in our
+  favour. `perf` shows the same function sizes and nearly the same instructions, with more
+  cycles: where the index loop lands in the binary decides how fast it runs.
+- **Tried (2026-11-14):** `-C llvm-args=-align-loops=64`. It does not remove the effect, it
+  moves it: with it, `main` opened in 440-450 ms and the branch in 403-431 ms; without it,
+  411-433 and 441-454.
+- **So:** compare open times over alternating rounds and report the spread; a difference that
+  appears without a change to the open path is layout until shown otherwise. The fix belongs
+  to the index loop itself (D14), or profile-guided optimization.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in

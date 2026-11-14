@@ -9,14 +9,17 @@ use std::path::PathBuf;
 
 use xml_atlas_engine::{Document, FormatOptions};
 
-/// Two spaces per level and no attribute wrapping: Format then changes only whitespace between
-/// tags, which is what the corpus tests check.
+use xml_atlas_engine::xml::{NodeId, NodeKind};
+
+/// Two spaces per level, no attribute wrapping, nothing removed or trimmed: Format then
+/// changes only whitespace between tags, which is what the corpus tests check.
 const TWO_SPACES: FormatOptions = FormatOptions {
     indent_size: 2,
     tabs: false,
     max_attributes: 0,
+    remove_comments: false,
+    trim_text: false,
 };
-use xml_atlas_engine::xml::{NodeId, NodeKind};
 
 /// Well-formed UTF-8 files. Every one of them must open without error and format cleanly.
 const WELL_FORMED_UTF8: &[&str] = &[
@@ -79,6 +82,35 @@ fn format_changes_only_whitespace_on_every_file() {
             again.format(&TWO_SPACES).unwrap(),
             out,
             "{name}: not stable"
+        );
+    }
+}
+
+/// FMT-14 on every file: Compact keeps everything but layout whitespace, and formatting the
+/// compacted file gives what formatting the original gives.
+#[test]
+fn compact_round_trips_on_every_file() {
+    for name in WELL_FORMED_UTF8 {
+        let doc = open(name);
+        let small = doc
+            .compact(&TWO_SPACES)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let again = Document::from_bytes(small.clone());
+        assert!(again.index.error.is_none(), "{name}: output does not parse");
+        assert_eq!(
+            element_names(&doc),
+            element_names(&again),
+            "{name}: elements"
+        );
+        assert_eq!(
+            without_whitespace(&doc.src),
+            without_whitespace(&small),
+            "{name}: more than whitespace changed"
+        );
+        assert_eq!(
+            again.format(&TWO_SPACES).unwrap(),
+            doc.format(&TWO_SPACES).unwrap(),
+            "{name}: format(compact) differs from format"
         );
     }
 }

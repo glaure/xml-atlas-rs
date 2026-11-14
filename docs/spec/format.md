@@ -30,12 +30,22 @@ Format makes the nesting visible without changing what the document means.
   attribute. Only the whitespace between attributes changes; names, values, quotes and the
   spacing around `=` stay as written (FMT-4). This applies to empty elements and to elements
   with text too (their content stays exact), but not inside `xml:space="preserve"` (FMT-3).
-- **FMT-12** `[planned]` A setting "remove comments", off by default. It removes comments,
-  which is not a layout change.
-- **FMT-13** `[planned]` A setting "trim text", off by default. It removes leading and trailing
-  whitespace from text, which is not a layout change. Never inside `xml:space="preserve"`.
-- **FMT-14** `[planned]` Compact: the opposite of Format. It removes the whitespace that Format
-  would add or change, and keeps everything FMT-2 to FMT-5 protect.
+- **FMT-12** `[done]` A setting "remove comments", off by default (Edit > Format options,
+  `--remove-comments`). It removes comments where Format controls the layout: outside the root
+  element and between elements. It keeps the settings comment (FMT-15), so the file still says
+  how to format it, and comments inside mixed content or `xml:space="preserve"`, which are
+  copied exactly (FMT-2, FMT-3). Removing comments is not a layout change.
+- **FMT-13** `[done]` A setting "trim text", off by default (`--trim-text`). In an element that
+  holds only text, it removes whitespace at the start and end of that text:
+  `<t>  padded  </t>` becomes `<t>padded</t>`, an element of only whitespace becomes empty.
+  Mixed content (`Hello <b>big</b> world`), CDATA and `xml:space="preserve"` are never
+  trimmed: that would join words or change literal text. Entities stay as written.
+- **FMT-14** `[done]` Compact (Edit > Compact, `xml-atlas-cli compact`): the opposite of Format.
+  It leaves out the whitespace Format would add or change, so the document is one line,
+  ending with one line break in the file's style. A start tag that spans lines is joined with
+  one space between attributes. Everything FMT-2 to FMT-5 protect is kept. Remove comments
+  and trim text apply. Formatting a compacted document gives what formatting the original
+  gives.
 - **FMT-15** `[done]` A document can carry its own settings in a comment before the root
   element. The comment starts with `Indentation Settings`; each following line has the form
   `XML Marker: <setting> = <value>`:
@@ -94,6 +104,9 @@ Details and limits in `reference.md`.
 - These three settings change more than layout whitespace. They are recorded as opt-in
   exceptions in `docs/decisions.md`, D12.
 - A compact command (FMT-14).
+- Remove comments keeps the settings comment, and neither option touches mixed content,
+  CDATA or `xml:space="preserve"` (FMT-12, FMT-13). (Claude's reading of the owner's answers,
+  2026-11-14; the owner can change it.)
 - A document's own settings comment wins over the saved settings, for that document only
   (FMT-15). The owner's files use this comment.
 
