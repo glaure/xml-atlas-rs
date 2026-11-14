@@ -15,12 +15,19 @@ The order follows `docs/decisions.md`, D15.
       Measure where it goes (window, GPU renderer, fonts) and cut it
 - [x] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
       huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
-- [ ] Behaviour spec in `docs/spec/`: drafts written, questions for the owner open
-- [ ] Find (text, element name, attribute value)
+- [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
+      (`docs/spec/reference.md`), decisions for the owner open
+- [ ] Find and replace: match case, whole word, direction (TEXT-12)
+- [ ] Error list with markers in the text (OPEN-13)
+- [ ] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1); icons per
+      kind of row (TREE-11)
+- [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
+      count (GRID-12), absent and empty values told apart (GRID-13)
+- [ ] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
 - [ ] Integer scrolling for very tall views (D16)
-- [ ] Keyboard navigation in tree and grid
+- [ ] Keyboard navigation in tree and grid; Drill Up and Drill Down (TREE-10)
 - [ ] Ask before closing with unsaved changes
 - [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
 
@@ -33,17 +40,25 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
 - [ ] The same edits from the CLI
 - [ ] Recent files, settings
+- [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
+- [ ] Format settings: indent size, tabs or spaces, attributes per tag line, remove comments,
+      trim text (FMT-10 to FMT-13); compact (FMT-14); settings read from the document's
+      own settings comment (FMT-15)
+- [ ] Grid: sort by column (GRID-14), hide columns (GRID-15), second pane for the clicked
+      cell, to be tried (GRID-16)
 
 ## 0.3: Text editing
 
-- [ ] Editable text view: cursor, selection, clipboard, input methods
+- [ ] Editable text view: cursor, selection, clipboard, input methods; the tree follows a
+      click but not typing (TREE-12)
 - [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
-- [ ] Wrap or page very long lines; minified-file mode
+- [ ] Word wrap (TEXT-13); page very long lines; minified-file mode
 
 ## 0.4: Power features
 
 - [ ] XPath query panel
 - [ ] Schema (XSD) validation
+- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 
 ## Distribution and automation
