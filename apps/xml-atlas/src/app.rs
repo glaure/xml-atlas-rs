@@ -14,6 +14,7 @@ use xml_atlas_engine::problems::{Problem, Severity};
 
 pub struct App {
     open: Option<Open>,
+    layout: Layout,
     /// An action waiting for the answer to "save changes?" (OPEN-11).
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
@@ -72,6 +73,16 @@ pub struct Open {
     pub grid_scroll_to: Option<usize>,
 }
 
+/// Where the grid and the text go on the right (WIN-1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Layout {
+    /// The grid above the text.
+    #[default]
+    GridAbove,
+    /// The text above the grid, as in XML Marker.
+    TextAbove,
+}
+
 /// A view that takes arrow keys.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Pane {
@@ -84,6 +95,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
         let mut app = Self {
             open: None,
+            layout: Layout::default(),
             confirm: None,
             quitting: false,
             find: Default::default(),
@@ -463,6 +475,14 @@ impl App {
                         open.tree.set_attributes(show);
                     }
                 });
+                ui.separator();
+                ui.label("Layout");
+                ui.radio_value(&mut self.layout, Layout::GridAbove, "Grid above text");
+                ui.radio_value(
+                    &mut self.layout,
+                    Layout::TextAbove,
+                    "Text above grid (as in XML Marker)",
+                );
             });
         });
     }
@@ -571,10 +591,15 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 tree::show(ui, open);
             });
+        let layout = self.layout;
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
-            egui::Panel::top("grid")
-                .resizable(true)
+            // Each layout has its own panel, so each remembers its own height.
+            let grid = match layout {
+                Layout::GridAbove => egui::Panel::top("grid"),
+                Layout::TextAbove => egui::Panel::bottom("grid-below"),
+            };
+            grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
                     crate::grid::show(ui, open);

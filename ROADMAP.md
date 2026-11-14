@@ -42,6 +42,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] The same edits from the CLI
 - [ ] Recent files, settings
 - [ ] Light and dark theme, following the system by default (WIN-2)
+- [ ] Remember the view settings between sessions: layout (WIN-1), attribute rows (TREE-1)
 - [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
 - [x] Format settings: indent size, tabs or spaces, attributes per tag line (FMT-10, FMT-11);
       settings read from the document's own settings comment (FMT-15)
