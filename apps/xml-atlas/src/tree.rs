@@ -1,8 +1,8 @@
 //! Element tree: a flat list of visible rows, painted only for the rows on screen.
 
 use egui::{Align2, FontId, Sense, Shape, Ui, pos2, vec2};
-use xml_atlas_engine::Document;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
+use xml_atlas_engine::{Document, truncate};
 
 use crate::app::Open;
 
@@ -184,12 +184,4 @@ fn preview(doc: &Document, id: NodeId) -> Option<String> {
     attrs
         .first()
         .map(|(k, v)| format!("{k}=\"{}\"", truncate(v, 40)))
-}
-
-pub fn truncate(s: &str, max: usize) -> String {
-    let s = s.trim();
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
 }

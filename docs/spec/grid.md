@@ -7,30 +7,30 @@ this file needs the most observation.
 
 - **GRID-1** `[built]` The grid shows the child elements of the selected element, one row
   each, in document order.
-- **GRID-2** `[built]` The columns are: the row number, the element name, then one column for
-  each attribute (`@name`), one for each child element that has no child elements of its own
-  (its name), and `text()` for the row's own text. Columns appear in the order they are first
-  met.
-- **GRID-3** `[gap]` Every attribute and leaf child of every row has a column. Today only the
+- **GRID-2** `[done]` The columns are: the row number, the element name, then one column for
+  each attribute (`@name`), one for each child element name (its name), and `text()` for the
+  row's own text. Columns appear in the order they are first met.
+- **GRID-3** `[gap]` Every attribute and child of every row has a column. Today only the
   first 1,000 rows are examined, so a column that first appears later is missing.
 - **GRID-4** `[built]` A cell shows the attribute value or the text with entities decoded, cut
   at 200 characters.
 - **GRID-5** `[built]` If the selected element has no child elements, the grid shows that
   element itself as a single row.
-- **GRID-6** `[built]` Clicking a row highlights that element in the text view. The grid does
-  not change.
+- **GRID-6** `[built]` Clicking a row highlights that element in the text view. Clicking a
+  cell that stands for a child element (GRID-12) highlights that child. The grid does not
+  change, and the row stays marked.
 - **GRID-7** `[built]` Double-clicking a row selects that element, so the grid then shows its
-  children.
+  children. Double-clicking a cell that stands for a child element selects that child.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows.
 - **GRID-10** `[planned]` Editing a cell changes the attribute or text in the document.
-- **GRID-11** `[planned]` Above the child table, a table of the selected element's own
-  attributes: name and value (XM-30).
-- **GRID-12** `[planned]` A child element that has attributes or children of its own gets a
-  column too. Its cell shows its name. When a row has several children of the same name, the
-  cell shows the name and how many (XM-34).
-- **GRID-13** `[planned]` A cell with no value looks different from a cell with an empty value
-  (XM-35).
+- **GRID-11** `[done]` Above the child table, a table of the selected element's own
+  attributes: name and value (XM-30). It folds away, and scrolls beyond six attributes.
+- **GRID-12** `[done]` A child element that has attributes or children of its own gets a
+  column too. Its cell shows its name as `<name>`. When a row has several children of the same
+  name, the cell shows the name and how many: `<note> ×2` (XM-34).
+- **GRID-13** `[done]` A cell with no value is hatched; a cell with an empty value is blank
+  (XM-35). `<gift/>` counts as an empty value.
 - **GRID-14** `[planned]` Clicking a header, or its menu, sorts the rows by that column,
   ascending or descending (XM-39). Clicking again reverses the direction.
 - **GRID-15** `[planned]` Columns can be hidden and shown again. A command hides the columns
@@ -41,18 +41,17 @@ this file needs the most observation.
 
 ## Known gaps
 
-- A row with two child elements of the same name shows only the first in that column
-  (GRID-12).
-- A child element that has children of its own gets no column; nothing shows it is there
-  (GRID-12).
 - Children with different names share one table. XML Marker does the same (XM-31); kept.
 
 ## Acceptance tests
 
-- Select `orders` in the fixture: one row per order, columns `@id`, `@date`, `@status` and
-  `note`.
-- Select one `items` element: one row per item, columns `@line`, `@sku`, `@qty`, `price`.
-- Select a `price` element: one row, columns `@currency` and `text()`.
+- Select `orders` in the fixture: one row per order, columns `@id`, `@date`, `@status`,
+  `customer`, `items` and `note`. `customer` and `items` show `<customer>` and `<items>`;
+  `note` is hatched in orders without one.
+- Select one `items` element: one row per item, columns `@line`, `@sku`, `@qty` and `price`,
+  which shows `<price>` because it has an attribute.
+- Select a `price` element: one row, the attribute table shows `currency`, the columns are
+  `@currency` and `text()`.
 
 ## Seen in the reference programs
 

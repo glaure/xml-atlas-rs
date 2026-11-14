@@ -7,8 +7,8 @@ use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 
-use crate::grid::GridModel;
 use crate::tree;
+use xml_atlas_engine::grid::Grid;
 
 pub struct App {
     open: Option<Open>,
@@ -30,7 +30,7 @@ pub struct Open {
     /// Node highlighted in the text view (a grid row, or the selection).
     pub focus: Option<NodeId>,
     pub tree: tree::TreeState,
-    pub grid: Option<GridModel>,
+    pub grid: Option<Grid>,
     pub scroll_text_to: Option<usize>,
 }
 
@@ -267,7 +267,7 @@ impl Open {
         let id = self.element_or_parent(id);
         self.selected = Some(id);
         self.focus = Some(id);
-        self.grid = Some(GridModel::build(&self.doc, id));
+        self.grid = Some(Grid::build(&self.doc, id));
         self.tree.reveal(&self.doc, id);
         self.scroll_text_to = Some(self.doc.line_of(self.doc.index.node(id).start));
     }
