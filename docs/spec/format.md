@@ -33,6 +33,22 @@ Format makes the nesting visible without changing what the document means.
   whitespace from text, which is not a layout change. Never inside `xml:space="preserve"`.
 - **FMT-14** `[planned]` Compact: the opposite of Format. It removes the whitespace that Format
   would add or change, and keeps everything FMT-2 to FMT-5 protect.
+- **FMT-15** `[planned]` A document can carry its own settings in a comment before the root
+  element. The comment starts with `Indentation Settings`; each following line has the form
+  `XML Marker: <setting> = <value>`:
+
+  ```xml
+  <!--Indentation Settings
+  XML Marker: Indent Size = 4
+  XML Marker: Maximum attributes in tag line = 6
+  XML Marker: Tab size = 4 as spaces
+  -->
+  ```
+
+  When there is such a comment, Format uses its values for that document instead of the
+  saved settings. A setting the comment does not name comes from the saved settings, and a
+  line that cannot be read is ignored. Without the comment, Format uses the saved settings.
+  Format leaves the comment as it is.
 
 ## Acceptance tests
 
@@ -63,23 +79,13 @@ Details and limits in `reference.md`.
 
 - Indent size, tabs or spaces, maximum attributes per tag line, remove comments and trim text
   are settings (FMT-10 to FMT-13). The defaults match XML Marker's, so the owner's files come
-  out as they do today. Removing comments and trimming text are off by default, so D12 holds
-  unless the user asks.
+  out as they do today. Removing comments and trimming text are off by default.
+- These three settings change more than layout whitespace. They are recorded as opt-in
+  exceptions in `docs/decisions.md`, D12.
 - A compact command (FMT-14).
+- A document's own settings comment wins over the saved settings, for that document only
+  (FMT-15). The owner's files use this comment.
 
 ## Questions
 
-1. The owner's files carry their indent settings in a comment near the top:
-
-   ```xml
-   <!--Indentation Settings
-   XML Marker: Indent Size = 4
-   XML Marker: Maximum attributes in tag line = 6
-   XML Marker: Tab size = 4 as spaces
-   -->
-   ```
-
-   Should Format read its settings from such a comment when there is one, so that every file
-   is formatted the way it says? If so, is this layout of the comment fixed?
-2. FMT-12 and FMT-13 change content. `docs/decisions.md`, D12, says Format changes only layout
-   whitespace. Record them there as opt-in exceptions?
+None open.

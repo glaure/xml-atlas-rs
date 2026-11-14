@@ -197,6 +197,10 @@ Still open, found by the same review:
 - **Checked:** on the 100 MiB fixture the output equals the input apart from whitespace
   between tags, and formatting twice gives the same bytes. It takes 0.64 s.
 - **Limit:** start tags are not rewrapped, and long text is not reflowed.
+- **Exceptions (2026-11-14):** settings may ask for more, and each is off unless the user or
+  the document turns it on: breaking a start tag with many attributes over lines (only the
+  whitespace between attributes changes), removing comments and trimming text
+  (`docs/spec/format.md`, FMT-11 to FMT-13). Without them, the rule above holds.
 
 ## D13: Saving is atomic
 
