@@ -8,11 +8,14 @@ The order follows `docs/decisions.md`, D15.
 - [x] Background open, virtualized tree, grid and text views
 - [x] Format that changes only layout whitespace (D12), atomic save (D13)
 - [x] CLI stats and format, fixture generator
-- [ ] Baseline: time XML Marker under wine and the Qt XML Atlas on the same files
-      (record in `docs/benchmarks.md`)
+- [x] Baseline: XML Marker under wine on the same files (`docs/benchmarks.md`)
+- [ ] Baseline for the Qt XML Atlas (it needs a file argument first) and for interaction:
+      scrolling, selecting, searching
+- [ ] Start-up: 0.59 s and 193 MiB with a tiny file, slower and heavier than XML Marker.
+      Measure where it goes (window, GPU renderer, fonts) and cut it
 - [ ] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
       huge line, deep nesting, namespaces, DOCTYPE
-- [ ] Behaviour spec in `docs/spec/`
+- [ ] Behaviour spec in `docs/spec/`: drafts written, questions for the owner open
 - [ ] Find (text, element name, attribute value)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
