@@ -18,10 +18,14 @@ How the views are laid out, and how the window looks.
   whenever a setting changes, and not before; it is readable TOML. A missing file gives the
   defaults; a line that cannot be read is skipped, with a warning in the log, and the others
   still count.
-- **WIN-2** `[planned]` Light and dark theme. A setting chooses light, dark, or following the
-  system, which is the default. Text colours (TEXT-2), tree icons (TREE-11), highlights and
-  problem markers follow the theme. The Qt XML Atlas has the same choice (QT-12). Today the
-  window does not follow the system theme (seen by the owner on 2026-11-14).
+- **WIN-2** `[done]` Light and dark theme. View > Theme chooses *Follow system* (the default),
+  *Light* or *Dark*; the choice is remembered (WIN-3) and takes effect at once. Text colours
+  (TEXT-2), tree icons (TREE-11), highlights, grid hatching and problem markers follow it.
+  Following the system: on Linux the program asks the desktop's settings portal
+  (`org.freedesktop.appearance`, `color-scheme`, answered by GNOME, KDE and others) and
+  follows it while running, because the window library does not report the theme there; with
+  no portal it falls back to dark and says why in the log. On Windows and macOS the window
+  library reports the system theme. The Qt XML Atlas has the same choice (QT-12).
 
 ## Acceptance tests
 
@@ -30,8 +34,10 @@ How the views are laid out, and how the window looks.
 - Open a file with problems, choose View > Layout > Text above grid: text on top, the
   problems list under it, the grid at the bottom; the selection is unchanged. Choose Grid above
   text: back as before.
-- With the system in light mode, start XML Atlas: it is light. Switch the setting to dark: the
+- With the system in light mode, start XML Atlas: it is light. Switch View > Theme to Dark: the
   whole window turns dark at once, without reopening the file.
+- With Follow system, switch the desktop between light and dark while XML Atlas runs: the
+  window follows within a moment.
 
 ## Seen in the reference programs
 
@@ -44,8 +50,7 @@ How the views are laid out, and how the window looks.
 ## Decided
 
 - Both layouts, switchable: today's and XML Marker's (WIN-1). (Owner, 2026-11-14.)
-- Theme support: light, dark, and following the system (WIN-2). Planned for 0.2, with the
-  other settings. (Owner, 2026-11-14.)
+- Theme support: light, dark, and following the system (WIN-2). (Owner, 2026-11-14.)
 
 ## Questions
 

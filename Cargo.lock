@@ -4496,6 +4496,7 @@ dependencies = [
  "log",
  "rfd",
  "xml-atlas-engine",
+ "zbus",
 ]
 
 [[package]]

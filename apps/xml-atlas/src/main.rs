@@ -8,6 +8,7 @@ mod icons;
 mod nav;
 mod problems_panel;
 mod settings;
+mod system_theme;
 mod text_view;
 mod tree;
 

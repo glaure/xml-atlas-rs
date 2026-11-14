@@ -18,3 +18,8 @@ env_logger.workspace = true
 
 [lints]
 workspace = true
+
+# The desktop's light or dark preference (system_theme.rs). Already in the build through the
+# accessibility support; its blocking API is part of its default features.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }

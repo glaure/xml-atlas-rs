@@ -41,7 +41,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Replace and Replace All (TEXT-14)
 - [ ] The same edits from the CLI
 - [ ] Recent files (OPEN-12)
-- [ ] Light and dark theme, following the system by default (WIN-2)
+- [x] Light and dark theme, following the system by default (WIN-2)
 - [x] Remember settings between sessions: layout, attribute rows, Format options, Find options
       (WIN-3)
 - [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
