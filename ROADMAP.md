@@ -18,7 +18,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
       (`docs/spec/reference.md`), decisions for the owner open
 - [x] Find: match case, whole word, direction, F3 (TEXT-12); also `xml-atlas-cli find`
-- [ ] Error list with markers in the text (OPEN-13)
+- [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
 - [ ] Tree: icons per kind of row (TREE-11)
 - [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and

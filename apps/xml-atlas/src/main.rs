@@ -4,6 +4,7 @@ mod app;
 mod find_bar;
 mod grid;
 mod highlight;
+mod problems_panel;
 mod text_view;
 mod tree;
 

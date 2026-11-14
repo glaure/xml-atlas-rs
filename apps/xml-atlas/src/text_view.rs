@@ -7,6 +7,8 @@ use egui::{Align2, Color32, FontId, Galley, Painter, Rect, Sense, Stroke, Ui, po
 
 use crate::app::Open;
 use crate::highlight::{Palette, line_job};
+use crate::problems_panel;
+use xml_atlas_engine::problems::Problem;
 
 /// Lines longer than this are cut for display. Minified one-line files stay responsive;
 /// wrapping and horizontal paging of huge lines are on the roadmap.
@@ -21,7 +23,13 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let row_h = ui.fonts_mut(|f| f.row_height(&font)).ceil() + 1.0;
     let digits = open.doc.line_count().to_string().len() as f32;
     let char_w = ui.fonts_mut(|f| f.glyph_width(&font, '0'));
-    let gutter = digits * char_w + 16.0;
+    // Room for a problem marker left of the line numbers, when there are problems.
+    let marker_w = if open.problems.is_empty() {
+        0.0
+    } else {
+        char_w * 2.0
+    };
+    let gutter = digits * char_w + 16.0 + marker_w;
     let palette = Palette::new(ui.visuals().dark_mode);
     let visuals = ui.visuals().clone();
 
@@ -86,7 +94,30 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 font.clone(),
                 visuals.weak_text_color(),
             );
+            let here: Vec<&Problem> = open
+                .problems
+                .iter()
+                .filter(|p| line_bytes.start <= p.offset && p.offset <= line_bytes.end)
+                .collect();
+            for p in &here {
+                let color = problems_panel::color(&visuals, p.severity);
+                painter.text(
+                    pos2(rect.left() + 2.0, rect.center().y),
+                    Align2::LEFT_CENTER,
+                    problems_panel::symbol(p.severity),
+                    font.clone(),
+                    color,
+                );
+                let at = ((p.offset - line_bytes.start) as usize).min(raw.len());
+                let x = origin.x + galley.pos_from_cursor(CCursor::new(column(raw, at))).left();
+                let end = galley.size().x.max(x - origin.x + 8.0) + origin.x;
+                squiggle(painter, x, end.max(x + 8.0), rect.bottom() - 2.0, color);
+            }
             painter.galley(origin, galley, visuals.text_color());
+            if !here.is_empty() {
+                let text: Vec<&str> = here.iter().map(|p| p.message.as_str()).collect();
+                resp.clone().on_hover_text(text.join("\n"));
+            }
             if resp.clicked() {
                 let indent = raw.iter().take_while(|b| b.is_ascii_whitespace()).count();
                 clicked = Some(open.doc.line_starts[n] + indent as u64);
@@ -100,6 +131,20 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         // The click came from the text view; don't jump it.
         open.scroll_text_to = None;
     }
+}
+
+/// A wavy line under a problem, from `x0` to `x1` at height `y`.
+fn squiggle(painter: &Painter, x0: f32, x1: f32, y: f32, color: Color32) {
+    const STEP: f32 = 3.0;
+    let mut points = Vec::new();
+    let mut x = x0;
+    let mut up = false;
+    while x <= x1 {
+        points.push(pos2(x, if up { y - 2.0 } else { y }));
+        up = !up;
+        x += STEP;
+    }
+    painter.add(egui::Shape::line(points, Stroke::new(1.0, color)));
 }
 
 /// Fills the part of `span` that lies on this line.
