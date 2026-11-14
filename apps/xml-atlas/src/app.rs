@@ -13,6 +13,7 @@ use xml_atlas_engine::grid::Grid;
 
 pub struct App {
     open: Option<Open>,
+    find: crate::find_bar::FindBar,
     loading: Option<Loading>,
     message: Option<String>,
 }
@@ -42,6 +43,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
         let mut app = Self {
             open: None,
+            find: Default::default(),
             loading: None,
             message: None,
         };
@@ -164,6 +166,13 @@ impl App {
             });
             ui.menu_button("Edit", |ui| {
                 if ui
+                    .add_enabled(self.open.is_some(), egui::Button::new("Find…    Ctrl+F"))
+                    .clicked()
+                {
+                    ui.close();
+                    self.find.open();
+                }
+                if ui
                     .add_enabled(self.open.is_some(), egui::Button::new("Format (indent)"))
                     .clicked()
                 {
@@ -243,6 +252,8 @@ impl eframe::App for App {
             self.save();
         }
 
+        self.find.shortcuts(&ctx, self.open.as_mut());
+
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
 
@@ -269,6 +280,9 @@ impl eframe::App for App {
                 .show(ui, |ui| {
                     crate::grid::show(ui, open);
                 });
+            if self.find.visible {
+                egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
+            }
             egui::CentralPanel::default().show(ui, |ui| {
                 crate::text_view::show(ui, open);
             });

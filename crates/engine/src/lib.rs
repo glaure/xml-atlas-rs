@@ -12,6 +12,7 @@ use xml_atlas_xml::{Index, NodeId, NodeKind, ROOT, UTF8_BOM};
 
 pub use xml_atlas_xml as xml;
 
+pub mod find;
 pub mod grid;
 pub mod tree;
 

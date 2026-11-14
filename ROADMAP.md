@@ -17,7 +17,7 @@ The order follows `docs/decisions.md`, D15.
       huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
 - [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
       (`docs/spec/reference.md`), decisions for the owner open
-- [ ] Find and replace: match case, whole word, direction (TEXT-12)
+- [x] Find: match case, whole word, direction, F3 (TEXT-12); also `xml-atlas-cli find`
 - [ ] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
 - [ ] Tree: icons per kind of row (TREE-11)
@@ -38,6 +38,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Piece table with undo and redo (D10)
 - [ ] Index update on a worker thread, with ids remapped for selection and expansion (D9)
 - [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
+- [ ] Replace and Replace All (TEXT-14)
 - [ ] The same edits from the CLI
 - [ ] Recent files, settings
 - [ ] Several documents at once (OPEN-5); notice when the file changes on disk (OPEN-14)
