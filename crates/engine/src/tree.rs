@@ -37,6 +37,20 @@ pub enum Row {
     Attribute { element: NodeId, index: u32 },
 }
 
+/// The kind of a row, for its icon (TREE-11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowKind {
+    /// An element with child elements (also when it has text between them).
+    Parent,
+    /// An element that holds only text or CDATA.
+    TextElement,
+    /// An element with no child elements and no text; it may have attributes.
+    Empty,
+    Attribute,
+    /// A text or CDATA node.
+    Text,
+}
+
 /// What a row says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Label {
@@ -110,6 +124,30 @@ pub fn visible_rows(doc: &Document, expanded: &[bool], options: TreeOptions, out
             stack.extend(children(doc, id, options));
             stack[start..].reverse();
         }
+    }
+}
+
+/// The kind of `row`.
+pub fn kind(doc: &Document, row: Row) -> RowKind {
+    let Row::Node(id) = row else {
+        return RowKind::Attribute;
+    };
+    let idx = &doc.index;
+    if idx.node(id).kind != NodeKind::Element {
+        return RowKind::Text;
+    }
+    let mut text = false;
+    for c in idx.children(id) {
+        match idx.node(c).kind {
+            NodeKind::Element => return RowKind::Parent,
+            NodeKind::Text | NodeKind::CData => text = true,
+            _ => {}
+        }
+    }
+    if text {
+        RowKind::TextElement
+    } else {
+        RowKind::Empty
     }
 }
 
@@ -303,6 +341,34 @@ mod tests {
         );
         let depths: Vec<u16> = rows.iter().map(|r| r.depth(&d)).collect();
         assert_eq!(depths, [0, 1, 1, 1, 2, 2, 1, 1, 1]);
+    }
+
+    #[test]
+    fn row_kinds() {
+        let d = doc();
+        let shop = element(&d, "shop");
+        let kinds: Vec<RowKind> = children(&d, shop, TreeOptions::default())
+            .into_iter()
+            .map(|r| kind(&d, r))
+            .collect();
+        // name, city, owner (text), mixed (text and <b>), script (CDATA), empty
+        assert_eq!(
+            kinds,
+            [
+                RowKind::Attribute,
+                RowKind::Attribute,
+                RowKind::TextElement,
+                RowKind::Parent,
+                RowKind::TextElement,
+                RowKind::Empty,
+            ]
+        );
+        assert_eq!(kind(&d, Row::Node(shop)), RowKind::Parent);
+        let owner_text = children(&d, element(&d, "owner"), TreeOptions::default())[1];
+        assert_eq!(kind(&d, owner_text), RowKind::Text);
+        // Attributes alone do not make an element a parent.
+        let e = Document::from_bytes(b"<r><x a=\"1\"/></r>".to_vec());
+        assert_eq!(kind(&e, Row::Node(element(&e, "x"))), RowKind::Empty);
     }
 
     #[test]
