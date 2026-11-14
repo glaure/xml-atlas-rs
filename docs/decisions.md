@@ -253,6 +253,14 @@ Still open, found by the same review:
 - **What:** the text view, tree and grid keep the top row as an integer plus a pixel remainder
   and draw their own scroll bar, instead of `ScrollArea::show_rows` with a pixel offset.
 - **When:** with the first of: the custom text widget, or a file where it is visible.
+- **Observed (2026-11-14):** in the 300 MiB fixture (7.0 million lines, 119 million pixels),
+  near the end, one mouse-wheel notch in six moved the text by nothing; the others moved it
+  by 4 or 5 lines. Near the top of the 10 MiB fixture every notch moved a steady 80 px. egui
+  animates a scroll in small steps per frame, and steps smaller than half the float spacing
+  (8 px there) are lost. Drawing was not affected: rows stayed evenly spaced and highlights
+  exact, and every line could still be reached with Find, a click, the keyboard or another
+  notch. Files of the owner's size (about 10 MiB, 3.4 million pixels) are far below this.
+  Not built yet; the owner decides when.
 
 ## D17: The baseline changes the priorities
 

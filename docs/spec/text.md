@@ -18,8 +18,10 @@ of it.
   the first to the last non-blank character.
 - **TEXT-7** `[built]` Clicking a line selects the innermost element that contains the first
   non-blank character of that line.
-- **TEXT-8** `[gap]` Every line of a very large file can be reached by scrolling. Scroll
-  positions lose precision above about 16 million pixels (`docs/decisions.md`, D16).
+- **TEXT-8** `[gap]` Every line of a very large file can be reached by scrolling, and every
+  wheel notch moves the view by the same amount. Far down very large files, some notches are
+  lost: one in six near the end of the 300 MiB fixture (`docs/decisions.md`, D16). Every line
+  can still be reached with Find, a click or the keyboard.
 - **TEXT-9** `[planned]` The text can be edited: cursor, selection, clipboard, undo. Tree and
   grid follow shortly after each change.
 - **TEXT-10** `[planned]` While the text is not well-formed, tree and grid keep showing the
