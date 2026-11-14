@@ -4,11 +4,11 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
-use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
+use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{Document, FormatError, FormatOptions};
 
-use crate::settings::{Layout, Settings};
+use crate::settings::{Layout, Settings, ThemeChoice};
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
@@ -18,6 +18,11 @@ pub struct App {
     /// Settings remembered between sessions (WIN-3), and what was last written to disk.
     settings: Settings,
     saved: Settings,
+    /// The desktop's light or dark preference as it arrives (WIN-2); `None` until known.
+    desktop_theme: Option<egui::Theme>,
+    desktop_theme_rx: Option<Receiver<egui::Theme>>,
+    /// The theme last handed to egui, so it is set only when it changes.
+    applied_theme: Option<ThemePreference>,
     /// An action waiting for the answer to "save changes?" (OPEN-11).
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
@@ -90,6 +95,9 @@ impl App {
             open: None,
             settings: settings.clone(),
             saved: settings,
+            desktop_theme: None,
+            desktop_theme_rx: crate::system_theme::watch(cc.egui_ctx.clone()),
+            applied_theme: None,
             confirm: None,
             quitting: false,
             find,
@@ -156,6 +164,26 @@ impl App {
             open.select(root);
         }
         self.open = Some(open);
+    }
+
+    /// Light, dark, or the desktop's preference (WIN-2). On Linux the desktop's preference comes
+    /// from the settings portal; elsewhere egui follows the system by itself.
+    fn apply_theme(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.desktop_theme_rx {
+            while let Ok(theme) = rx.try_recv() {
+                self.desktop_theme = Some(theme);
+            }
+        }
+        let wanted = match (self.settings.theme, self.desktop_theme) {
+            (ThemeChoice::Light, _) => ThemePreference::Light,
+            (ThemeChoice::Dark, _) => ThemePreference::Dark,
+            (ThemeChoice::System, Some(theme)) => theme.into(),
+            (ThemeChoice::System, None) => ThemePreference::System,
+        };
+        if self.applied_theme != Some(wanted) {
+            ctx.set_theme(wanted);
+            self.applied_theme = Some(wanted);
+        }
     }
 
     /// Writes the settings when they changed since they were last written (WIN-3).
@@ -487,6 +515,15 @@ impl App {
                     }
                 });
                 ui.separator();
+                ui.label("Theme");
+                ui.radio_value(
+                    &mut self.settings.theme,
+                    ThemeChoice::System,
+                    "Follow system",
+                );
+                ui.radio_value(&mut self.settings.theme, ThemeChoice::Light, "Light");
+                ui.radio_value(&mut self.settings.theme, ThemeChoice::Dark, "Dark");
+                ui.separator();
                 ui.label("Layout");
                 ui.radio_value(
                     &mut self.settings.layout,
@@ -551,6 +588,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_loading(&ctx);
+        self.apply_theme(&ctx);
         self.save_settings();
 
         let dropped = ctx.input(|i| {

@@ -25,10 +25,21 @@ pub enum Layout {
     TextAbove,
 }
 
+/// Light or dark (WIN-2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeChoice {
+    /// The desktop's preference.
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub format: FormatOptions,
     pub layout: Layout,
+    pub theme: ThemeChoice,
     /// Attribute rows in the tree (TREE-1).
     pub tree_attributes: bool,
     pub find: FindOptions,
@@ -39,6 +50,7 @@ impl Default for Settings {
         Self {
             format: FormatOptions::default(),
             layout: Layout::default(),
+            theme: ThemeChoice::default(),
             tree_attributes: true,
             find: FindOptions::default(),
         }
@@ -86,6 +98,11 @@ impl Settings {
             Layout::GridAbove => "grid-above",
             Layout::TextAbove => "text-above",
         };
+        let theme = match self.theme {
+            ThemeChoice::System => "system",
+            ThemeChoice::Light => "light",
+            ThemeChoice::Dark => "dark",
+        };
         format!(
             "# XML Atlas settings. The program rewrites this file when a setting changes.\n\
              \n\
@@ -98,6 +115,7 @@ impl Settings {
              \n\
              [view]\n\
              layout = \"{layout}\"\n\
+             theme = \"{theme}\"\n\
              tree_attributes = {}\n\
              \n\
              [find]\n\
@@ -143,6 +161,15 @@ impl Settings {
                     match string(value) {
                         Some("grid-above") => Some(Layout::GridAbove),
                         Some("text-above") => Some(Layout::TextAbove),
+                        _ => None,
+                    },
+                ),
+                ("view", "theme") => set(
+                    &mut s.theme,
+                    match string(value) {
+                        Some("system") => Some(ThemeChoice::System),
+                        Some("light") => Some(ThemeChoice::Light),
+                        Some("dark") => Some(ThemeChoice::Dark),
                         _ => None,
                     },
                 ),
@@ -224,6 +251,7 @@ mod tests {
                 trim_text: true,
             },
             layout: Layout::TextAbove,
+            theme: ThemeChoice::Light,
             tree_attributes: false,
             find: FindOptions {
                 match_case: true,
