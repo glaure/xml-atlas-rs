@@ -4514,6 +4514,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "memchr",
+ "regex",
  "thiserror 2.0.21",
  "xml-atlas-xml",
 ]

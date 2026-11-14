@@ -2,11 +2,12 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use xml_atlas_engine::{Document, format};
+use xml_atlas_engine::find::{Direction, FindOptions, Finder};
+use xml_atlas_engine::{Document, format, truncate};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -33,6 +34,18 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Find text and print the lines that contain it.
+    Find {
+        file: PathBuf,
+        query: String,
+        #[arg(long)]
+        match_case: bool,
+        #[arg(long)]
+        whole_word: bool,
+        /// Print at most this many matches; all are counted.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,7 +66,48 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Command::Find {
+            file,
+            query,
+            match_case,
+            whole_word,
+            limit,
+        } => find(
+            &file,
+            &query,
+            FindOptions {
+                match_case,
+                whole_word,
+            },
+            limit,
+        ),
     }
+}
+
+/// Characters of a matching line that are printed.
+const FIND_LINE_CHARS: usize = 160;
+
+fn find(file: &PathBuf, query: &str, options: FindOptions, limit: usize) -> anyhow::Result<()> {
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let finder = Finder::new(query, options)?;
+    let t = Instant::now();
+    let mut count = 0usize;
+    let mut from = 0;
+    while let Some(found) = finder.next(&doc.src, from, Direction::Forward) {
+        if found.wrapped {
+            break;
+        }
+        if count < limit {
+            let n = doc.line_of(found.range.start as u64);
+            let line = String::from_utf8_lossy(doc.line(n));
+            println!("{:>8}: {}", n + 1, truncate(&line, FIND_LINE_CHARS));
+        }
+        count += 1;
+        from = found.range.end.max(found.range.start + 1);
+    }
+    let noun = if count == 1 { "match" } else { "matches" };
+    println!("{count} {noun} in {}", ms(t.elapsed()));
+    Ok(())
 }
 
 fn stats(file: &PathBuf, repeat: u32) -> anyhow::Result<()> {

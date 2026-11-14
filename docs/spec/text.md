@@ -27,9 +27,17 @@ of it.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).
-- **TEXT-12** `[planned]` Find has match case, whole word and a direction. Replace has the
-  same, in the selection or the whole file, and Replace All (XM-46). Regular expressions and
-  search by element name or attribute value come later.
+- **TEXT-12** `[done]` Find (Ctrl+F, or Edit > Find) opens a bar above the text with match
+  case and whole word (XM-46). Enter or F3 finds the next match, Shift+Enter or Shift+F3 the
+  previous one, and the search continues from the other end when it reaches one. The query is
+  plain text; without match case, case is ignored by Unicode rules (`SÖHNE` finds `Söhne`).
+  Whole word means the characters next to the match are not letters, digits or `_`. A match
+  selects the element that contains it, so tree and grid follow, and is outlined in the text
+  (TEXT-11). The bar shows how many matches the document has. Escape closes it. The CLI has
+  the same search: `xml-atlas-cli find FILE TEXT [--match-case] [--whole-word]`.
+- **TEXT-14** `[planned]` Replace, with the same options, in the selection or the whole file,
+  and Replace All (XM-46). It needs an editable document (roadmap 0.2).
+- **TEXT-15** `[planned]` Regular expressions, and search by element name or attribute value.
 - **TEXT-13** `[planned]` Word wrap can be turned on.
 
 ## Acceptance tests
@@ -39,6 +47,9 @@ of it.
 - Open `crates/engine/tests/corpus/one_line.xml` and click row `b` in the grid: only
   `<b><c/><c/></b>` is outlined, inside the root's highlight.
 - Click an attribute row in the tree: only that attribute's `name="value"` is outlined.
+- In the 100 MiB fixture, find `Customer 49857`: the bar says 4 matches. Enter goes to line 6
+  and selects that `name`; Shift+F3 then continues from the bottom to line 2,060,923.
+- Find `söhne` in `crates/engine/tests/corpus/utf8_bom_crlf.xml`: one match, `Söhne`.
 
 ## Seen in the reference programs
 
