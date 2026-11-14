@@ -8,8 +8,9 @@ use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 
-use crate::tree;
+use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
+use xml_atlas_engine::problems::{Problem, Severity};
 
 pub struct App {
     open: Option<Open>,
@@ -37,6 +38,8 @@ pub struct Open {
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
     pub scroll_text_to: Option<usize>,
+    /// Warnings and errors, in document order (OPEN-13).
+    pub problems: Vec<Problem>,
 }
 
 impl App {
@@ -94,7 +97,9 @@ impl App {
             mark: None,
             grid: None,
             scroll_text_to: None,
+            problems: Vec::new(),
         };
+        open.problems = open.doc.problems();
         if let Some(root) = open.doc.index.root_element() {
             open.select(root);
         }
@@ -218,10 +223,17 @@ impl App {
                 s.elements,
                 s.timings.total().as_secs_f64() * 1000.0,
             ));
-            if let Some(err) = &open.doc.index.error {
-                let text = RichText::new(format!("  ⚠ {}", err)).color(ui.visuals().error_fg_color);
+            if let Some(i) = open
+                .problems
+                .iter()
+                .position(|p| p.severity == Severity::Error)
+            {
+                let p = &open.problems[i];
+                let text = format!("  {} {}", problems_panel::symbol(p.severity), p.message);
+                let text =
+                    RichText::new(text).color(problems_panel::color(ui.visuals(), p.severity));
                 if ui.link(text).on_hover_text("Go to the error").clicked() {
-                    open.scroll_text_to = Some(open.doc.line_of(err.offset));
+                    problems_panel::go_to(open, i);
                 }
             }
         });
@@ -280,6 +292,11 @@ impl eframe::App for App {
                 .show(ui, |ui| {
                     crate::grid::show(ui, open);
                 });
+            if !open.problems.is_empty() {
+                egui::Panel::bottom("problems")
+                    .resizable(true)
+                    .show(ui, |ui| problems_panel::show(ui, open));
+            }
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }

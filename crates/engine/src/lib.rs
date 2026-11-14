@@ -14,6 +14,7 @@ pub use xml_atlas_xml as xml;
 
 pub mod find;
 pub mod grid;
+pub mod problems;
 pub mod tree;
 
 /// An open XML document: the source bytes, its node index and a line index.

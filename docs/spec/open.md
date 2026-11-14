@@ -18,16 +18,22 @@
 - **OPEN-8** `[gap]` Files in other encodings open correctly. The encoding comes from the byte
   order mark, then from the XML declaration. Today a Latin-1 or UTF-16 file stops at the first
   byte that is not UTF-8 and shows an empty tree.
-- **OPEN-9** `[built]` A file that is not well-formed still opens. Everything before the first
-  error is shown. The status bar shows the error; clicking it goes to that line.
+- **OPEN-9** `[done]` A file that is not well-formed still opens. Everything before the first
+  error is shown. The error is listed and marked where it is (OPEN-13), also when the cause is
+  a byte that is not UTF-8.
 - **OPEN-10** `[gap]` Elements after the first error are shown too, as far as they can be
   recovered. Today nothing after the error appears in the tree or grid.
 - **OPEN-11** `[planned]` Opening another file, or closing the window, asks first if there are
   unsaved changes.
 - **OPEN-12** `[planned]` A list of recently opened files.
-- **OPEN-13** `[planned]` An error list shows every warning and error of the document.
-  Selecting one goes to it. Each is also marked in the text at its position, as in XML Marker
-  (XM-10).
+- **OPEN-13** `[done]` A list below the text shows every warning and error of the document,
+  as `Line N, column C: message`; it is there only when there are any. Clicking an entry
+  selects the element at that place and outlines it. Each problem is also marked in the text:
+  a sign left of the line number, a wavy line from the place to the end of the line, and the
+  message when the pointer rests on the line. The status bar shows the first error; clicking
+  it does the same as clicking the entry. Today the list holds the first parse error (see
+  OPEN-10) and these encoding problems: a UTF-16 byte order mark is an error, and a declared
+  encoding other than UTF-8 is a warning that says the text is shown as UTF-8 (see OPEN-8).
 - **OPEN-14** `[planned]` When the open file changes on disk, a notice offers to reload it or
   to save the open document, also under another name. XML Marker does not notice (XM-14).
 
@@ -46,6 +52,9 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
 - Open `<a><b>one</b><c>two</a>`: the tree shows `a`, `b` and `c`; the status bar names the
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
+- Open `crates/engine/tests/corpus/latin1.xml`: the list shows a warning on line 1 at
+  `ISO-8859-1` and an error on line 2, column 10, at the `Ä`. Clicking the error outlines that
+  byte.
 
 ## Seen in the reference programs
 

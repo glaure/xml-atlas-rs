@@ -173,6 +173,29 @@ fn malformed_file_recovers_after_the_error() {
     assert!(element_names(&doc).contains(&"after".to_string()));
 }
 
+/// OPEN-13: the problems of each corpus file, by line.
+#[test]
+fn problems_of_the_corpus() {
+    use xml_atlas_engine::problems::Severity::{Error, Warning};
+    let cases: &[(&str, &[(xml_atlas_engine::problems::Severity, usize)])] = &[
+        ("utf8_bom_crlf.xml", &[]),
+        ("namespaces.xml", &[]),
+        ("malformed_unclosed.xml", &[(Error, 5)]),
+        ("latin1.xml", &[(Warning, 0), (Error, 1)]),
+        ("windows1252.xml", &[(Warning, 0), (Error, 1)]),
+        ("utf16le_bom.xml", &[(Error, 0), (Error, 0)]),
+    ];
+    for (file, expected) in cases {
+        let doc = open(file);
+        let got: Vec<_> = doc
+            .problems()
+            .iter()
+            .map(|p| (p.severity, doc.line_of(p.offset)))
+            .collect();
+        assert_eq!(&got, expected, "{file}");
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Other encodings (OPEN-8): today they stop at the first byte that is not UTF-8.
 

@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 use quick_xml::Reader;
+use quick_xml::encoding::EncodingError;
 use quick_xml::events::{BytesStart, Event};
 
 /// Index of a node in [`Index::nodes`].
@@ -343,12 +344,7 @@ impl<'s> Builder<'s> {
             let start = base + reader.buffer_position();
             let event = match reader.read_event() {
                 Ok(e) => e,
-                Err(e) => {
-                    break Some(ParseError {
-                        offset: base + reader.error_position(),
-                        message: e.to_string(),
-                    });
-                }
+                Err(e) => break Some(parse_error(e, start, base + reader.error_position())),
             };
             let end = base + reader.buffer_position();
             match event {
@@ -476,6 +472,23 @@ impl<'s> Builder<'s> {
     }
 }
 
+/// The error to report for `e`, which happened in the event that starts at byte `start`.
+/// `position` is quick-xml's error position. Kept out of the parse loop: it runs once.
+#[cold]
+#[inline(never)]
+fn parse_error(e: quick_xml::Error, start: u64, position: u64) -> ParseError {
+    // quick-xml does not set the error position for bytes that are not UTF-8, but the error
+    // says how far into the failing event they were valid.
+    let offset = match &e {
+        quick_xml::Error::Encoding(EncodingError::Utf8(u)) => start + u.valid_up_to() as u64,
+        _ => position,
+    };
+    ParseError {
+        offset,
+        message: e.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,6 +504,23 @@ mod tests {
   <note><![CDATA[a < b]]></note>
 </catalog>
 "#;
+
+    /// Bytes that are not UTF-8 are reported where they are, not at the start of the file.
+    #[test]
+    fn invalid_utf8_error_points_at_the_bad_byte() {
+        let src = b"<?xml version=\"1.0\"?><r>Gr\xF6\xDFe</r>";
+        let err = index(src).error.expect("an error");
+        assert_eq!(
+            err.offset as usize,
+            src.iter().position(|&b| b == 0xF6).unwrap()
+        );
+        let src = b"<r>\n<n a=\"\xC4pfel\"/></r>";
+        let err = index(src).error.expect("an error");
+        assert_eq!(
+            err.offset as usize,
+            src.iter().position(|&b| b == 0xC4).unwrap()
+        );
+    }
 
     #[test]
     fn attribute_spans_cover_name_to_closing_quote() {
