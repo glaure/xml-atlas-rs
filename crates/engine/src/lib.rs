@@ -12,6 +12,8 @@ use xml_atlas_xml::{Index, NodeId, NodeKind, ROOT, UTF8_BOM};
 
 pub use xml_atlas_xml as xml;
 
+pub mod grid;
+
 /// An open XML document: the source bytes, its node index and a line index.
 pub struct Document {
     pub path: Option<PathBuf>,
@@ -257,6 +259,15 @@ fn newline_style(src: &[u8]) -> &'static [u8] {
     match memchr::memchr(b'\n', src) {
         Some(i) if i > 0 && src[i - 1] == b'\r' => b"\r\n",
         _ => b"\n",
+    }
+}
+
+/// `s` without leading and trailing whitespace, cut after `max` characters with an ellipsis.
+pub fn truncate(s: &str, max: usize) -> String {
+    let s = s.trim();
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
     }
 }
 

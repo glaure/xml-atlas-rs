@@ -1,126 +1,86 @@
-//! The grid: child elements of the selection as table rows, with their attributes and leaf
-//! children as columns. Cells are decoded only for visible rows.
+//! The grid view: draws an engine [`Grid`] (`docs/spec/grid.md`). Cells are decoded only for
+//! visible rows.
 
-use egui::{RichText, Ui};
-use egui_extras::{Column, TableBuilder};
-use xml_atlas_engine::Document;
-use xml_atlas_engine::xml::{NodeId, NodeKind};
+use egui::{Color32, Rect, RichText, Stroke, Ui, pos2};
+use egui_extras::{Column as TableColumn, TableBuilder};
+use xml_atlas_engine::grid::{Cell, Column, Grid};
+use xml_atlas_engine::xml::NodeId;
 
 use crate::app::Open;
-use crate::tree::truncate;
 
-/// Rows sampled to discover the column set. Wide enough for real data, bounded for huge lists.
-const COLUMN_SAMPLE: usize = 1000;
+/// Rows of the attribute table shown before it scrolls.
+const ATTRIBUTE_ROWS: f32 = 6.0;
 
-#[derive(Clone, PartialEq)]
-enum Col {
-    Attr(String),
-    Child(String),
-    Text,
-}
+/// Spacing of the hatching that marks an absent value.
+const HATCH_STEP: f32 = 6.0;
 
-pub struct GridModel {
-    parent: NodeId,
-    /// Shown above the table. Built once here: `Index::path` walks siblings, which is too
-    /// slow to repeat every frame under a parent with hundreds of thousands of children.
-    path: String,
-    rows: Vec<NodeId>,
-    cols: Vec<Col>,
-}
-
-impl GridModel {
-    pub fn build(doc: &Document, parent: NodeId) -> Self {
-        let idx = &doc.index;
-        let src = &doc.src;
-        let rows: Vec<NodeId> = idx
-            .children(parent)
-            .filter(|&c| idx.node(c).kind == NodeKind::Element)
-            .collect();
-        let mut cols = Vec::new();
-        // A leaf parent has no rows: show the element itself as a single row.
-        let sample: Vec<NodeId> = if rows.is_empty() {
-            vec![parent]
-        } else {
-            rows.clone()
-        };
-        for &r in sample.iter().take(COLUMN_SAMPLE) {
-            for (k, _) in idx.attributes(src, r) {
-                push_unique(&mut cols, Col::Attr(k));
-            }
-            for c in idx.children(r) {
-                match idx.node(c).kind {
-                    NodeKind::Element if is_leaf(doc, c) => {
-                        let name = String::from_utf8_lossy(idx.name(src, c)).into_owned();
-                        push_unique(&mut cols, Col::Child(name));
-                    }
-                    NodeKind::Text | NodeKind::CData => push_unique(&mut cols, Col::Text),
-                    _ => {}
-                }
-            }
-        }
-        let rows = if rows.is_empty() { vec![parent] } else { rows };
-        Self {
-            parent,
-            path: idx.path(src, parent),
-            rows,
-            cols,
-        }
-    }
-
-    fn cell(&self, doc: &Document, row: NodeId, col: &Col) -> String {
-        let idx = &doc.index;
-        let src = &doc.src;
-        match col {
-            Col::Attr(name) => idx
-                .attributes(src, row)
-                .into_iter()
-                .find(|(k, _)| k == name)
-                .map(|(_, v)| v)
-                .unwrap_or_default(),
-            Col::Child(name) => idx
-                .children(row)
-                .find(|&c| {
-                    idx.node(c).kind == NodeKind::Element && idx.name(src, c) == name.as_bytes()
-                })
-                .map(|c| leaf_text(doc, c))
-                .unwrap_or_default(),
-            Col::Text => leaf_text(doc, row),
-        }
-    }
-}
-
-fn push_unique(cols: &mut Vec<Col>, c: Col) {
-    if !cols.contains(&c) {
-        cols.push(c);
-    }
-}
-
-fn is_leaf(doc: &Document, id: NodeId) -> bool {
-    doc.index
-        .children(id)
-        .all(|c| doc.index.node(c).kind != NodeKind::Element)
-}
-
-fn leaf_text(doc: &Document, id: NodeId) -> String {
-    let idx = &doc.index;
-    let mut s = String::new();
-    for c in idx.children(id) {
-        if matches!(idx.node(c).kind, NodeKind::Text | NodeKind::CData) {
-            s.push_str(&idx.text(&doc.src, c));
-        }
-    }
-    truncate(&s, 200)
+/// What a click in the grid asks for.
+enum Action {
+    /// Highlight a node in the text; the grid stays (GRID-6).
+    Focus(NodeId),
+    /// Make a node the selection; the grid shows its children (GRID-7).
+    Enter(NodeId),
 }
 
 pub fn show(ui: &mut Ui, open: &mut Open) {
     let Some(grid) = &open.grid else { return };
-    let doc = &open.doc;
     ui.horizontal(|ui| {
         ui.label(RichText::new(&grid.path).strong());
         ui.label(RichText::new(format!("{} rows", grid.rows.len())).weak());
     });
-    let mut focus = None;
-    let mut enter = None;
+    attributes(ui, grid);
+    // Cell labels must not take clicks for text selection: a click picks the row or cell.
+    let action = ui.scope(|ui| {
+        ui.style_mut().interaction.selectable_labels = false;
+        table(ui, open)
+    });
+    if let Some(action) = action.inner {
+        match action {
+            Action::Focus(id) => open.focus(id),
+            Action::Enter(id) => open.select(id),
+        }
+    }
+}
+
+/// The selected element's own attributes (GRID-11).
+fn attributes(ui: &mut Ui, grid: &Grid) {
+    if grid.attributes.is_empty() {
+        ui.label(RichText::new("No attributes").weak());
+        return;
+    }
+    let title = match grid.attributes.len() {
+        1 => "1 attribute".to_string(),
+        n => format!("{n} attributes"),
+    };
+    egui::CollapsingHeader::new(title)
+        .id_salt(("grid-attributes", grid.parent))
+        .default_open(true)
+        .show(ui, |ui| {
+            let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+            egui::ScrollArea::vertical()
+                .id_salt(("grid-attributes-scroll", grid.parent))
+                .max_height(row_h * ATTRIBUTE_ROWS)
+                .show(ui, |ui| {
+                    egui::Grid::new(("grid-attributes-table", grid.parent))
+                        .striped(true)
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (name, value) in &grid.attributes {
+                                ui.label(RichText::new(name).strong());
+                                ui.add(egui::Label::new(value).truncate());
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+    ui.add_space(4.0);
+}
+
+/// The child table. Returns what a click asked for.
+fn table(ui: &mut Ui, open: &Open) -> Option<Action> {
+    let grid = open.grid.as_ref()?;
+    let doc = &open.doc;
+    let mut action = None;
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     TableBuilder::new(ui)
         .id_salt(("grid", grid.parent))
@@ -128,11 +88,11 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         .resizable(true)
         .auto_shrink(false)
         .sense(egui::Sense::click())
-        .column(Column::auto().at_least(40.0))
-        .column(Column::initial(110.0).at_least(40.0).clip(true))
+        .column(TableColumn::auto().at_least(40.0))
+        .column(TableColumn::initial(110.0).at_least(40.0).clip(true))
         .columns(
-            Column::initial(140.0).at_least(40.0).clip(true),
-            grid.cols.len(),
+            TableColumn::initial(140.0).at_least(40.0).clip(true),
+            grid.columns.len(),
         )
         .header(row_h + 2.0, |mut h| {
             h.col(|ui| {
@@ -141,12 +101,12 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
             h.col(|ui| {
                 ui.strong("element");
             });
-            for c in &grid.cols {
+            for c in &grid.columns {
                 h.col(|ui| {
                     match c {
-                        Col::Attr(n) => ui.strong(format!("@{n}")),
-                        Col::Child(n) => ui.strong(n),
-                        Col::Text => ui.strong("text()"),
+                        Column::Attribute(n) => ui.strong(format!("@{n}")),
+                        Column::Child(n) => ui.strong(n),
+                        Column::Text => ui.strong("text()"),
                     };
                 });
             }
@@ -155,30 +115,74 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
             body.rows(row_h, grid.rows.len(), |mut row| {
                 let i = row.index();
                 let id = grid.rows[i];
-                row.set_selected(open.focus == Some(id));
+                // Marked when the row, or a child shown in one of its cells, is the focus.
+                row.set_selected(
+                    open.focus
+                        .is_some_and(|f| f == id || doc.index.node(f).parent == id),
+                );
                 row.col(|ui| {
                     ui.label(RichText::new((i + 1).to_string()).weak());
                 });
                 row.col(|ui| {
                     ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
                 });
-                for c in &grid.cols {
-                    row.col(|ui| {
-                        ui.add(egui::Label::new(grid.cell(doc, id, c)).truncate());
-                    });
+                for c in &grid.columns {
+                    let cell = grid.cell(doc, id, c);
+                    let nested = matches!(cell, Cell::Element(_) | Cell::Repeated { .. });
+                    let (_, resp) = row.col(|ui| draw_cell(ui, &cell));
+                    // A nested cell stands for its child element: a click highlights that
+                    // child, a double-click opens it.
+                    if nested && let Some(child) = grid.cell_node(doc, id, c) {
+                        if resp.double_clicked() {
+                            action = Some(Action::Enter(child));
+                        } else if resp.clicked() {
+                            action = Some(Action::Focus(child));
+                        }
+                    }
                 }
                 let resp = row.response();
-                if resp.clicked() {
-                    focus = Some(id);
-                }
-                if resp.double_clicked() && id != grid.parent {
-                    enter = Some(id);
+                if action.is_none() {
+                    if resp.double_clicked() && id != grid.parent {
+                        action = Some(Action::Enter(id));
+                    } else if resp.clicked() {
+                        action = Some(Action::Focus(id));
+                    }
                 }
             });
         });
-    if let Some(id) = enter {
-        open.select(id);
-    } else if let Some(id) = focus {
-        open.focus(id);
+    action
+}
+
+fn draw_cell(ui: &mut Ui, cell: &Cell) {
+    match cell {
+        Cell::Absent => hatch(ui, ui.max_rect()),
+        Cell::Value(v) => {
+            ui.add(egui::Label::new(v).truncate());
+        }
+        Cell::Element(name) => {
+            ui.add(egui::Label::new(nested_text(ui, format!("<{name}>"))).truncate());
+        }
+        Cell::Repeated { name, count } => {
+            ui.add(egui::Label::new(nested_text(ui, format!("<{name}> ×{count}"))).truncate());
+        }
+    }
+}
+
+/// Text for a cell that stands for child elements: in the link colour, so it reads as
+/// something to open rather than a value.
+fn nested_text(ui: &Ui, s: String) -> RichText {
+    RichText::new(s).color(ui.visuals().hyperlink_color)
+}
+
+/// Diagonal lines over `rect`: the row has no such attribute, child or text (GRID-13).
+fn hatch(ui: &Ui, rect: Rect) {
+    let painter = ui.painter_at(rect);
+    let color: Color32 = ui.visuals().weak_text_color().gamma_multiply(0.35);
+    let stroke = Stroke::new(1.0, color);
+    let h = rect.height();
+    let mut x = rect.left() - h;
+    while x < rect.right() {
+        painter.line_segment([pos2(x, rect.bottom()), pos2(x + h, rect.top())], stroke);
+        x += HATCH_STEP;
     }
 }
