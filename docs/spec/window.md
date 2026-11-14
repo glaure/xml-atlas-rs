@@ -4,11 +4,20 @@ How the views are laid out, and how the window looks.
 
 ## Rules
 
-- **WIN-1** `[built]` The tree is on the left. On the right, the grid is above the text; the
-  find bar sits between them when open (TEXT-12), and the problems list under the text when
-  there are problems (OPEN-13). The border between tree and the rest, and the one between grid
-  and text, can be dragged. XML Marker has the text above its table (XM-1); see the decision
-  below.
+- **WIN-1** `[done]` The tree is on the left. View > Layout chooses what is on the right:
+  *Grid above text* (the default) or *Text above grid*, as in XML Marker (XM-1). The change is
+  immediate and keeps the open file. The find bar sits directly above the text when open
+  (TEXT-12), and the problems list directly under it when there are problems (OPEN-13). The
+  borders between the views can be dragged; each layout keeps its own grid height. The choice
+  is remembered (WIN-3).
+- **WIN-3** `[done]` Settings are remembered between sessions: the layout (WIN-1), attribute
+  rows in the tree (TREE-1), the Format options (FMT-10 to FMT-13), and Find's match case and
+  whole word (TEXT-12). They are kept in `xml-atlas/settings.toml` in the platform's
+  configuration folder (`~/.config` on Linux, `%APPDATA%` on Windows, `~/Library/Application
+  Support` on macOS); `XML_ATLAS_SETTINGS` can name another file. The file is written, atomically,
+  whenever a setting changes, and not before; it is readable TOML. A missing file gives the
+  defaults; a line that cannot be read is skipped, with a warning in the log, and the others
+  still count.
 - **WIN-2** `[planned]` Light and dark theme. A setting chooses light, dark, or following the
   system, which is the default. Text colours (TEXT-2), tree icons (TREE-11), highlights and
   problem markers follow the theme. The Qt XML Atlas has the same choice (QT-12). Today the
@@ -16,6 +25,11 @@ How the views are laid out, and how the window looks.
 
 ## Acceptance tests
 
+- Choose Text above grid, turn off View > Attributes in the tree, choose Tabs in Edit > Format
+  options, quit, start again: all three are as chosen.
+- Open a file with problems, choose View > Layout > Text above grid: text on top, the
+  problems list under it, the grid at the bottom; the selection is unchanged. Choose Grid above
+  text: back as before.
 - With the system in light mode, start XML Atlas: it is light. Switch the setting to dark: the
   whole window turns dark at once, without reopening the file.
 
@@ -29,10 +43,10 @@ How the views are laid out, and how the window looks.
 
 ## Decided
 
+- Both layouts, switchable: today's and XML Marker's (WIN-1). (Owner, 2026-11-14.)
 - Theme support: light, dark, and following the system (WIN-2). Planned for 0.2, with the
   other settings. (Owner, 2026-11-14.)
 
-## Decisions needed
+## Questions
 
-1. Swap grid and text so that the text is on top, as in XML Marker? The owner noticed the
-   difference on first use.
+1. Which layout should be the default once settings are remembered?

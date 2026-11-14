@@ -8,12 +8,16 @@ use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{Document, FormatError, FormatOptions};
 
+use crate::settings::{Layout, Settings};
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
 
 pub struct App {
     open: Option<Open>,
+    /// Settings remembered between sessions (WIN-3), and what was last written to disk.
+    settings: Settings,
+    saved: Settings,
     /// An action waiting for the answer to "save changes?" (OPEN-11).
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
@@ -23,9 +27,6 @@ pub struct App {
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<String>,
-    /// Format options for this session (FMT-10, FMT-11); a file's settings comment overrides
-    /// them (FMT-15).
-    format_options: FormatOptions,
     /// The Format options dialog, with the values being edited.
     format_dialog: Option<FormatOptions>,
 }
@@ -82,15 +83,19 @@ pub enum Pane {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
+        let settings = Settings::load();
+        let mut find = crate::find_bar::FindBar::default();
+        find.set_options(settings.find);
         let mut app = Self {
             open: None,
+            settings: settings.clone(),
+            saved: settings,
             confirm: None,
             quitting: false,
-            find: Default::default(),
+            find,
             loading: None,
             message: None,
             notice: None,
-            format_options: FormatOptions::default(),
             format_dialog: None,
         };
         if let Some(path) = path {
@@ -146,10 +151,27 @@ impl App {
             grid_scroll_to: None,
         };
         open.problems = open.doc.problems();
+        open.tree.set_attributes(self.settings.tree_attributes);
         if let Some(root) = open.doc.index.root_element() {
             open.select(root);
         }
         self.open = Some(open);
+    }
+
+    /// Writes the settings when they changed since they were last written (WIN-3).
+    fn save_settings(&mut self) {
+        self.settings.find = self.find.options();
+        if self.settings == self.saved {
+            return;
+        }
+        match self.settings.save() {
+            Ok(()) => self.saved = self.settings.clone(),
+            Err(e) => {
+                log::warn!("cannot save settings: {e}");
+                // Do not try again every frame.
+                self.saved = self.settings.clone();
+            }
+        }
     }
 
     /// Runs `action`, or first asks whether to save when the document has unsaved changes.
@@ -237,7 +259,7 @@ impl App {
 
     fn format_document(&mut self) {
         let Some(open) = &self.open else { return };
-        let chosen = open.doc.format_options(self.format_options);
+        let chosen = open.doc.format_options(self.settings.format);
         self.replace_with(
             open.doc.format(&chosen.options),
             |options| {
@@ -258,7 +280,7 @@ impl App {
     /// Edit > Compact (FMT-14): the document on one line.
     fn compact_document(&mut self) {
         let Some(open) = &self.open else { return };
-        let options = self.format_options;
+        let options = self.settings.format;
         let result = open.doc.compact(&options);
         self.replace_with(
             result,
@@ -373,7 +395,7 @@ impl App {
         }
         match close {
             Some(true) => {
-                self.format_options = edit;
+                self.settings.format = edit;
                 self.format_dialog = None;
             }
             Some(false) => self.format_dialog = None,
@@ -451,7 +473,7 @@ impl App {
                 }
                 if ui.button("Format options…").clicked() {
                     ui.close();
-                    self.format_dialog = Some(self.format_options);
+                    self.format_dialog = Some(self.settings.format);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -461,8 +483,21 @@ impl App {
                         && let Some(open) = &mut self.open
                     {
                         open.tree.set_attributes(show);
+                        self.settings.tree_attributes = show;
                     }
                 });
+                ui.separator();
+                ui.label("Layout");
+                ui.radio_value(
+                    &mut self.settings.layout,
+                    Layout::GridAbove,
+                    "Grid above text",
+                );
+                ui.radio_value(
+                    &mut self.settings.layout,
+                    Layout::TextAbove,
+                    "Text above grid (as in XML Marker)",
+                );
             });
         });
     }
@@ -516,6 +551,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_loading(&ctx);
+        self.save_settings();
 
         let dropped = ctx.input(|i| {
             i.raw
@@ -571,10 +607,15 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 tree::show(ui, open);
             });
+        let layout = self.settings.layout;
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
-            egui::Panel::top("grid")
-                .resizable(true)
+            // Each layout has its own panel, so each remembers its own height.
+            let grid = match layout {
+                Layout::GridAbove => egui::Panel::top("grid"),
+                Layout::TextAbove => egui::Panel::bottom("grid-below"),
+            };
+            grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
                     crate::grid::show(ui, open);

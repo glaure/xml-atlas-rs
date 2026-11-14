@@ -43,6 +43,9 @@ The tree shows the structure of the document and is the main way to move around 
 - **TREE-12** `[planned]` A click in the text moves the tree to that element (TREE-6, TEXT-7).
   Moving the cursor while typing does not. Locate in tree (Ctrl+L) moves it on request
   (XM-42).
+- **TREE-13** `[planned]` Editor Select, from the tree's right-click menu (and Ctrl+E): selects
+  the element's whole text in the text view, ready to copy (XM-23). It needs a text selection,
+  so it comes with the editable text view (TEXT-9).
 
 ## Acceptance tests
 
@@ -86,14 +89,10 @@ Details and limits in `reference.md`.
 - Follow a click in the text, not the cursor while typing (TREE-12).
 - Drill Up and Drill Down (TREE-10).
 - Icons per kind of row, from the theme (TREE-11).
+- The text hint of TREE-2 stays next to the text row, for now. (Owner.)
+- The attribute rows setting is remembered between sessions (WIN-3). (Owner.)
+- Editor Select in the tree (TREE-13). (Owner.)
 
 ## Questions
 
-1. With text as its own row (TREE-1), the text hint of TREE-2 repeats it. Keep the hint only
-   for the first attribute, keep both, or drop the hint? Both are kept for now.
- - Keep both for now
-2. Should the attribute setting be remembered between sessions? There are no saved settings
-   yet (roadmap 0.2).
- - When peristent settings are implemented.
-3. Should the tree get Editor Select (select the element's text, ready to copy)?
- - yes
+None open.

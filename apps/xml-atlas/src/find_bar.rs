@@ -40,6 +40,16 @@ struct Compiled {
 }
 
 impl FindBar {
+    pub fn options(&self) -> FindOptions {
+        self.options
+    }
+
+    /// Sets match case and whole word, as remembered from the last session.
+    pub fn set_options(&mut self, options: FindOptions) {
+        self.options = options;
+        self.compiled = None;
+    }
+
     /// Shows the bar and puts the cursor in its field.
     pub fn open(&mut self) {
         self.visible = true;

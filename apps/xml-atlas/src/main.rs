@@ -7,6 +7,7 @@ mod highlight;
 mod icons;
 mod nav;
 mod problems_panel;
+mod settings;
 mod text_view;
 mod tree;
 

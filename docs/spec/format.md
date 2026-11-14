@@ -63,9 +63,8 @@ Format makes the nesting visible without changing what the document means.
   line that cannot be read is ignored. Without the comment, Format uses the saved settings.
   Format leaves the comment as it is. `Tab size = N as tabs` indents with tabs, `as spaces`
   with spaces; the tab width itself does not change the output. The status bar and the Format
-  options dialog say when the comment overrides the settings. Until settings are remembered
-  between sessions (roadmap 0.2), "saved settings" means the values set in the dialog during
-  this session. The CLI does the same: `xml-atlas-cli format FILE [--indent N] [--tabs]
+  options dialog say when the comment overrides the settings. The saved settings are those of
+  the Format options dialog, remembered between sessions (WIN-3). The CLI does the same: `xml-atlas-cli format FILE [--indent N] [--tabs]
   [--max-attributes N] [--ignore-document-settings]`.
 
 ## Acceptance tests
