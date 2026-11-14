@@ -14,9 +14,14 @@ One file per area. Every rule has an id and a status:
 - `[gap]`: the code does something else or something poorer. The rule says what is right.
 - `[planned]`: decided, not built.
 
-Each file ends with **Questions**. A question is something only a person watching XML Marker
-can answer. It stays a question until someone has looked. Then it becomes a rule, or a note
-that we choose to differ and why.
+Each area file ends with three lists:
+
+- **Seen in the reference programs**: what XML Marker and the Qt XML Atlas do, with ids that
+  point into `reference.md`, and how our rules compare.
+- **Decided**: what the owner chose where XML Atlas could follow the reference or differ.
+  Each decision is also a rule above, or a note that we differ and why. Open choices wait in
+  **Decisions needed** until the owner has answered.
+- **Questions**: things nobody has looked at yet, or that only the owner knows.
 
 ## How to change it
 
@@ -27,12 +32,13 @@ that we choose to differ and why.
 
 ## Files
 
-| File        | Area                                                        |
-|-------------|-------------------------------------------------------------|
-| `open.md`   | Opening files, encodings, malformed input, very large files |
-| `tree.md`   | Tree contents, expansion, selection, navigation             |
-| `grid.md`   | Which rows and columns appear, cells, sorting, editing      |
-| `text.md`   | Source view, its link to tree and grid, editing             |
-| `format.md` | Indentation rules, what whitespace is kept                  |
+| File           | Area                                                        |
+|----------------|-------------------------------------------------------------|
+| `open.md`      | Opening files, encodings, malformed input, very large files |
+| `tree.md`      | Tree contents, expansion, selection, navigation             |
+| `grid.md`      | Which rows and columns appear, cells, sorting, editing      |
+| `text.md`      | Source view, its link to tree and grid, editing             |
+| `format.md`    | Indentation rules, what whitespace is kept                  |
+| `reference.md` | What XML Marker and the Qt XML Atlas do, as observed        |
 
 Not written yet: find and replace, editing and undo, settings, keyboard shortcuts.

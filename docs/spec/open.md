@@ -10,7 +10,8 @@
   its children in the grid, its first line in the text view.
 - **OPEN-4** `[built]` The status bar shows the file name, size, line count, element count and
   how long opening took.
-- **OPEN-5** `[built]` One document is open at a time. Opening another replaces it.
+- **OPEN-5** `[gap]` Several documents can be open at once. Today one document is open at a
+  time and opening another replaces it.
 - **OPEN-6** `[built]` If the file cannot be read, the status bar says why and the document
   that was open stays open.
 - **OPEN-7** `[done]` UTF-8 files open with or without a byte order mark.
@@ -24,6 +25,11 @@
 - **OPEN-11** `[planned]` Opening another file, or closing the window, asks first if there are
   unsaved changes.
 - **OPEN-12** `[planned]` A list of recently opened files.
+- **OPEN-13** `[planned]` An error list shows every warning and error of the document.
+  Selecting one goes to it. Each is also marked in the text at its position, as in XML Marker
+  (XM-10).
+- **OPEN-14** `[planned]` When the open file changes on disk, a notice offers to reload it or
+  to save the open document, also under another name. XML Marker does not notice (XM-14).
 
 ## Speed targets
 
@@ -41,12 +47,36 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
 
+## Seen in the reference programs
+
+Details and limits in `reference.md`.
+
+- XML Marker and the Qt XML Atlas both hold one document in one window (XM-5, QT-1). OPEN-5
+  differs on purpose.
+- XML Marker opens a file that is not well-formed without a dialog and switches to an error
+  list with warnings and errors; each error is marked in the text (XM-10). For an unclosed tag
+  its tree is empty (XM-11); for a stray `<` in a start tag the tree stayed complete (XM-12).
+  OPEN-9 already shows more than XML Marker in the first case; OPEN-10 asks for what it does
+  in the second. OPEN-13 follows its error list.
+- XML Marker shows UTF-8 files with wrong characters and the byte order mark as stray
+  characters; Latin-1 is right; UTF-16 opens but loses characters outside the code page (XM-6
+  to XM-8, under wine). OPEN-7 and OPEN-8 ask for more than XML Marker does.
+- XML Marker starts with the root collapsed and nothing selected (XM-9). OPEN-3 differs on
+  purpose: a file you just opened should show something.
+- XML Marker marks unsaved changes with `*` in the title and asks before closing (XM-13).
+  OPEN-11 matches. The Qt XML Atlas does not ask (QT-11).
+- XML Marker's status bar shows only the cursor position (XM-4). OPEN-4 shows more.
+
+## Decided
+
+- Errors: an error list and markers in the text (OPEN-13), not only the status bar message.
+- Several documents at once (OPEN-5).
+- A changed file on disk raises a notice (OPEN-14).
+- The owner's files are UTF-8 and about 10 MiB, growing. OPEN-8 (other encodings) matters less
+  than OPEN-7 for them.
+
 ## Questions
 
-1. Does XML Marker open several files at once (tabs or windows), or one at a time? Do you
-   want several in XML Atlas?
-2. What does XML Marker show for a file that is not well-formed: an error dialog, a partial
-   tree, nothing?
-3. What does it do when the file changes on disk while it is open?
-4. Which encodings do your real files use? Are any of them UTF-16?
-5. How large are the files you work with, typically and at most?
+1. Several documents: tabs in one window, or one window each?
+2. "Import other XML files" is wanted later. What should it do: insert another file's
+   elements into this document, follow XInclude references, or something else?

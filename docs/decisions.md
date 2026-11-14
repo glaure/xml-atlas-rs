@@ -197,6 +197,11 @@ Still open, found by the same review:
 - **Checked:** on the 100 MiB fixture the output equals the input apart from whitespace
   between tags, and formatting twice gives the same bytes. It takes 0.64 s.
 - **Limit:** start tags are not rewrapped, and long text is not reflowed.
+- **Exceptions (2026-11-14):** three settings may ask for more (`docs/spec/format.md`, FMT-11
+  to FMT-13). Breaking a start tag with many attributes over lines changes only the whitespace
+  between attributes; it is on by default, above six attributes, as in XML Marker. Removing
+  comments and trimming text change content; they are off unless the user or the document's
+  settings comment turns them on. With all three off, the rule above holds.
 
 ## D13: Saving is atomic
 
