@@ -4,8 +4,10 @@ The tree shows the structure of the document and is the main way to move around 
 
 ## Rules
 
-- **TREE-1** `[built]` The tree shows elements only. Text, comments, attributes and processing
-  instructions are not tree rows.
+- **TREE-1** `[gap]` The tree shows elements, their attributes and their text. Under an
+  element come first its attributes, one row each as `name = "value"`, then its text and child
+  elements in document order, as in XML Marker (XM-20). A setting hides the attribute rows.
+  Comments and processing instructions are not tree rows. Today the tree shows elements only.
 - **TREE-2** `[built]` A row shows the element name, then a grey hint: the text of an element
   that contains only text (up to 60 characters), otherwise its first attribute as
   `name="value"` (value up to 40 characters).
@@ -20,6 +22,14 @@ The tree shows the structure of the document and is the main way to move around 
 - **TREE-8** `[planned]` Keyboard: up and down move the selection, right expands, left
   collapses or goes to the parent.
 - **TREE-9** `[planned]` Editing from the tree: rename, delete, duplicate and move an element.
+  XML Marker's tree cannot do this (XM-23); renaming is the one the owner has missed most.
+- **TREE-10** `[planned]` Drill Up (Alt+Up) selects the parent of the selected row. Drill Down
+  (Alt+Down) selects the child that leads towards the text cursor (XM-43).
+- **TREE-11** `[planned]` Each row has an icon for its kind: element with children, element
+  with text, empty element, attribute, text. The icons come from the theme.
+- **TREE-12** `[planned]` A click in the text moves the tree to that element (TREE-6, TEXT-7).
+  Moving the cursor while typing does not. Locate in tree (Ctrl+L) moves it on request
+  (XM-42).
 
 ## Acceptance tests
 
@@ -32,37 +42,34 @@ Details and limits in `reference.md`.
 
 - XML Marker's tree has rows for elements, attributes and text, not for comments or
   processing instructions (XM-20). The Qt XML Atlas has elements and attributes (QT-2).
-  TREE-1 has elements only.
+  TREE-1 follows XML Marker.
 - XML Marker shows only the name on an element row and tells kinds of element apart by icon
-  (XM-21). The grey hint of TREE-2 is ours.
+  (XM-21). The grey hint of TREE-2 is ours; TREE-11 adds the icons.
 - In XML Marker, selecting a tree row highlights the element in the text and fills the grid
   at once (XM-22). TREE-5 matches.
 - XML Marker's tree does not follow the text cursor. "Locate in tree" (Ctrl+L) selects the
   innermost row that contains the cursor, down to an attribute; "Drill Up" (Alt+Up) goes to
   the parent, "Drill Down" (Alt+Down) back towards the cursor (XM-41 to XM-43). In the Qt XML
-  Atlas only "Locate in tree" works; the drill entries are placeholders (QT-6, QT-7). TREE-6
-  follows on every click instead.
+  Atlas only "Locate in tree" works; the drill entries are placeholders (QT-6, QT-7). TREE-10
+  and TREE-12 take both.
 - XML Marker starts with the root collapsed (XM-9) and collapses the tree again after every
   edit and after Indent (XM-44, XM-56). TREE-3 and FMT-8 differ on purpose.
-- The right-click menu of a tree row in XML Marker has one entry, Editor Select (XM-23).
+- The right-click menu of a tree row in XML Marker has one entry, Editor Select: it selects
+  the element's text (XM-23).
 - Nothing in XML Marker's tree marks an error (XM-24). The Qt XML Atlas adds an error row
   (QT-3).
 
-## Decisions needed
+## Decided
 
-1. Attributes as tree rows, as in both reference programs? It makes an attribute selectable
-   and, later, editable from the tree, but multiplies the row count: the 100 MiB fixture has
-   3.4 million nodes before attributes. An alternative is to keep TREE-1 and show attributes
-   only in the grid.
-2. Text as tree rows, as in XML Marker? The hint of TREE-2 shows the same information without
-   a row.
-3. Keep following the text on every click (TREE-6), or follow only on request as XML Marker
-   does (Ctrl+L)? Once the text is editable (TEXT-9), following every cursor move may be
-   distracting; a middle way is to follow on click but not while typing.
-4. Add Drill Up and Drill Down with Alt+Up and Alt+Down? They would join TREE-8.
-5. Different icons per kind of element, as in XML Marker?
+- Attributes and text as tree rows, with a setting to hide attribute rows (TREE-1).
+- Follow a click in the text, not the cursor while typing (TREE-12).
+- Drill Up and Drill Down (TREE-10).
+- Icons per kind of row, from the theme (TREE-11).
 
 ## Questions
 
-1. What does Editor Select do in XML Marker? Not tried yet.
-2. Do you use the tree to edit in XML Marker, and how?
+1. With text as its own row (TREE-1), the text hint of TREE-2 repeats it. Keep the hint only
+   for the first attribute, keep both, or drop the hint?
+2. Attribute rows multiply the row count: the 100 MiB fixture has 3.4 million nodes before
+   attributes. Should the setting that hides them be on or off by default?
+3. Should the tree get Editor Select (select the element's text, ready to copy)?

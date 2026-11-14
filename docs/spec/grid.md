@@ -24,12 +24,28 @@ this file needs the most observation.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows.
 - **GRID-10** `[planned]` Editing a cell changes the attribute or text in the document.
+- **GRID-11** `[planned]` Above the child table, a table of the selected element's own
+  attributes: name and value (XM-30).
+- **GRID-12** `[planned]` A child element that has attributes or children of its own gets a
+  column too. Its cell shows its name. When a row has several children of the same name, the
+  cell shows the name and how many (XM-34).
+- **GRID-13** `[planned]` A cell with no value looks different from a cell with an empty value
+  (XM-35).
+- **GRID-14** `[planned]` Clicking a header, or its menu, sorts the rows by that column,
+  ascending or descending (XM-39). Clicking again reverses the direction.
+- **GRID-15** `[planned]` Columns can be hidden and shown again. A command hides the columns
+  that are empty in every row. This replaces XML Marker's unique consolidation (XM-33).
+- **GRID-16** `[planned]` Clicking a cell shows what it stands for in a second pane: an element
+  with its attributes and children, or a table when the cell stands for several elements
+  (XM-37). The grid does not change. To be tried before it is kept.
 
-## Known gaps to decide
+## Known gaps
 
-- A row with two child elements of the same name shows only the first in that column.
-- A child element that has children of its own gets no column; nothing shows it is there.
-- Children with different names share one table.
+- A row with two child elements of the same name shows only the first in that column
+  (GRID-12).
+- A child element that has children of its own gets no column; nothing shows it is there
+  (GRID-12).
+- Children with different names share one table. XML Marker does the same (XM-31); kept.
 
 ## Acceptance tests
 
@@ -45,46 +61,41 @@ today.
 
 - XML Marker shows, for the selected element, a table of its attributes and then one table
   of its child elements, whatever their names (XM-30, XM-31). GRID-1 matches for the child
-  table. XML Atlas has no attribute table for the selected element.
+  table; GRID-11 adds the attribute table.
 - Columns in XML Marker: tag name, text, the children's attributes, then the children's own
   child elements (XM-32). GRID-2 has the same set in another order, with `@` before attribute
   names instead of an icon.
 - A child element that has attributes or children of its own gets a column in XML Marker; the
-  cell shows its name, not its text (XM-34). In XML Atlas it gets no column (first known gap).
-- The same child twice in one row: XML Marker shows the name with a count (XM-34). XML Atlas
-  shows the first (second known gap).
+  cell shows its name, not its text. The same child twice in one row shows the name with a
+  count (XM-34). GRID-12 follows.
 - Child names that occur in one row only share one "Unique Subtags" column in XML Marker,
   controlled by a threshold (XM-33). The Qt XML Atlas copies this and adds "Unique
-  Attributes" (QT-5). XML Atlas makes a column for each.
-- XML Marker draws a cell with no value differently from an empty value (XM-35). XML Atlas
-  leaves both blank.
+  Attributes" (QT-5). GRID-15 hides columns instead.
+- XML Marker draws a cell with no value differently from an empty value (XM-35). GRID-13
+  follows.
 - XML Marker's cells show raw source, `&amp;` included (XM-36). GRID-4 decodes on purpose.
 - Clicking a cell or row in XML Marker never moves the tree selection. It highlights the range
   in the text and shows the item in a second pane, the Table Selection Browser; a cell that
   stands for several elements opens as a table there (XM-37). Double-click does the same.
-  GRID-6 matches for the text highlight. GRID-7 differs: double-click moves the selection.
-- Clicking a header in XML Marker does not sort (XM-39). Its grid can hide empty columns per
-  row or for the visible rows, and copy the grid to the clipboard (XM-38).
+  GRID-6 and GRID-16 follow. GRID-7 differs: double-click moves the selection.
+- XML Marker sorts from a drop-down in the column header (XM-39). Its grid can hide empty
+  columns per row or for the visible rows, and copy the grid to the clipboard. Several rows
+  cannot be selected (XM-38).
 - "Table Selection Browser" in the Qt XML Atlas is a menu entry without code (QT-6).
 
-## Decisions needed
+## Decided
 
-1. A table of the selected element's own attributes above the child table, as in XML Marker?
-2. Nested children: adopt XML Marker's cells (name, or name with count) so that nothing is
-   hidden? This would close the first two known gaps.
-3. A second pane for what is clicked in the grid, or keep one grid and drill in with
-   double-click (GRID-7)? The second pane lets you look inside a row without losing your
-   place; the double-click is simpler.
-4. Unique consolidation: copy it, or leave wide tables wide and add column hiding instead?
-5. Mark absent values differently from empty ones?
-6. Keep decoding entities in cells (GRID-4)? It reads better; the raw form matters when
-   editing a cell (GRID-10).
-7. Sorting by a column. XML Marker has none; it would be an addition.
+- An attribute table for the selected element (GRID-11).
+- Nested children shown by name and count (GRID-12).
+- A second pane for the clicked cell (GRID-16), to be tried: the owner is not sure it is easy
+  to use in XML Marker.
+- Column hiding (GRID-15) instead of unique consolidation, which is harder to understand.
+- Absent and empty values look different (GRID-13).
+- Cells keep decoding entities (GRID-4).
+- Sorting by column (GRID-14).
 
 ## Questions
 
-1. Is there anything you wish XML Marker's grid did differently?
-2. Which of its grid commands do you use: in-place edit, copy grid to clipboard, minimize
-   empty columns?
-3. What does the drop-down in a column header offer? Not opened yet.
-4. What does selecting several rows do? Not tried yet.
+1. Is there anything you wish XML Marker's grid did differently? Open for now.
+2. The owner mostly reads the grid. Copy grid to clipboard and in-place editing (GRID-10)
+   could be handy. Which comes first?

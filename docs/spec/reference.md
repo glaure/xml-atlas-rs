@@ -10,6 +10,8 @@ does not decide what XML Atlas should do; that is the job of the rules in the ar
   synthetic mouse and keyboard input, with small hand-written probe files. Only what appeared
   on screen is recorded. Its help file and its web site were not read. Nothing from the program
   is kept in this repository.
+- **The owner's experience** with XML Marker on Windows fills some gaps. Those items say
+  "Reported by the owner".
 - **Qt XML Atlas** (ids `QT-…`): read from its source (`glaure/xml-atlas`, commit `9c8024f`).
   It was not run.
 
@@ -61,6 +63,7 @@ Limits:
   whole document, including elements after the error.
 - **XM-13** The title bar shows the file name, with `*` after an unsaved change. Closing the
   window with unsaved changes asks whether to save (yes, no, cancel).
+- **XM-14** It does not notice when the open file changes on disk. (Reported by the owner.)
 
 ## XML Marker: tree
 
@@ -73,8 +76,9 @@ Limits:
 - **XM-22** Selecting a tree row at once highlights its whole extent in the text (tinted
   background with an outline, scrolled into view) and fills the Tree Selection Browser.
   Selecting an attribute row highlights just `name="value"` in the text.
-- **XM-23** The right-click menu of a tree row has one entry: Editor Select (Ctrl+E). What it
-  does was not tried.
+- **XM-23** The right-click menu of a tree row has one entry: Editor Select (Ctrl+E). It
+  selects the element's whole text range in the text, ready to copy. The tree offers
+  navigation only; elements cannot be renamed or moved there. (Reported by the owner.)
 - **XM-24** Nothing in the tree marks an error. Errors are only in the error list and the
   text.
 
@@ -109,9 +113,9 @@ Limits:
 - **XM-38** Right-click menu in the grid: Cut, Copy, Paste, In-place edit, Edit using editor,
   Editor Select, Copy grid to clipboard, and "minimize empty columns" (for this row, for this
   row in addition, for the visible rows, all, restore all). The two edit entries were disabled
-  for the cell tried.
+  for the cell tried. Selecting several rows is not possible. (Reported by the owner.)
 - **XM-39** Clicking a column header did not reorder the rows. A small drop-down button
-  appeared in the header; what it offers was not opened.
+  appeared in the header; it sets the sort direction of that column. (Reported by the owner.)
 
 ## XML Marker: text and navigation
 
@@ -127,7 +131,8 @@ Limits:
 - **XM-44** Typing in the text re-parses at once: 0.15 s after three keystrokes the tree was
   already rebuilt. The rebuilt tree was collapsed to the root and the selection was gone.
 - **XM-45** Right-click menu in the text: Cut, Copy, Paste, Insert Tag, Insert Attribute,
-  Comment Out Selection, Mark Selection With Tag.
+  Comment Out Selection, Mark Selection With Tag. Insert Tag and Insert Attribute open a small
+  dialog for name and value. (Reported by the owner.)
 - **XM-46** Find: text to find (with history), match whole word, match case, direction up or
   down. Replace: the same two options, replace in selection or whole file, Find Next, Replace,
   Replace All. No regular expressions. No search in tree or grid.
@@ -151,6 +156,7 @@ Seen with the default options on a one-line file.
 - **XM-55** A comment lost the space after `<!--`. A comment that followed an end tag stayed
   on that tag's line.
 - **XM-56** After Indent the tree was collapsed to the root.
+- **XM-57** Indent cannot be undone. (Reported by the owner.)
 
 ## Qt XML Atlas
 
@@ -191,9 +197,7 @@ Seen with the default options on a one-line file.
 
 - XML Marker on a large file: scrolling, selecting, how long a re-parse after a keystroke
   takes.
-- What Editor Select, In-place edit, Edit using editor, Insert Tag, Insert Attribute, Mark
-  Selection With Tag, New DTD and Parse this document as DTD do.
-- The drop-down in a grid column header (XM-39).
-- What XML Marker does when the file changes on disk.
-- Undo granularity; whether Indent can be undone.
+- What In-place edit, Edit using editor, Comment Out Selection, Mark Selection With Tag, New
+  DTD and Parse this document as DTD do. The owner does not use the DTD functions.
+- Undo granularity in the text.
 - Namespaces, DOCTYPE, entities, very long lines, very deep nesting.

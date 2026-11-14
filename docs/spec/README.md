@@ -18,8 +18,9 @@ Each area file ends with three lists:
 
 - **Seen in the reference programs**: what XML Marker and the Qt XML Atlas do, with ids that
   point into `reference.md`, and how our rules compare.
-- **Decisions needed**: places where XML Atlas could follow the reference or differ. The owner
-  decides. A decision becomes a rule, or a note that we differ and why.
+- **Decided**: what the owner chose where XML Atlas could follow the reference or differ.
+  Each decision is also a rule above, or a note that we differ and why. Open choices wait in
+  **Decisions needed** until the owner has answered.
 - **Questions**: things nobody has looked at yet, or that only the owner knows.
 
 ## How to change it

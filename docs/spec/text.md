@@ -13,8 +13,8 @@ of it.
 - **TEXT-4** `[built]` A tab is shown as four spaces.
 - **TEXT-5** `[gap]` Very long lines can be read to the end. Today a line is cut at 4,000
   bytes.
-- **TEXT-6** `[built]` The lines of the element highlighted from the tree or grid have a
-  tinted background.
+- **TEXT-6** `[gap]` The element selected in the tree is highlighted from its `<` to its last
+  `>`, not by whole lines, as in XML Marker (XM-22). Today its whole lines are tinted.
 - **TEXT-7** `[built]` Clicking a line selects the innermost element that contains the first
   non-blank character of that line.
 - **TEXT-8** `[gap]` Every line of a very large file can be reached by scrolling. Scroll
@@ -23,6 +23,12 @@ of it.
   grid follow shortly after each change.
 - **TEXT-10** `[planned]` While the text is not well-formed, tree and grid keep showing the
   last good state for the broken part, and mark it.
+- **TEXT-11** `[planned]` The item clicked in the grid gets a second highlight of its own,
+  inside the first (XM-37).
+- **TEXT-12** `[planned]` Find has match case, whole word and a direction. Replace has the
+  same, in the selection or the whole file, and Replace All (XM-46). Regular expressions and
+  search by element name or attribute value come later.
+- **TEXT-13** `[planned]` Word wrap can be turned on.
 
 ## Acceptance tests
 
@@ -34,10 +40,10 @@ of it.
 Details and limits in `reference.md`.
 
 - XML Marker's text is editable and coloured, in a proportional font, without line numbers
-  and without word wrap (XM-40). TEXT-1 differs on purpose. The Qt XML Atlas has a fixed-width
-  font and line numbers (QT-12).
+  and without word wrap (XM-40). TEXT-1 differs on purpose; TEXT-13 adds wrap. The Qt XML
+  Atlas has a fixed-width font and line numbers (QT-12).
 - Moving the cursor in XML Marker moves nothing else; tree and grid follow on Ctrl+L (XM-41,
-  XM-42). TEXT-7 follows on every click.
+  XM-42). TEXT-7 and TREE-12 follow a click, not typing.
 - XML Marker re-parses on every keystroke and the tree comes back collapsed with nothing
   selected (XM-44). The Qt XML Atlas does the same and comes back fully expanded (QT-8). That
   cannot work at 100 MiB, where indexing alone takes 0.3 s; TEXT-9 says "shortly after" and
@@ -45,25 +51,24 @@ Details and limits in `reference.md`.
 - While the text is broken, XML Marker shows an error list and either a complete tree or an
   empty one, depending on the error (XM-11, XM-12). TEXT-10 asks for better.
 - XML Marker highlights the selected element's exact extent, from `<` to `>`, with an outline;
-  a click in the grid adds a second highlight inside it (XM-22, XM-37). TEXT-6 tints whole
-  lines and has one highlight.
+  a click in the grid adds a second highlight inside it (XM-22, XM-37). TEXT-6 and TEXT-11
+  follow.
 - Find and Replace in XML Marker: whole word, match case, up or down, replace in selection or
   whole file, replace all. No regular expressions, no search in tree or grid (XM-46). The Qt
-  XML Atlas finds plain text only (QT-9).
+  XML Atlas finds plain text only (QT-9). TEXT-12 starts from XML Marker's set.
 - XML Marker's text menu has structural commands: Insert Tag, Insert Attribute, Comment Out
-  Selection, Mark Selection With Tag (XM-45).
+  Selection, Mark Selection With Tag (XM-45). The owner does not use them.
 
-## Decisions needed
+## Decided
 
-1. Highlight the exact extent of the element instead of whole lines? It matters for files
-   with several elements on one line, and for one-line files it is the only useful form.
-2. A second highlight for the item clicked in the grid, apart from the selected element?
-3. Find: start with XML Marker's set (case, whole word, direction), and add what it lacks
-   (regular expressions, search by element name or attribute value) later?
-4. Which of the structural commands of XM-45 belong in 0.2 or 0.3?
+- Exact-extent highlight (TEXT-6) and a second highlight for the grid (TEXT-11).
+- Find and Replace as in XML Marker first, more later (TEXT-12).
+- Word wrap (TEXT-13).
+- Daily editing is plain: type, cut, copy, paste. Cut, copy and paste are wanted in 0.2. The
+  structural commands of XM-45 are not needed.
 
 ## Questions
 
-1. Which text editing features do you use every day, and which could wait?
-2. Do you want word wrap? XML Marker has none; a file that is one long line is hard to read
-   in it.
+1. The roadmap puts the editable text view in 0.3. Does "cut, copy and paste in 0.2" mean
+   cutting, copying and pasting whole elements from the tree and grid, or should the text view
+   become editable in 0.2?
