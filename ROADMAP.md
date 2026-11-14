@@ -13,8 +13,8 @@ The order follows `docs/decisions.md`, D15.
       scrolling, selecting, searching
 - [ ] Start-up: 0.59 s and 193 MiB with a tiny file, slower and heavier than XML Marker.
       Measure where it goes (window, GPU renderer, fonts) and cut it
-- [ ] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
-      huge line, deep nesting, namespaces, DOCTYPE
+- [x] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
+      huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
 - [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
       (`docs/spec/reference.md`), decisions for the owner open
 - [ ] Find and replace: match case, whole word, direction (TEXT-12)
@@ -29,7 +29,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Integer scrolling for very tall views (D16)
 - [ ] Keyboard navigation in tree and grid; Drill Up and Drill Down (TREE-10)
 - [ ] Ask before closing with unsaved changes
-- [ ] CI: fmt, clippy and tests on Linux, Windows and macOS
+- [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
 
 ## 0.2: Structured editing
 

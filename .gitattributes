@@ -1,0 +1,2 @@
+# Test inputs whose bytes matter: never convert line endings.
+crates/engine/tests/corpus/** -text
