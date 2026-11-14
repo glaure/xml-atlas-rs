@@ -166,6 +166,16 @@ impl App {
                     self.format_document();
                 }
             });
+            ui.menu_button("View", |ui| {
+                ui.add_enabled_ui(self.open.is_some(), |ui| {
+                    let mut show = self.open.as_ref().is_none_or(|o| o.tree.options.attributes);
+                    if ui.checkbox(&mut show, "Attributes in the tree").changed()
+                        && let Some(open) = &mut self.open
+                    {
+                        open.tree.set_attributes(show);
+                    }
+                });
+            });
         });
     }
 
