@@ -13,8 +13,9 @@ of it.
 - **TEXT-4** `[built]` A tab is shown as four spaces.
 - **TEXT-5** `[gap]` Very long lines can be read to the end. Today a line is cut at 4,000
   bytes.
-- **TEXT-6** `[gap]` The element selected in the tree is highlighted from its `<` to its last
-  `>`, not by whole lines, as in XML Marker (XM-22). Today its whole lines are tinted.
+- **TEXT-6** `[done]` The selected element is highlighted from its `<` to its last `>`, not by
+  whole lines, as in XML Marker (XM-22). On lines in between, the highlight covers the text from
+  the first to the last non-blank character.
 - **TEXT-7** `[built]` Clicking a line selects the innermost element that contains the first
   non-blank character of that line.
 - **TEXT-8** `[gap]` Every line of a very large file can be reached by scrolling. Scroll
@@ -23,8 +24,9 @@ of it.
   grid follow shortly after each change.
 - **TEXT-10** `[planned]` While the text is not well-formed, tree and grid keep showing the
   last good state for the broken part, and mark it.
-- **TEXT-11** `[planned]` The item clicked in the grid gets a second highlight of its own,
-  inside the first (XM-37).
+- **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
+  of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
+  and in the tree a text row or an attribute row (just its `name="value"`).
 - **TEXT-12** `[planned]` Find has match case, whole word and a direction. Replace has the
   same, in the selection or the whole file, and Replace All (XM-46). Regular expressions and
   search by element name or attribute value come later.
@@ -34,6 +36,9 @@ of it.
 
 - Open a file whose comments contain umlauts and CJK characters: no crash, text is intact.
 - Click line 1,000,000 of the 100 MiB fixture: the tree shows the element on that line.
+- Open `crates/engine/tests/corpus/one_line.xml` and click row `b` in the grid: only
+  `<b><c/><c/></b>` is outlined, inside the root's highlight.
+- Click an attribute row in the tree: only that attribute's `name="value"` is outlined.
 
 ## Seen in the reference programs
 

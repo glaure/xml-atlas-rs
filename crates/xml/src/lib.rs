@@ -150,6 +150,61 @@ impl Index {
             .collect()
     }
 
+    /// Byte range of each attribute of an element, from the first byte of its name to the
+    /// closing quote of its value, in the order of [`Index::attributes`]. Lets a view
+    /// highlight one attribute in the source.
+    pub fn attribute_spans(&self, src: &[u8], id: NodeId) -> Vec<Range<usize>> {
+        let n = self.node(id);
+        if n.kind != NodeKind::Element {
+            return Vec::new();
+        }
+        let start = n.start as usize;
+        let mut end = start + n.head_len as usize;
+        // Drop the closing `>` or `/>`.
+        end = end.saturating_sub(1);
+        if end > start && src[end - 1] == b'/' {
+            end -= 1;
+        }
+        let ws = |b: u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+        let mut spans = Vec::new();
+        let mut i = start + 1 + n.name_len as usize;
+        loop {
+            while i < end && ws(src[i]) {
+                i += 1;
+            }
+            let name = i;
+            while i < end && !ws(src[i]) && src[i] != b'=' {
+                i += 1;
+            }
+            while i < end && ws(src[i]) {
+                i += 1;
+            }
+            if i >= end || src[i] != b'=' || i == name {
+                break;
+            }
+            i += 1;
+            while i < end && ws(src[i]) {
+                i += 1;
+            }
+            let Some(&quote) = src
+                .get(i)
+                .filter(|&&q| i < end && (q == b'"' || q == b'\''))
+            else {
+                break;
+            };
+            i += 1;
+            while i < end && src[i] != quote {
+                i += 1;
+            }
+            if i >= end {
+                break;
+            }
+            i += 1;
+            spans.push(name..i);
+        }
+        spans
+    }
+
     /// Text content of a text or CDATA node, unescaped.
     pub fn text<'s>(&self, src: &'s [u8], id: NodeId) -> Cow<'s, str> {
         let n = self.node(id);
@@ -436,6 +491,30 @@ mod tests {
   <note><![CDATA[a < b]]></note>
 </catalog>
 "#;
+
+    #[test]
+    fn attribute_spans_cover_name_to_closing_quote() {
+        let src = "<r><a x=\"1\"  y = 'zwei'\n   z=\"ä>b\"/><b/><c k=\"v\">t</c></r>".as_bytes();
+        let idx = index(src);
+        let a = idx.children(idx.root_element().unwrap()).next().unwrap();
+        let spans: Vec<&str> = idx
+            .attribute_spans(src, a)
+            .into_iter()
+            .map(|r| std::str::from_utf8(&src[r]).unwrap())
+            .collect();
+        assert_eq!(spans, ["x=\"1\"", "y = 'zwei'", "z=\"ä>b\""]);
+        assert_eq!(spans.len(), idx.attributes(src, a).len());
+
+        let mut kids = idx.children(idx.root_element().unwrap()).skip(1);
+        let b = kids.next().unwrap();
+        assert!(idx.attribute_spans(src, b).is_empty());
+        let c = kids.next().unwrap();
+        let k = idx.attribute_spans(src, c);
+        assert_eq!(&src[k[0].clone()], b"k=\"v\"");
+        // A text node has no attributes.
+        let t = idx.children(c).next().unwrap();
+        assert!(idx.attribute_spans(src, t).is_empty());
+    }
 
     #[test]
     fn builds_tree() {
