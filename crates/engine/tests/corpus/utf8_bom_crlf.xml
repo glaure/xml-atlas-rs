@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Grüße aus Graz – 日本語のコメント -->
+<orders>
+  <order id="1" city="Ä">
+    <customer>Günther &amp; Söhne</customer>
+    <note>naïve café</note>
+  </order>
+</orders>

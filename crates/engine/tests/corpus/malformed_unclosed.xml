@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shop>
+  <owner>Müller</owner>
+  <orders>
+    <order id="1">
+  </orders>
+  <after>not reached</after>
+</shop>

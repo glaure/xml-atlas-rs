@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!DOCTYPE note [
+  <!ELEMENT note (to, body)>
+  <!ELEMENT to (#PCDATA)>
+  <!ELEMENT body (#PCDATA)>
+  <!ATTLIST note kind CDATA "memo">
+  <!ENTITY company "Atlas &amp; Co">
+]>
+<note>
+  <to>Tove</to>
+  <body>From &company;</body>
+</note>

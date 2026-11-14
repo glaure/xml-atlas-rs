@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<doc>
+	<p>Hello <b>big</b> world</p>
+	<code xml:space="preserve">  keep   this  </code>
+	<script><![CDATA[if (a < b && c > d) { x = "]]]]><![CDATA[>"; }]]></script>
+	<?render mode="fast"?>
+	<attrs single='it"s' gt="a &gt; b" quot="&quot;q&quot;" empty=""/>
+</doc>
