@@ -36,8 +36,10 @@ The tree shows the structure of the document and is the main way to move around 
   contains the outlined place, or the first child element when nothing inside is outlined; so
   Drill Up then Drill Down returns to where it started. XML Marker drills towards the text
   cursor (XM-43); the text here is not editable yet, so the outline stands in for the cursor.
-- **TREE-11** `[planned]` Each row has an icon for its kind: element with children, element
-  with text, empty element, attribute, text. The icons come from the theme.
+- **TREE-11** `[done]` Each row has an icon for its kind, between the arrow and the name:
+  element with child elements, element with only text, empty element (attributes do not
+  count), attribute, text. The icons are our own shapes, drawn in the colours of the text
+  view's palette, so they follow the light and dark theme.
 - **TREE-12** `[planned]` A click in the text moves the tree to that element (TREE-6, TEXT-7).
   Moving the cursor while typing does not. Locate in tree (Ctrl+L) moves it on request
   (XM-42).

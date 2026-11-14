@@ -20,7 +20,7 @@ The order follows `docs/decisions.md`, D15.
 - [x] Find: match case, whole word, direction, F3 (TEXT-12); also `xml-atlas-cli find`
 - [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
-- [ ] Tree: icons per kind of row (TREE-11)
+- [x] Tree: icons per kind of row (TREE-11)
 - [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)

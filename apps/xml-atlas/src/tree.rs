@@ -8,6 +8,8 @@ use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, ROOT};
 
 use crate::app::Open;
+use crate::highlight::Palette;
+use crate::icons;
 
 const INDENT: f32 = 14.0;
 
@@ -177,6 +179,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         area = area.vertical_scroll_offset(top as f32 * row_h);
     }
     let visuals = ui.visuals().clone();
+    let palette = Palette::new(visuals.dark_mode);
     let mut toggle = None;
     let mut clicked = None;
     area.show_rows(ui, row_h, open.tree.rows.len(), |ui, range| {
@@ -209,7 +212,13 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 visuals.text_color()
             };
             let weak = visuals.weak_text_color();
-            let left = pos2(x + INDENT + 2.0, rect.center().y);
+            icons::draw(
+                painter,
+                pos2(x + INDENT + 2.0 + icons::WIDTH / 2.0 - 2.0, rect.center().y),
+                tree::kind(doc, row),
+                &palette,
+            );
+            let left = pos2(x + INDENT + 2.0 + icons::WIDTH, rect.center().y);
             let text = |pos, s: &str, color| {
                 painter.text(pos, Align2::LEFT_CENTER, s, font.clone(), color)
             };
