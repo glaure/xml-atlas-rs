@@ -8,11 +8,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use xml_atlas_xml::{Index, NodeId, NodeKind, ROOT, UTF8_BOM};
+use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
+pub use format::{DocumentOptions, FormatError, FormatOptions, format, format_indexed};
 pub use xml_atlas_xml as xml;
 
 pub mod find;
+pub mod format;
 pub mod grid;
 pub mod problems;
 pub mod tree;
@@ -75,8 +77,14 @@ impl Document {
     }
 
     /// Re-indented copy of the source. See [`format`] for what is and is not changed.
-    pub fn format(&self, indent: usize) -> Result<Vec<u8>, FormatError> {
-        format_indexed(&self.src, &self.index, indent)
+    pub fn format(&self, options: &FormatOptions) -> Result<Vec<u8>, FormatError> {
+        format_indexed(&self.src, &self.index, options)
+    }
+
+    /// The options Format uses for this document: `base`, overridden by the document's own
+    /// settings comment if it has one (`docs/spec/format.md`, FMT-15).
+    pub fn format_options(&self, base: FormatOptions) -> DocumentOptions {
+        format::options_for(&self.src, &self.index, base)
     }
 
     /// Writes the source to `path` with [`save_atomic`] and makes it the document's path.
@@ -152,119 +160,6 @@ fn line_starts(src: &[u8]) -> Vec<u64> {
     starts
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum FormatError {
-    #[error("the document is not well-formed: {0}")]
-    Malformed(#[from] xml::ParseError),
-}
-
-/// Re-indents `src` with `indent` spaces per level.
-///
-/// Only whitespace between tags changes, and only where it cannot be content: inside an
-/// element whose children are all elements, comments or processing instructions. Everything
-/// else is copied byte for byte:
-///
-/// - elements that contain text or CDATA (mixed content keeps its spacing);
-/// - elements with `xml:space="preserve"`, including everything inside them;
-/// - start tags, comments, processing instructions, the declaration and the DOCTYPE;
-/// - entity references, the byte order mark and the line-ending style (LF or CRLF).
-///
-/// A document that is not well-formed is refused rather than formatted in part.
-pub fn format(src: &[u8], indent: usize) -> Result<Vec<u8>, FormatError> {
-    format_indexed(src, &xml_atlas_xml::index(src), indent)
-}
-
-/// [`format`] for a source that is already indexed.
-pub fn format_indexed(src: &[u8], index: &Index, indent: usize) -> Result<Vec<u8>, FormatError> {
-    if let Some(e) = &index.error {
-        return Err(FormatError::Malformed(e.clone()));
-    }
-    let newline = newline_style(src);
-    let mut out = Vec::with_capacity(src.len() + src.len() / 8);
-    if src.starts_with(UTF8_BOM) {
-        out.extend_from_slice(UTF8_BOM);
-    }
-    // An explicit stack: deeply nested documents must not overflow the call stack.
-    let mut stack: Vec<Step> = index.children(ROOT).map(|c| Step::Node(c, 0)).collect();
-    stack.reverse();
-    while let Some(step) = stack.pop() {
-        match step {
-            Step::Node(id, depth) => {
-                push_indent(&mut out, depth * indent);
-                let n = index.node(id);
-                if can_reindent(src, index, id) {
-                    let head = n.start as usize..n.start as usize + n.head_len as usize;
-                    out.extend_from_slice(&src[head]);
-                    stack.push(Step::Close(id, depth));
-                    let first = stack.len();
-                    stack.extend(index.children(id).map(|c| Step::Node(c, depth + 1)));
-                    stack[first..].reverse();
-                } else {
-                    out.extend_from_slice(index.raw(src, id));
-                }
-            }
-            Step::Close(id, depth) => {
-                push_indent(&mut out, depth * indent);
-                out.extend_from_slice(end_tag(index.raw(src, id)));
-            }
-        }
-        out.extend_from_slice(newline);
-    }
-    Ok(out)
-}
-
-enum Step {
-    /// Write a node at this depth.
-    Node(NodeId, usize),
-    /// Write the end tag of an element whose children were written one per line.
-    Close(NodeId, usize),
-}
-
-/// True if the whitespace inside the element is layout only, so its children can be put on
-/// their own lines.
-fn can_reindent(src: &[u8], index: &Index, id: NodeId) -> bool {
-    let n = index.node(id);
-    if n.kind != NodeKind::Element || n.child_count == 0 {
-        return false;
-    }
-    let layout_only = index.children(id).all(|c| {
-        matches!(
-            index.node(c).kind,
-            NodeKind::Element | NodeKind::Comment | NodeKind::ProcessingInstruction
-        )
-    });
-    layout_only && !preserves_space(src, index, id)
-}
-
-fn preserves_space(src: &[u8], index: &Index, id: NodeId) -> bool {
-    let n = index.node(id);
-    let head = &src[n.start as usize..n.start as usize + n.head_len as usize];
-    // Cheap byte search first; attributes are decoded only for the rare element that has it.
-    memchr::memmem::find(head, b"xml:space").is_some()
-        && index
-            .attributes(src, id)
-            .iter()
-            .any(|(k, v)| k == "xml:space" && v == "preserve")
-}
-
-/// The `</name>` at the end of an element's source. An end tag cannot contain `<`.
-fn end_tag(element: &[u8]) -> &[u8] {
-    let start = memchr::memrchr(b'<', element).unwrap_or(0);
-    &element[start..]
-}
-
-fn push_indent(out: &mut Vec<u8>, spaces: usize) {
-    out.resize(out.len() + spaces, b' ');
-}
-
-/// The line ending of the first line; LF if the source has a single line.
-fn newline_style(src: &[u8]) -> &'static [u8] {
-    match memchr::memchr(b'\n', src) {
-        Some(i) if i > 0 && src[i - 1] == b'\r' => b"\r\n",
-        _ => b"\n",
-    }
-}
-
 /// `s` without leading and trailing whitespace, cut after `max` characters with an ellipsis.
 pub fn truncate(s: &str, max: usize) -> String {
     let s = s.trim();
@@ -328,79 +223,6 @@ mod tests {
             .unwrap();
         assert_eq!(doc.node_lines(b), (1, 1));
         assert_eq!(doc.node_lines(doc.index.root_element().unwrap()), (0, 2));
-    }
-
-    fn fmt(src: &str) -> String {
-        String::from_utf8(format(src.as_bytes(), 2).unwrap()).unwrap()
-    }
-
-    #[test]
-    fn formats() {
-        assert_eq!(
-            fmt("<a><b x=\"1\">t</b><c/></a>"),
-            "<a>\n  <b x=\"1\">t</b>\n  <c/>\n</a>\n"
-        );
-    }
-
-    #[test]
-    fn format_fixes_only_layout_whitespace() {
-        assert_eq!(
-            fmt("<a>\n<b>\n        <c/>\n</b>   <!-- n --><?pi x?></a>"),
-            "<a>\n  <b>\n    <c/>\n  </b>\n  <!-- n -->\n  <?pi x?>\n</a>\n"
-        );
-    }
-
-    #[test]
-    fn format_keeps_text_and_entities() {
-        let name = "<name>Customer 5 &amp; Sons</name>";
-        assert_eq!(fmt(name), format!("{name}\n"));
-        let mixed = "<p>Hello <b>big</b> world</p>";
-        assert_eq!(
-            fmt(&format!("<r>{mixed}</r>")),
-            format!("<r>\n  {mixed}\n</r>\n")
-        );
-        let cdata = "<s><![CDATA[ a < b ]]></s>";
-        assert_eq!(fmt(cdata), format!("{cdata}\n"));
-        let padded = "<a>  </a>";
-        assert_eq!(fmt(padded), format!("{padded}\n"));
-    }
-
-    #[test]
-    fn format_respects_xml_space_preserve() {
-        let kept = "<a xml:space=\"preserve\"> <b/>  <c/> </a>";
-        assert_eq!(
-            fmt(&format!("<r>{kept}</r>")),
-            format!("<r>\n  {kept}\n</r>\n")
-        );
-    }
-
-    #[test]
-    fn format_keeps_declaration_bom_and_crlf() {
-        let src = "\u{feff}<?xml version=\"1.0\"?>\r\n<a><b/></a>\r\n";
-        assert_eq!(
-            fmt(src),
-            "\u{feff}<?xml version=\"1.0\"?>\r\n<a>\r\n  <b/>\r\n</a>\r\n"
-        );
-    }
-
-    #[test]
-    fn format_is_stable() {
-        let once = fmt("<a><b><c>t</c><d/></b><!-- x --><e>1 &lt; 2</e></a>");
-        assert_eq!(fmt(&once), once);
-    }
-
-    #[test]
-    fn format_refuses_malformed_input() {
-        assert!(format(b"<a><b></a>", 2).is_err());
-    }
-
-    #[test]
-    fn format_survives_deep_nesting() {
-        let depth = 50_000;
-        let src = format!("{}<x/>{}", "<a>".repeat(depth), "</a>".repeat(depth));
-        // Zero indent: at this depth, real indentation would be gigabytes of spaces.
-        let out = format(src.as_bytes(), 0).unwrap();
-        assert_eq!(xml::index(&out).max_depth as usize, depth + 1);
     }
 
     #[test]

@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
-use xml_atlas_engine::Document;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
+use xml_atlas_engine::{Document, FormatOptions};
 
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
@@ -21,6 +21,13 @@ pub struct App {
     find: crate::find_bar::FindBar,
     loading: Option<Loading>,
     message: Option<String>,
+    /// A note about the last command, shown in the status bar until the next one.
+    notice: Option<String>,
+    /// Format options for this session (FMT-10, FMT-11); a file's settings comment overrides
+    /// them (FMT-15).
+    format_options: FormatOptions,
+    /// The Format options dialog, with the values being edited.
+    format_dialog: Option<FormatOptions>,
 }
 
 /// The answers of the "save changes?" dialog.
@@ -82,6 +89,9 @@ impl App {
             find: Default::default(),
             loading: None,
             message: None,
+            notice: None,
+            format_options: FormatOptions::default(),
+            format_dialog: None,
         };
         if let Some(path) = path {
             app.start_loading(&cc.egui_ctx, path);
@@ -99,6 +109,7 @@ impl App {
         });
         self.loading = Some(Loading { path, rx });
         self.message = None;
+        self.notice = None;
     }
 
     fn poll_loading(&mut self, ctx: &egui::Context) {
@@ -226,14 +237,96 @@ impl App {
 
     fn format_document(&mut self) {
         let Some(open) = &self.open else { return };
-        match open.doc.format(2) {
+        let chosen = open.doc.format_options(self.format_options);
+        match open.doc.format(&chosen.options) {
             Ok(out) => {
                 let path = open.doc.path.clone();
                 let mut doc = Document::from_bytes(out);
                 doc.path = path;
                 self.set_document(doc, true);
+                let source = if chosen.from_document.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " (from the file's settings comment: {})",
+                        chosen.from_document.join(", ")
+                    )
+                };
+                self.notice = Some(format!("Formatted: {}{source}", chosen.options));
             }
             Err(e) => self.message = Some(format!("Cannot format: {e}")),
+        }
+    }
+
+    /// Edit > Format options: indent and attribute wrapping for this session.
+    fn format_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut edit) = self.format_dialog else {
+            return;
+        };
+        let overrides = self
+            .open
+            .as_ref()
+            .map(|o| o.doc.format_options(edit).from_document)
+            .unwrap_or_default();
+        let mut close = None;
+        let modal = egui::Modal::new(egui::Id::unique("format-options")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.heading("Format options");
+            ui.add_space(6.0);
+            egui::Grid::new("format-options-grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Indent");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut edit.tabs, false, "Spaces:");
+                        ui.add_enabled(
+                            !edit.tabs,
+                            egui::DragValue::new(&mut edit.indent_size).range(0..=16),
+                        );
+                        ui.radio_value(&mut edit.tabs, true, "Tabs");
+                    });
+                    ui.end_row();
+                    ui.label("Attributes in a tag line");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut edit.max_attributes).range(0..=99));
+                        ui.label(RichText::new("at most; 0: never wrap").weak());
+                    });
+                    ui.end_row();
+                });
+            if !overrides.is_empty() {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(format!(
+                        "This file's settings comment overrides: {}.",
+                        overrides.join(", ")
+                    ))
+                    .color(ui.visuals().warn_fg_color),
+                );
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("OK").clicked() {
+                    close = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    close = Some(false);
+                }
+                if ui.button("Defaults").clicked() {
+                    edit = FormatOptions::default();
+                }
+            });
+        });
+        if modal.should_close() && close.is_none() {
+            close = Some(false);
+        }
+        match close {
+            Some(true) => {
+                self.format_options = edit;
+                self.format_dialog = None;
+            }
+            Some(false) => self.format_dialog = None,
+            None => self.format_dialog = Some(edit),
         }
     }
 
@@ -292,11 +385,15 @@ impl App {
                     self.find.open();
                 }
                 if ui
-                    .add_enabled(self.open.is_some(), egui::Button::new("Format (indent)"))
+                    .add_enabled(self.open.is_some(), egui::Button::new("Format"))
                     .clicked()
                 {
                     ui.close();
                     self.format_document();
+                }
+                if ui.button("Format options…").clicked() {
+                    ui.close();
+                    self.format_dialog = Some(self.format_options);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -337,6 +434,9 @@ impl App {
                 s.elements,
                 s.timings.total().as_secs_f64() * 1000.0,
             ));
+            if let Some(n) = &self.notice {
+                ui.label(RichText::new(format!("  ·  {n}")).weak());
+            }
             if let Some(i) = open
                 .problems
                 .iter()
@@ -382,6 +482,7 @@ impl eframe::App for App {
             self.confirm = Some(Action::Quit);
         }
         self.confirm_dialog(ui);
+        self.format_dialog(&ctx);
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
         {
             self.save();

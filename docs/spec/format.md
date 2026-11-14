@@ -6,7 +6,7 @@ Format makes the nesting visible without changing what the document means.
 
 - **FMT-1** `[done]` Format changes only whitespace between tags, and only inside an element
   whose children are all elements, comments or processing instructions. Each such child goes
-  on its own line, indented two spaces per level.
+  on its own line, indented as FMT-10 says.
 - **FMT-2** `[done]` An element that contains text or CDATA is copied exactly, including the
   spacing of mixed content such as `<p>Hello <b>big</b> world</p>`.
 - **FMT-3** `[done]` An element with `xml:space="preserve"`, and everything inside it, is
@@ -21,19 +21,22 @@ Format makes the nesting visible without changing what the document means.
 - **FMT-8** `[gap]` After Format, the selection and the expanded tree rows are as before.
   Today the selection returns to the root element.
 - **FMT-9** `[planned]` Format can be undone. XML Marker cannot undo Indent (XM-57).
-- **FMT-10** `[planned]` Indent size and tabs or spaces are settings. The default is four
-  spaces, as in XML Marker (XM-50). Today the indent is always two spaces.
-- **FMT-11** `[planned]` A setting "maximum attributes in a tag line", default 6, as in XML
-  Marker. A start tag with more attributes than that gets each attribute on its own line,
-  indented one level deeper than the tag. Only the whitespace between attributes changes;
-  names, values, quotes and the spacing around `=` stay as written (FMT-4).
+- **FMT-10** `[done]` Indent size and tabs or spaces are settings (Edit > Format options).
+  The default is four spaces, as in XML Marker (XM-50). With tabs, each level is one tab. The
+  status bar says which options Format used.
+- **FMT-11** `[done]` A setting "maximum attributes in a tag line", default 6, as in XML
+  Marker; 0 never wraps. A start tag with more attributes than that gets each attribute on its
+  own line, indented one level deeper than the tag, and its `>` or `/>` right after the last
+  attribute. Only the whitespace between attributes changes; names, values, quotes and the
+  spacing around `=` stay as written (FMT-4). This applies to empty elements and to elements
+  with text too (their content stays exact), but not inside `xml:space="preserve"` (FMT-3).
 - **FMT-12** `[planned]` A setting "remove comments", off by default. It removes comments,
   which is not a layout change.
 - **FMT-13** `[planned]` A setting "trim text", off by default. It removes leading and trailing
   whitespace from text, which is not a layout change. Never inside `xml:space="preserve"`.
 - **FMT-14** `[planned]` Compact: the opposite of Format. It removes the whitespace that Format
   would add or change, and keeps everything FMT-2 to FMT-5 protect.
-- **FMT-15** `[planned]` A document can carry its own settings in a comment before the root
+- **FMT-15** `[done]` A document can carry its own settings in a comment before the root
   element. The comment starts with `Indentation Settings`; each following line has the form
   `XML Marker: <setting> = <value>`:
 
@@ -48,13 +51,21 @@ Format makes the nesting visible without changing what the document means.
   When there is such a comment, Format uses its values for that document instead of the
   saved settings. A setting the comment does not name comes from the saved settings, and a
   line that cannot be read is ignored. Without the comment, Format uses the saved settings.
-  Format leaves the comment as it is.
+  Format leaves the comment as it is. `Tab size = N as tabs` indents with tabs, `as spaces`
+  with spaces; the tab width itself does not change the output. The status bar and the Format
+  options dialog say when the comment overrides the settings. Until settings are remembered
+  between sessions (roadmap 0.2), "saved settings" means the values set in the dialog during
+  this session. The CLI does the same: `xml-atlas-cli format FILE [--indent N] [--tabs]
+  [--max-attributes N] [--ignore-document-settings]`.
 
 ## Acceptance tests
 
 - `<name>Customer 5 &amp; Sons</name>` comes out unchanged.
 - The 100 MiB fixture: the output differs from the input only in whitespace between tags.
 - A CRLF file with a byte order mark keeps both.
+- A file with the settings comment of FMT-15 (indent 4, 6 attributes) and a tag with 7
+  attributes: Format puts each of the 7 on its own line, 8 spaces in; a tag with 6 stays as it
+  is; the comment is unchanged; formatting again changes nothing.
 
 ## Seen in the reference programs
 
