@@ -7,7 +7,15 @@
 
 use std::path::PathBuf;
 
-use xml_atlas_engine::Document;
+use xml_atlas_engine::{Document, FormatOptions};
+
+/// Two spaces per level and no attribute wrapping: Format then changes only whitespace between
+/// tags, which is what the corpus tests check.
+const TWO_SPACES: FormatOptions = FormatOptions {
+    indent_size: 2,
+    tabs: false,
+    max_attributes: 0,
+};
 use xml_atlas_engine::xml::{NodeId, NodeKind};
 
 /// Well-formed UTF-8 files. Every one of them must open without error and format cleanly.
@@ -43,7 +51,9 @@ fn well_formed_files_open_without_error() {
 fn format_changes_only_whitespace_on_every_file() {
     for name in WELL_FORMED_UTF8 {
         let doc = open(name);
-        let out = doc.format(2).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let out = doc
+            .format(&TWO_SPACES)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
         let again = Document::from_bytes(out.clone());
 
         assert!(again.index.error.is_none(), "{name}: output does not parse");
@@ -65,7 +75,11 @@ fn format_changes_only_whitespace_on_every_file() {
         if doc.src.windows(2).any(|w| w == b"\r\n") {
             assert!(only_crlf(&out), "{name}: LF line ending in a CRLF file");
         }
-        assert_eq!(again.format(2).unwrap(), out, "{name}: not stable");
+        assert_eq!(
+            again.format(&TWO_SPACES).unwrap(),
+            out,
+            "{name}: not stable"
+        );
     }
 }
 
@@ -240,7 +254,7 @@ fn one_huge_line() {
     assert_eq!(doc.line_count(), 1);
     assert_eq!(doc.index.element_count, rows + 1);
 
-    let out = doc.format(2).unwrap();
+    let out = doc.format(&TWO_SPACES).unwrap();
     assert_eq!(Document::from_bytes(out).line_count(), rows as usize + 3);
 }
 

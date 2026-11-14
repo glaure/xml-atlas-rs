@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use xml_atlas_engine::find::{Direction, FindOptions, Finder};
-use xml_atlas_engine::{Document, format, truncate};
+use xml_atlas_engine::{Document, FormatOptions, truncate};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -25,11 +25,22 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         repeat: u32,
     },
-    /// Re-indent a file.
+    /// Re-indent a file. A settings comment in the file ("Indentation Settings") overrides the
+    /// options given here.
     Format {
         file: PathBuf,
-        #[arg(long, default_value_t = 2)]
+        /// Spaces per level.
+        #[arg(long, default_value_t = 4)]
         indent: usize,
+        /// Indent with one tab per level.
+        #[arg(long)]
+        tabs: bool,
+        /// Put each attribute on its own line when a start tag has more than this; 0 never.
+        #[arg(long, default_value_t = 6)]
+        max_attributes: usize,
+        /// Use only the options given here, not the file's settings comment.
+        #[arg(long)]
+        ignore_document_settings: bool,
         /// Output file; defaults to stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -55,11 +66,32 @@ fn main() -> anyhow::Result<()> {
         Command::Format {
             file,
             indent,
+            tabs,
+            max_attributes,
+            ignore_document_settings,
             output,
         } => {
-            let src =
-                std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
-            let out = format(&src, indent)?;
+            let doc =
+                Document::open(&file).with_context(|| format!("opening {}", file.display()))?;
+            let base = FormatOptions {
+                indent_size: indent,
+                tabs,
+                max_attributes,
+            };
+            let options = if ignore_document_settings {
+                base
+            } else {
+                let chosen = doc.format_options(base);
+                if !chosen.from_document.is_empty() {
+                    eprintln!(
+                        "using the file's settings comment for: {}",
+                        chosen.from_document.join(", ")
+                    );
+                }
+                chosen.options
+            };
+            eprintln!("format: {options}");
+            let out = doc.format(&options)?;
             match output {
                 Some(path) => std::fs::write(&path, out)?,
                 None => std::io::Write::write_all(&mut std::io::stdout().lock(), &out)?,
