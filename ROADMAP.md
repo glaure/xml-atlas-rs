@@ -22,7 +22,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Integer scrolling for very tall views (D16)
 - [ ] Keyboard navigation in tree and grid
 - [ ] Ask before closing with unsaved changes
-- [ ] CI: fmt, clippy and tests on Linux, Windows and macOS
+- [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
 
 ## 0.2: Structured editing
 
