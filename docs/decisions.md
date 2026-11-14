@@ -249,6 +249,22 @@ Still open, found by the same review:
   and draw their own scroll bar, instead of `ScrollArea::show_rows` with a pixel offset.
 - **When:** with the first of: the custom text widget, or a file where it is visible.
 
+## D17: The baseline changes the priorities
+
+- **Measured** (2026-11-14, details in `docs/benchmarks.md`): launch until loaded, XML Marker
+  under wine against XML Atlas.
+  - 10 MiB: 1.11 s against 0.59 s.
+  - 100 MiB: 10.7 s against 1.02 s.
+  - 300 MiB: 58 s against 1.94 s.
+  - Start-up with a tiny file: 0.49 s and 59 MiB against 0.59 s and 193 MiB.
+- **What follows:**
+  - Opening large files is already far ahead. More parser speed (D14) is not what users will
+    feel; D14 now stands or falls on encodings and error recovery, not on speed.
+  - Start-up is where XML Atlas loses, and most files people open are small. It is now on
+    the roadmap.
+  - "Fast" for XML Marker users probably means how it feels while working: instant start,
+    instant selection and scrolling. That needs measuring before we claim to match it.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
