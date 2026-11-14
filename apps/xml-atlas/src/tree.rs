@@ -164,8 +164,9 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
 /// grid, highlights a text node in the text view, and stays marked in the tree.
 fn select_row(open: &mut Open, row: Row) {
     open.select(row.element(&open.doc));
-    if let Row::Node(id) = row {
-        open.focus(id);
+    match row {
+        Row::Node(id) => open.focus(id),
+        Row::Attribute { element, index } => open.mark_attribute(element, index),
     }
     open.tree.selected = Some(row);
     open.tree.scroll_to = None;

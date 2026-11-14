@@ -18,8 +18,8 @@ The tree shows the structure of the document and is the main way to move around 
 - **TREE-4** `[built]` Clicking the arrow, or double-clicking the row, expands or collapses it.
 - **TREE-5** `[built]` Clicking a row selects the element: the grid shows its children, and the
   text view scrolls to it and highlights its lines. Clicking an attribute or text row selects
-  its element for the grid and stays marked in the tree; a text row is highlighted in the text
-  view. Highlighting only the attribute waits for TEXT-6 (exact extent).
+  its element for the grid and stays marked in the tree; the text or the attribute's
+  `name="value"` gets the second highlight in the text view (TEXT-11).
 - **TREE-6** `[built]` When an element is selected from the grid or the text view, the tree
   expands its ancestors and scrolls to it.
 - **TREE-7** `[built]` The tree stays responsive with hundreds of thousands of rows expanded.
@@ -78,6 +78,9 @@ Details and limits in `reference.md`.
 
 1. With text as its own row (TREE-1), the text hint of TREE-2 repeats it. Keep the hint only
    for the first attribute, keep both, or drop the hint? Both are kept for now.
+ - Keep both for now
 2. Should the attribute setting be remembered between sessions? There are no saved settings
    yet (roadmap 0.2).
+ - When peristent settings are implemented.
 3. Should the tree get Editor Select (select the element's text, ready to copy)?
+ - yes

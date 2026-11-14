@@ -1,5 +1,6 @@
 //! Window layout, file loading and selection state.
 
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
@@ -27,8 +28,11 @@ pub struct Open {
     pub modified: bool,
     /// Element shown in the grid and selected in the tree.
     pub selected: Option<NodeId>,
-    /// Node highlighted in the text view (a grid row, or the selection).
+    /// Node the grid and tree mark: a grid row, or the selection.
     pub focus: Option<NodeId>,
+    /// Source bytes of what was clicked inside the selection (a grid row or cell, a tree text
+    /// or attribute row). The text view draws it as a second highlight (TEXT-11).
+    pub mark: Option<Range<u64>>,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
     pub scroll_text_to: Option<usize>,
@@ -85,6 +89,7 @@ impl App {
             modified,
             selected: None,
             focus: None,
+            mark: None,
             grid: None,
             scroll_text_to: None,
         };
@@ -277,15 +282,28 @@ impl Open {
         let id = self.element_or_parent(id);
         self.selected = Some(id);
         self.focus = Some(id);
+        self.mark = None;
         self.grid = Some(Grid::build(&self.doc, id));
         self.tree.reveal(&self.doc, id);
         self.scroll_text_to = Some(self.doc.line_of(self.doc.index.node(id).start));
     }
 
-    /// Highlights `id` in the text view without changing the grid.
+    /// Marks `id` in the grid and tree and highlights it in the text view, without changing the
+    /// grid.
     pub fn focus(&mut self, id: NodeId) {
         self.focus = Some(id);
-        self.scroll_text_to = Some(self.doc.line_of(self.doc.index.node(id).start));
+        let n = self.doc.index.node(id);
+        self.mark = (self.selected != Some(id)).then_some(n.start..n.end);
+        self.scroll_text_to = Some(self.doc.line_of(n.start));
+    }
+
+    /// Highlights the `index`th attribute of `element` in the text view.
+    pub fn mark_attribute(&mut self, element: NodeId, index: u32) {
+        let spans = self.doc.index.attribute_spans(&self.doc.src, element);
+        if let Some(span) = spans.get(index as usize) {
+            self.mark = Some(span.start as u64..span.end as u64);
+            self.scroll_text_to = Some(self.doc.line_of(span.start as u64));
+        }
     }
 
     fn element_or_parent(&self, mut id: NodeId) -> NodeId {

@@ -23,7 +23,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Tree: icons per kind of row (TREE-11)
 - [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
-- [ ] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
+- [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
 - [ ] Integer scrolling for very tall views (D16)
