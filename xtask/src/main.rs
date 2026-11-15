@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+mod package;
+
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -23,11 +25,24 @@ enum Command {
         #[arg(long, default_value = "fixtures/orders.xml")]
         out: PathBuf,
     },
+    /// Build the Linux .deb and .rpm into target/dist (PKG-30, PKG-31). Needs cargo-zigbuild,
+    /// zig and dpkg-deb.
+    Package {
+        /// Use the executables already in target/x86_64-unknown-linux-gnu/release.
+        #[arg(long)]
+        skip_build: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::GenFixture { mib, out } => gen_fixture(mib, &out),
+        Command::Package { skip_build } => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("xtask is in the workspace");
+            package::package(root, skip_build)
+        }
     }
 }
 
