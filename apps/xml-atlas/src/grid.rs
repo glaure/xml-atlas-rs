@@ -187,7 +187,7 @@ fn not_editable(cell: &Cell) -> &'static str {
 }
 
 /// The selected element's own attributes (GRID-11).
-fn attributes(ui: &mut Ui, grid: &Grid) {
+pub(crate) fn attributes(ui: &mut Ui, grid: &Grid) {
     if grid.attributes.is_empty() {
         ui.label(RichText::new("No attributes").weak());
         return;
@@ -371,7 +371,7 @@ fn header_text(grid: &Grid, header: &Header) -> String {
     }
 }
 
-fn column_name(column: &Column) -> String {
+pub(crate) fn column_name(column: &Column) -> String {
     match column {
         Column::Attribute(n) => format!("@{n}"),
         Column::Child(n) => n.clone(),
@@ -464,7 +464,7 @@ fn outline(ui: &Ui) {
         .rect_stroke(ui.max_rect().shrink(1.0), 1.0, stroke, StrokeKind::Inside);
 }
 
-fn draw_cell(ui: &mut Ui, cell: &Cell) {
+pub(crate) fn draw_cell(ui: &mut Ui, cell: &Cell) {
     match cell {
         Cell::Absent => hatch(ui, ui.max_rect()),
         Cell::Value(v) => {

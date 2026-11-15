@@ -54,7 +54,7 @@ The order follows `docs/decisions.md`, D15.
       settings read from the document's own settings comment (FMT-15)
 - [x] Format: remove comments, trim text (FMT-12, FMT-13); compact (FMT-14)
 - [x] Grid: sort by column (GRID-14), hide columns (GRID-15)
-- [ ] Grid: second pane for the clicked cell, to be tried (GRID-16)
+- [x] Grid: second pane for the clicked cell, as an experiment to try (GRID-16)
 
 ## 0.3: Text editing
 

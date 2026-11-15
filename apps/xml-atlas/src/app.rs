@@ -102,6 +102,8 @@ pub struct Open {
     pub grid_edit: Option<crate::grid::CellEditor>,
     /// What the last edit command did, or why it could not; the app shows it.
     pub note: Option<Note>,
+    /// What the pane beside the grid shows for the clicked cell (GRID-16).
+    pub cell_pane: Option<crate::cell_pane::CellPane>,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -372,6 +374,7 @@ impl App {
             grid_cell: None,
             grid_edit: None,
             note: None,
+            cell_pane: None,
         };
         open.problems = open.doc.problems();
         open.tree.set_attributes(self.settings.tree_attributes);
@@ -1066,6 +1069,10 @@ impl App {
                         self.settings.tree_attributes = show;
                     }
                 });
+                ui.checkbox(
+                    &mut self.settings.cell_pane,
+                    "Cell pane beside the grid (experiment)",
+                );
                 ui.separator();
                 ui.label("Theme");
                 ui.radio_value(
@@ -1253,6 +1260,7 @@ impl eframe::App for App {
                 ui.push_id(id, |ui| tree::show(ui, open));
             });
         let layout = self.settings.layout;
+        let cell_pane = self.settings.cell_pane;
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
             // Each layout has its own panel, so each remembers its own height.
@@ -1263,7 +1271,18 @@ impl eframe::App for App {
             grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
-                    ui.push_id(open.id, |ui| crate::grid::show(ui, open));
+                    ui.push_id(open.id, |ui| {
+                        if cell_pane {
+                            let width = ui.available_width() * 0.35;
+                            egui::Panel::right("cell-pane")
+                                .resizable(true)
+                                .default_size(width)
+                                .show(ui, |ui| {
+                                    ui.push_id("cell-pane", |ui| crate::cell_pane::show(ui, open));
+                                });
+                        }
+                        egui::CentralPanel::default().show(ui, |ui| crate::grid::show(ui, open));
+                    });
                 });
             if !open.problems.is_empty() {
                 egui::Panel::bottom("problems")

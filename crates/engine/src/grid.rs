@@ -52,6 +52,29 @@ pub enum CellTarget {
     Text(NodeId),
 }
 
+/// What a clicked row or cell stands for, as the second pane shows it (GRID-16).
+#[derive(Clone, Debug)]
+pub enum Detail {
+    /// One element: its attributes and its children, as the grid would show it selected.
+    Element(Grid),
+    /// Several child elements of the same name: a table of their own.
+    Elements(Grid),
+    /// An attribute value or a text, whole: not cut at [`CELL_CHARS`].
+    Value { name: String, value: String },
+    /// The row has no such attribute, child or text.
+    Absent,
+}
+
+impl Detail {
+    /// The value, when it is one.
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Detail::Value { value, .. } => Some(value),
+            _ => None,
+        }
+    }
+}
+
 /// What the rows are sorted by (GRID-14).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SortBy {
@@ -102,7 +125,6 @@ pub struct Grid {
 impl Grid {
     pub fn build(doc: &Document, parent: NodeId) -> Self {
         let idx = &doc.index;
-        let src = &doc.src;
         let mut rows: Vec<NodeId> = idx
             .children(parent)
             .filter(|&c| idx.node(c).kind == NodeKind::Element)
@@ -110,6 +132,21 @@ impl Grid {
         if rows.is_empty() {
             rows.push(parent);
         }
+        let path = idx.path(&doc.src, parent);
+        let attributes = idx.attributes(&doc.src, parent);
+        Self::with_rows(doc, parent, path, attributes, rows)
+    }
+
+    /// A grid of the given rows, children of `parent`; the columns come from them.
+    fn with_rows(
+        doc: &Document,
+        parent: NodeId,
+        path: String,
+        attributes: Vec<(String, String)>,
+        rows: Vec<NodeId>,
+    ) -> Self {
+        let idx = &doc.index;
+        let src = &doc.src;
         let mut columns = Vec::new();
         for &row in rows.iter().take(COLUMN_SAMPLE) {
             for (name, _) in idx.attributes(src, row) {
@@ -128,8 +165,8 @@ impl Grid {
         }
         Self {
             parent,
-            path: idx.path(src, parent),
-            attributes: idx.attributes(src, parent),
+            path,
+            attributes,
             rows,
             columns,
             view: View::default(),
@@ -287,6 +324,54 @@ impl Grid {
             }),
             Column::Attribute(_) | Column::Text => {
                 (self.cell(doc, row, column) != Cell::Absent).then_some(row)
+            }
+        }
+    }
+
+    /// What the cell of `row` in `column` stands for, or the row itself when `column` is
+    /// `None` (GRID-16). Builds a grid for an element, so it is meant for a click, not for
+    /// every frame.
+    pub fn detail(&self, doc: &Document, row: NodeId, column: Option<&Column>) -> Detail {
+        let idx = &doc.index;
+        let src = &doc.src;
+        let whole = |id| as_parsed(&idx.element_text(src, id));
+        let Some(column) = column else {
+            return Detail::Element(Grid::build(doc, row));
+        };
+        match column {
+            Column::Attribute(attr) => idx
+                .attributes(src, row)
+                .into_iter()
+                .find(|(k, _)| k == attr)
+                .map_or(Detail::Absent, |(k, v)| Detail::Value {
+                    name: format!("@{k}"),
+                    value: v,
+                }),
+            Column::Text if idx.has_text(row) => Detail::Value {
+                name: "text()".into(),
+                value: whole(row),
+            },
+            Column::Text => Detail::Absent,
+            Column::Child(child) => {
+                let matching: Vec<NodeId> = idx
+                    .children(row)
+                    .filter(|&c| {
+                        idx.node(c).kind == NodeKind::Element
+                            && idx.name(src, c) == child.as_bytes()
+                    })
+                    .collect();
+                match matching[..] {
+                    [] => Detail::Absent,
+                    [one] if !has_structure(doc, one) => Detail::Value {
+                        name: child.clone(),
+                        value: whole(one),
+                    },
+                    [one] => Detail::Element(Grid::build(doc, one)),
+                    _ => {
+                        let path = format!("{}/{child}", idx.path(src, row));
+                        Detail::Elements(Grid::with_rows(doc, row, path, Vec::new(), matching))
+                    }
+                }
             }
         }
     }
@@ -741,5 +826,67 @@ mod tests {
         let mut rebuilt = grid_of(&other, "list");
         rebuilt.set_view(&other, view);
         assert_eq!(rebuilt.view(), &View::default());
+    }
+
+    /// The second pane shows what a click stands for, whole (GRID-16).
+    #[test]
+    fn detail_of_a_row_or_cell() {
+        let long = "ä".repeat(CELL_CHARS + 10);
+        let src = format!(
+            "\u{feff}<orders>\r\n  <order id=\"1\" memo=\"{long}\">\r\n    \
+             <customer>Ø &amp; Co</customer>\r\n    <total currency=\"EUR\">12.50</total>\r\n    \
+             <note>a\r\nb</note><note>c</note>\r\n  </order>\r\n</orders>"
+        );
+        let d = doc(&src);
+        let grid = grid_of(&d, "orders");
+        let row = grid.rows[0];
+
+        // A row: the element with its attributes and children.
+        let Detail::Element(g) = grid.detail(&d, row, None) else {
+            panic!("an element")
+        };
+        assert_eq!(g.parent, row);
+        assert_eq!(g.attributes.len(), 2);
+        assert_eq!(g.rows.len(), 4);
+
+        // A value cell: the whole value, decoded, with line ends as parsed.
+        let memo = grid.detail(&d, row, Some(&attr("memo")));
+        assert!(
+            matches!(&memo, Detail::Value { name, value } if name == "@memo" && *value == long)
+        );
+        let customer = grid.detail(&d, row, Some(&child("customer")));
+        assert!(
+            matches!(&customer, Detail::Value { name, value } if name == "customer" && value == "Ø & Co")
+        );
+        assert!(matches!(
+            grid.detail(&d, row, Some(&attr("status"))),
+            Detail::Absent
+        ));
+        assert!(matches!(
+            grid.detail(&d, row, Some(&Column::Text)),
+            Detail::Absent
+        ));
+
+        // A child with an attribute: that element.
+        let Detail::Element(total) = grid.detail(&d, row, Some(&child("total"))) else {
+            panic!("an element")
+        };
+        assert_eq!(
+            total.attributes,
+            [("currency".to_string(), "EUR".to_string())]
+        );
+        assert_eq!(cells(&d, &total, &Column::Text), [value("12.50")]);
+
+        // Several of the same name: a table of them, nothing else of the row.
+        let Detail::Elements(notes) = grid.detail(&d, row, Some(&child("note"))) else {
+            panic!("a table")
+        };
+        assert_eq!(notes.rows.len(), 2);
+        assert_eq!(notes.columns, [Column::Text]);
+        assert_eq!(notes.path, "/orders/order/note");
+        assert_eq!(
+            notes.detail(&d, notes.rows[0], Some(&Column::Text)).value(),
+            Some("a\nb")
+        );
     }
 }
