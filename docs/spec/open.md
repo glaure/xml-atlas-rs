@@ -28,7 +28,11 @@
   or Cancel. The action goes ahead after Don't save, or after Save has written the file; if
   saving fails or is cancelled, nothing is lost and the document stays open. Without unsaved
   changes nothing is asked.
-- **OPEN-12** `[planned]` A list of recently opened files.
+- **OPEN-12** `[done]` File > Open Recent lists the last 10 files opened or saved, newest
+  first, as name and folder; the full path shows on hover. Opening one again moves it to the
+  top. A listed file that no longer exists is reported and leaves the list. Clear list empties
+  it. Opening from the list asks about unsaved changes like any other open (OPEN-11). The list
+  is kept with the other settings (WIN-3); a path that is not valid UTF-8 is not remembered.
 - **OPEN-13** `[done]` A list below the text shows every warning and error of the document,
   as `Line N, column C: message`; it is there only when there are any. Clicking an entry
   selects the element at that place and outlines it. Each problem is also marked in the text:
@@ -55,6 +59,8 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
 - Open `<a><b>one</b><c>two</a>`: the tree shows `a`, `b` and `c`; the status bar names the
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
+- Open two files, delete the first, choose it from File > Open Recent: an error says it is
+  gone and removed from the list; the other document stays open.
 - Format a document, then close the window: the dialog asks. Cancel keeps it open; Don't save
   closes and leaves the file as it was; Save writes the formatted file, then closes.
 - Open `crates/engine/tests/corpus/latin1.xml`: the list shows a warning on line 1 at

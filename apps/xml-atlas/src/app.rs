@@ -135,10 +135,22 @@ impl App {
         match result {
             Ok(doc) => {
                 self.set_document(doc, false);
+                self.settings.add_recent(&path);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
                     "{} — XML Atlas",
                     file_name(&path)
                 )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // A file that is gone leaves the recent list (OPEN-12).
+                let listed = self.settings.recent.len();
+                self.settings.recent.retain(|p| p != &path);
+                let note = if self.settings.recent.len() < listed {
+                    "; removed from recent files"
+                } else {
+                    ""
+                };
+                self.message = Some(format!("Could not open {}: {e}{note}", path.display()));
             }
             Err(e) => self.message = Some(format!("Could not open {}: {e}", path.display())),
         }
@@ -446,12 +458,52 @@ impl App {
         match open.doc.save(&path) {
             Ok(()) => {
                 open.modified = false;
+                self.settings.add_recent(&path);
                 true
             }
             Err(e) => {
                 self.message = Some(format!("Could not save {}: {e}", path.display()));
                 false
             }
+        }
+    }
+
+    /// File > Open Recent (OPEN-12): newest first, the file name with its folder beside it.
+    fn recent_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        let enabled = !self.settings.recent.is_empty();
+        let mut chosen = None;
+        let mut clear = false;
+        ui.add_enabled_ui(enabled, |ui| {
+            ui.menu_button("Open Recent", |ui| {
+                for (i, path) in self.settings.recent.iter().enumerate() {
+                    let folder = path
+                        .parent()
+                        .map(|d| d.display().to_string())
+                        .unwrap_or_default();
+                    let name = RichText::new(format!("{}  {}", i + 1, file_name(path)));
+                    let folder = RichText::new(format!("   {}", shorten_left(&folder, 48))).weak();
+                    let button = ui
+                        .add(
+                            egui::Button::new((name, folder)).wrap_mode(egui::TextWrapMode::Extend),
+                        )
+                        .on_hover_text(path.display().to_string());
+                    if button.clicked() {
+                        chosen = Some(path.clone());
+                    }
+                }
+                ui.separator();
+                if ui.button("Clear list").clicked() {
+                    clear = true;
+                }
+            });
+        });
+        if let Some(path) = chosen {
+            ui.close();
+            self.request(ctx, Action::Open(path));
+        }
+        if clear {
+            ui.close();
+            self.settings.recent.clear();
         }
     }
 
@@ -463,6 +515,7 @@ impl App {
                     ui.close();
                     self.request(&ctx, Action::PickFile);
                 }
+                self.recent_menu(ui, &ctx);
                 let can_save = self.open.as_ref().is_some_and(|o| o.modified);
                 if ui
                     .add_enabled(can_save, egui::Button::new("Save     Ctrl+S"))
@@ -729,6 +782,17 @@ impl Open {
         }
         (cur != ROOT).then_some(cur)
     }
+}
+
+/// `s` cut from the left to at most `max` characters, with `…` where it was cut: the end of
+/// a folder path says more than its start.
+fn shorten_left(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    let tail: String = s.chars().skip(count - (max - 1)).collect();
+    format!("…{tail}")
 }
 
 fn file_name(path: &Path) -> String {

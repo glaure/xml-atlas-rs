@@ -13,6 +13,9 @@ use xml_atlas_engine::find::FindOptions;
 pub const PATH_VARIABLE: &str = "XML_ATLAS_SETTINGS";
 
 const FILE_NAME: &str = "settings.toml";
+
+/// Files kept in File > Open Recent (OPEN-12).
+pub const RECENT_FILES: usize = 10;
 const APP_DIR: &str = "xml-atlas";
 
 /// Where the grid and the text go on the right (WIN-1).
@@ -43,6 +46,8 @@ pub struct Settings {
     /// Attribute rows in the tree (TREE-1).
     pub tree_attributes: bool,
     pub find: FindOptions,
+    /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
+    pub recent: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -53,6 +58,7 @@ impl Default for Settings {
             theme: ThemeChoice::default(),
             tree_attributes: true,
             find: FindOptions::default(),
+            recent: Vec::new(),
         }
     }
 }
@@ -91,6 +97,15 @@ impl Settings {
         xml_atlas_engine::save_atomic(path, self.to_text().as_bytes())
     }
 
+    /// Puts `path` first in the recent files, removing it further down and dropping the oldest
+    /// beyond [`RECENT_FILES`]. Paths are made absolute, so the same file is listed once.
+    pub fn add_recent(&mut self, path: &Path) {
+        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.recent.retain(|p| p != &path);
+        self.recent.insert(0, path);
+        self.recent.truncate(RECENT_FILES);
+    }
+
     /// The settings as TOML.
     pub fn to_text(&self) -> String {
         let f = &self.format;
@@ -120,7 +135,10 @@ impl Settings {
              \n\
              [find]\n\
              match_case = {}\n\
-             whole_word = {}\n",
+             whole_word = {}\n\
+             \n\
+             [recent]\n\
+             files = [\n{}]\n",
             f.indent_size,
             f.tabs,
             f.max_attributes,
@@ -129,6 +147,12 @@ impl Settings {
             self.tree_attributes,
             self.find.match_case,
             self.find.whole_word,
+            self.recent
+                .iter()
+                // A path that is not UTF-8 cannot be written into TOML; it is not remembered.
+                .filter_map(|p| p.to_str())
+                .map(|p| format!("    {},\n", quote(p)))
+                .collect::<String>(),
         )
     }
 
@@ -136,9 +160,27 @@ impl Settings {
     pub fn from_text(text: &str) -> Self {
         let mut s = Self::default();
         let mut section = String::new();
+        // Inside the multi-line `files = [ ... ]` of `[recent]`.
+        let mut in_files = false;
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if in_files {
+                if line == "]" {
+                    in_files = false;
+                } else if let Some(path) = unquote(line.trim_end_matches(',')) {
+                    if s.recent.len() < RECENT_FILES {
+                        s.recent.push(PathBuf::from(path));
+                    }
+                } else {
+                    log::warn!("settings: skipped recent file {line:?}");
+                }
+                continue;
+            }
+            if section == "recent" && line.replace(' ', "") == "files=[" {
+                in_files = true;
                 continue;
             }
             if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
@@ -236,6 +278,30 @@ fn string(value: &str) -> Option<&str> {
     value.strip_prefix('"')?.strip_suffix('"')
 }
 
+/// `s` as a TOML basic string: in quotes, with `\\` and `"` escaped.
+fn quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The value of a TOML basic string written by [`quote`].
+fn unquote(s: &str) -> Option<String> {
+    let inner = s.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next()? {
+                '\\' => out.push('\\'),
+                '"' => out.push('"'),
+                _ => return None,
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +323,10 @@ mod tests {
                 match_case: true,
                 whole_word: true,
             },
+            recent: vec![
+                PathBuf::from("/home/me/Größe \"quoted\".xml"),
+                PathBuf::from(r"C:\Users\me\orders [2].xml"),
+            ],
         };
         assert_eq!(Settings::from_text(&s.to_text()), s);
         assert_eq!(
@@ -283,6 +353,20 @@ mod tests {
         assert_eq!(s.format.tabs, d.format.tabs);
         assert_eq!(s.layout, d.layout);
         assert_eq!(Settings::from_text(""), d);
+    }
+
+    #[test]
+    fn recent_files_newest_first_without_doubles() {
+        let mut s = Settings::default();
+        for i in 0..12 {
+            s.add_recent(Path::new(&format!("/nowhere/{i}.xml")));
+        }
+        assert_eq!(s.recent.len(), RECENT_FILES);
+        assert_eq!(s.recent[0], Path::new("/nowhere/11.xml"));
+        s.add_recent(Path::new("/nowhere/5.xml"));
+        assert_eq!(s.recent[0], Path::new("/nowhere/5.xml"));
+        assert_eq!(s.recent.iter().filter(|p| p.ends_with("5.xml")).count(), 1);
+        assert_eq!(s.recent.len(), RECENT_FILES);
     }
 
     #[test]
