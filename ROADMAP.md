@@ -66,7 +66,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Editable text view: cursor, selection, clipboard, input methods; the tree follows a
       click but not typing (TREE-12). Rules TEXT-16 to TEXT-22, design and order of work in
       `docs/decisions.md`, D19; also integer scrolling (TEXT-8) and long lines (TEXT-5)
-- [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
+- [x] Highlighting across lines, driven by the index (it knows comment and CDATA spans) (TEXT-3)
 - [x] Page very long lines (TEXT-5)
 - [ ] Word wrap (TEXT-13); minified-file mode
 

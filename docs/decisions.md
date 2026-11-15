@@ -87,7 +87,8 @@ Marker, on Windows, Linux and macOS, natively and without wine.
   are decoded only for visible rows. A click shows the row in the text; a double-click makes it
   the selection.
 - **Text:** a line index built with `memchr`. Only visible lines are laid out. The highlighter
-  works line by line, so constructs spanning lines are coloured wrongly (known limitation).
+  works line by line and carries its state to the next line; the first line on screen gets it
+  from the index (TEXT-3).
   Lines are cut at 4,000 bytes for display.
 - **Risk:** minified files that are one huge line. They need wrapping or horizontal paging.
 

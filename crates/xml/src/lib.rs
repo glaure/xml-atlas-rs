@@ -539,6 +539,18 @@ impl Index {
         self.nodes.len() <= 1
     }
 
+    /// The innermost node whose span holds byte `at`; [`ROOT`] when none does. A binary
+    /// search, as nodes start in id order, then a walk up: for a view that needs it every
+    /// frame (TEXT-3).
+    pub fn innermost_at(&self, at: u64) -> NodeId {
+        let k = self.nodes[1..].partition_point(|n| n.start <= at);
+        let mut id = k as NodeId;
+        while id != ROOT && id != NONE && self.node(id).end <= at {
+            id = self.node(id).parent;
+        }
+        if id == NONE { ROOT } else { id }
+    }
+
     /// Children of `id` in document order.
     pub fn children(&self, id: NodeId) -> Children<'_> {
         let end = id as u64 + 1 + self.node(id).descendants as u64;
@@ -1151,6 +1163,41 @@ mod tests {
             err.offset as usize,
             src.iter().position(|&b| b == 0xC4).unwrap()
         );
+    }
+
+    #[test]
+    fn innermost_at_finds_the_node_holding_a_byte() {
+        let src = "\u{feff}<r>\r\n<!-- ä\r\n -->\r\n<a x=\"1\r\n2\">t</a>\r\n</r>\r\n".as_bytes();
+        let idx = index(src);
+        let at = |s: &str| {
+            src.windows(s.len())
+                .position(|w| w == s.as_bytes())
+                .unwrap() as u64
+        };
+        let kind = |at: u64| idx.node(idx.innermost_at(at)).kind;
+        assert_eq!(idx.innermost_at(0), ROOT);
+        assert_eq!(kind(at("<r>")), NodeKind::Element);
+        assert_eq!(kind(at(" -->")), NodeKind::Comment);
+        assert_eq!(kind(at("2\"")), NodeKind::Element);
+        assert_eq!(idx.name(src, idx.innermost_at(at("2\""))), b"a");
+        assert_eq!(idx.name(src, idx.innermost_at(at("</r>"))), b"r");
+        assert_eq!(idx.innermost_at(src.len() as u64 - 1), ROOT);
+        assert_eq!(idx.innermost_at(u64::MAX), ROOT);
+        // Every byte, against a walk down from the root.
+        for b in 0..src.len() as u64 {
+            let mut cur = ROOT;
+            'down: loop {
+                for c in idx.children(cur) {
+                    let n = idx.node(c);
+                    if n.start <= b && b < n.end {
+                        cur = c;
+                        continue 'down;
+                    }
+                }
+                break;
+            }
+            assert_eq!(idx.innermost_at(b), cur, "byte {b}");
+        }
     }
 
     #[test]

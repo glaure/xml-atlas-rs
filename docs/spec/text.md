@@ -8,8 +8,10 @@ of it.
 - **TEXT-1** `[built]` The source is shown in a fixed-width font with line numbers.
 - **TEXT-2** `[built]` Tag names, attribute names, attribute values, comments and punctuation
   have different colours, in light and dark themes.
-- **TEXT-3** `[gap]` Colours are right for comments, CDATA and attribute values that span
-  several lines. Today each line is coloured on its own.
+- **TEXT-3** `[done]` Colours are right for comments, CDATA and attribute values that span
+  several lines. Each line starts where the line above ended; the first line on screen asks the
+  index which node holds its first byte (a binary search) and reads at most that start tag, so
+  scrolling anywhere costs the same. Inside CDATA, `<` and quotes are text.
 - **TEXT-4** `[built]` A tab is shown as four spaces.
 - **TEXT-5** `[done]` Very long lines can be read to the end. A line longer than 4,000 bytes
   is laid out only where it is on screen, so a minified file of one huge line scrolls, is

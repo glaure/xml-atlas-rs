@@ -16,7 +16,7 @@ use xml_atlas_engine::text::{self, Selection, TextEdit};
 use xml_atlas_engine::{Document, FormatOptions};
 
 use crate::app::{Note, Open};
-use crate::highlight::{Palette, line_job};
+use crate::highlight::{self, Palette, line_job};
 use crate::problems_panel;
 use crate::scroll::{self, BAR, RowScroll};
 
@@ -235,6 +235,9 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
         let doc = &open.doc;
         let long_cache = &mut open.text_long;
         long_cache.follow(doc);
+        // The state the next line starts in, when the line above was laid out whole (TEXT-3);
+        // else it comes from the index.
+        let mut carry = None;
         for (i, n) in range.enumerate() {
             let line_start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
             let len = doc.line(n).len() - (line_start - doc.line_starts[n] as usize);
@@ -282,7 +285,10 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 None => text::decode(raw),
             };
             let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
-            let galley = painter.layout_job(line_job(&line, &font, &palette));
+            let state = carry.unwrap_or_else(|| highlight::state_at(&doc.index, &doc.src, start));
+            let (job, end) = line_job(&line, &font, &palette, state);
+            carry = (long.is_none() && pre.is_none()).then_some(end);
+            let galley = painter.layout_job(job);
             let line_w = match long {
                 Some(cols) => cols.total() as f64 * char_w as f64,
                 None => galley.size().x as f64,
