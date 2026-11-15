@@ -75,8 +75,8 @@ impl Row {
     /// Nesting level: 0 for the root element.
     pub fn depth(self, doc: &Document) -> u16 {
         match self {
-            Row::Node(id) => doc.index.node(id).depth.saturating_sub(1),
-            Row::Attribute { element, .. } => doc.index.node(element).depth,
+            Row::Node(id) => doc.index.depth(id).saturating_sub(1),
+            Row::Attribute { element, .. } => doc.index.depth(element),
         }
     }
 }

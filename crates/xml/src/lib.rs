@@ -4,7 +4,7 @@
 //! and records every node as a fixed-size [`Node`] in a single `Vec`. Names, attributes and text
 //! are byte ranges into the source and are decoded only when a view asks for them. This keeps
 //! opening large files close to the speed of the tokenizer itself and memory near
-//! `48 bytes × node count`.
+//! `32 bytes × node count`.
 //!
 //! Parsing never discards work: on malformed input the index holds every node read before the
 //! error, and [`Index::error`] says where and why parsing stopped.
@@ -40,7 +40,14 @@ pub enum NodeKind {
     DocType,
 }
 
+/// Longest element name the index can hold, in bytes.
+pub const MAX_NAME_LEN: usize = u16::MAX as usize;
+
 /// One node. Offsets are byte positions in the source.
+///
+/// Nodes are stored in document order, so a node's subtree is the run of nodes right after
+/// it: the first child of `n` is `n + 1`, and the next sibling follows the subtree. Links,
+/// child counts and depth are derived from that (`docs/decisions.md`, D11).
 #[derive(Clone, Copy, Debug)]
 pub struct Node {
     /// Start of the node (the `<` for markup).
@@ -48,18 +55,23 @@ pub struct Node {
     /// End of the node, exclusive. For elements this is after the end tag.
     pub end: u64,
     pub parent: NodeId,
-    pub first_child: NodeId,
-    pub next_sibling: NodeId,
-    pub child_count: u32,
+    /// Number of nodes in the subtree below this one (children, their children, ...).
+    pub descendants: u32,
     /// Length of the start tag (`<a x="1">`) for elements; equals the span for other kinds.
     pub head_len: u32,
     /// Length of the element name, which starts at `start + 1`. Zero for other kinds.
-    pub name_len: u32,
-    pub depth: u16,
+    pub name_len: u16,
     pub kind: NodeKind,
 }
 
+// The index is the memory limit (D11): keep the node at 32 bytes.
+const _: () = assert!(std::mem::size_of::<Node>() == 32);
+
 impl Node {
+    pub fn has_children(&self) -> bool {
+        self.descendants > 0
+    }
+
     pub fn span(&self) -> Range<usize> {
         self.start as usize..self.end as usize
     }
@@ -107,10 +119,40 @@ impl Index {
 
     /// Children of `id` in document order.
     pub fn children(&self, id: NodeId) -> Children<'_> {
+        let end = id as u64 + 1 + self.node(id).descendants as u64;
         Children {
             index: self,
-            next: self.node(id).first_child,
+            next: id as u64 + 1,
+            end,
         }
+    }
+
+    /// Number of children of `id`. Walks them.
+    pub fn child_count(&self, id: NodeId) -> usize {
+        self.children(id).count()
+    }
+
+    /// The sibling after `id`, if any.
+    pub fn next_sibling(&self, id: NodeId) -> Option<NodeId> {
+        let parent = self.node(id).parent;
+        if parent == NONE {
+            return None;
+        }
+        let next = id as u64 + 1 + self.node(id).descendants as u64;
+        let end = parent as u64 + 1 + self.node(parent).descendants as u64;
+        (next < end).then_some(next as NodeId)
+    }
+
+    /// Number of ancestors of `id`: 0 for the document, 1 for the root element and other
+    /// top-level nodes. Walks up the tree.
+    pub fn depth(&self, id: NodeId) -> u16 {
+        let mut depth = 0;
+        let mut cur = self.node(id).parent;
+        while cur != NONE {
+            depth += 1;
+            cur = self.node(cur).parent;
+        }
+        depth
     }
 
     /// The root element, if the document has one.
@@ -259,18 +301,21 @@ impl Index {
 
 pub struct Children<'a> {
     index: &'a Index,
-    next: NodeId,
+    /// The next child, or `end`. `u64` so that the end of the last subtree cannot overflow.
+    next: u64,
+    /// One past the parent's subtree.
+    end: u64,
 }
 
 impl Iterator for Children<'_> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
-        if self.next == NONE {
+        if self.next >= self.end {
             return None;
         }
-        let id = self.next;
-        self.next = self.index.node(id).next_sibling;
+        let id = self.next as NodeId;
+        self.next += 1 + self.index.node(id).descendants as u64;
         Some(id)
     }
 }
@@ -285,19 +330,14 @@ fn unescape(raw: &[u8]) -> Cow<'_, str> {
     }
 }
 
-/// One frame per open element: the element and its most recent child.
-struct Open {
-    id: NodeId,
-    last_child: NodeId,
-}
-
 struct Builder<'s> {
     src: &'s [u8],
     /// Bytes skipped before parsing starts (the byte order mark). quick-xml drops the mark
     /// without counting it, so every position it reports is this much too low.
     base: u64,
     nodes: Vec<Node>,
-    stack: Vec<Open>,
+    /// The open elements, innermost last; the document at the bottom.
+    stack: Vec<NodeId>,
     element_count: u32,
     max_depth: u16,
 }
@@ -310,12 +350,9 @@ impl<'s> Builder<'s> {
             start: 0,
             end: src.len() as u64,
             parent: NONE,
-            first_child: NONE,
-            next_sibling: NONE,
-            child_count: 0,
+            descendants: 0,
             head_len: 0,
             name_len: 0,
-            depth: 0,
             kind: NodeKind::Document,
         });
         let base = if src.starts_with(UTF8_BOM) {
@@ -327,10 +364,7 @@ impl<'s> Builder<'s> {
             src,
             base,
             nodes,
-            stack: vec![Open {
-                id: ROOT,
-                last_child: NONE,
-            }],
+            stack: vec![ROOT],
             element_count: 0,
             max_depth: 0,
         }
@@ -349,14 +383,19 @@ impl<'s> Builder<'s> {
             let end = base + reader.buffer_position();
             match event {
                 Event::Start(e) => {
-                    let id = self.add(NodeKind::Element, start, end, e.name().as_ref().len());
-                    self.stack.push(Open {
-                        id,
-                        last_child: NONE,
-                    });
+                    let name_len = e.name().as_ref().len();
+                    if name_len > MAX_NAME_LEN {
+                        break Some(name_too_long(start));
+                    }
+                    let id = self.add(NodeKind::Element, start, end, name_len);
+                    self.stack.push(id);
                 }
                 Event::Empty(e) => {
-                    self.add(NodeKind::Element, start, end, e.name().as_ref().len());
+                    let name_len = e.name().as_ref().len();
+                    if name_len > MAX_NAME_LEN {
+                        break Some(name_too_long(start));
+                    }
+                    self.add(NodeKind::Element, start, end, name_len);
                 }
                 Event::End(_) => {
                     if self.stack.len() <= 1 {
@@ -366,7 +405,7 @@ impl<'s> Builder<'s> {
                         });
                     }
                     let open = self.stack.pop().expect("checked above");
-                    self.nodes[open.id as usize].end = end;
+                    self.close(open, end);
                 }
                 Event::Text(t) => {
                     if !self.extend_text(start, end) && !t.bytes().all(|b| b.is_ascii_whitespace())
@@ -396,9 +435,9 @@ impl<'s> Builder<'s> {
                 }
                 Event::Eof => {
                     if self.stack.len() > 1 {
-                        let open = self.stack.last().expect("len > 1");
+                        let open = *self.stack.last().expect("len > 1");
                         let name = String::from_utf8_lossy(
-                            &self.src[self.nodes[open.id as usize].name_span()],
+                            &self.src[self.nodes[open as usize].name_span()],
                         );
                         break Some(ParseError {
                             offset: end,
@@ -411,9 +450,11 @@ impl<'s> Builder<'s> {
         };
         // Close anything left open at the error so spans stay valid.
         let stop = error.as_ref().map_or(self.src.len() as u64, |e| e.offset);
-        for open in self.stack.drain(1..) {
-            self.nodes[open.id as usize].end = stop;
+        while self.stack.len() > 1 {
+            let open = self.stack.pop().expect("len > 1");
+            self.close(open, stop);
         }
+        self.close(ROOT, self.src.len() as u64);
         // The capacity guess can overshoot by up to 2x after growth; give the slack back.
         self.nodes.shrink_to_fit();
         Index {
@@ -427,15 +468,7 @@ impl<'s> Builder<'s> {
     fn add(&mut self, kind: NodeKind, start: u64, end: u64, name_len: usize) -> NodeId {
         let id = self.nodes.len() as NodeId;
         let depth = self.stack.len() as u16;
-        let top = self.stack.last_mut().expect("root frame is never popped");
-        let parent = top.id;
-        if top.last_child == NONE {
-            self.nodes[parent as usize].first_child = id;
-        } else {
-            self.nodes[top.last_child as usize].next_sibling = id;
-        }
-        top.last_child = id;
-        self.nodes[parent as usize].child_count += 1;
+        let parent = *self.stack.last().expect("root frame is never popped");
         if kind == NodeKind::Element {
             self.element_count += 1;
             self.max_depth = self.max_depth.max(depth);
@@ -444,31 +477,45 @@ impl<'s> Builder<'s> {
             start,
             end,
             parent,
-            first_child: NONE,
-            next_sibling: NONE,
-            child_count: 0,
+            descendants: 0,
             head_len: (end - start) as u32,
-            name_len: name_len as u32,
-            depth,
+            name_len: name_len as u16,
             kind,
         });
         id
     }
 
+    /// Ends element `id` at byte `end`; its subtree is everything added since.
+    fn close(&mut self, id: NodeId, end: u64) {
+        let descendants = (self.nodes.len() - 1 - id as usize) as u32;
+        let n = &mut self.nodes[id as usize];
+        n.end = end;
+        n.descendants = descendants;
+    }
+
     /// Text arrives split around entity references (`a &amp; b` is three events). Merge them
-    /// into the previous text node when they are contiguous.
+    /// into the previous text node when they are contiguous. A text node has no children, so
+    /// when the newest node is text that ends where this piece starts, it is the previous
+    /// sibling.
     fn extend_text(&mut self, start: u64, end: u64) -> bool {
-        let last = self.stack.last().expect("root frame").last_child;
-        if last == NONE {
+        let Some(n) = self.nodes.last_mut() else {
             return false;
-        }
-        let n = &mut self.nodes[last as usize];
+        };
         if n.kind == NodeKind::Text && n.end == start {
             n.end = end;
             n.head_len = (end - n.start) as u32;
             return true;
         }
         false
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn name_too_long(offset: u64) -> ParseError {
+    ParseError {
+        offset,
+        message: format!("element name longer than {MAX_NAME_LEN} bytes"),
     }
 }
 
@@ -645,6 +692,76 @@ mod tests {
         assert_eq!(idx.path(src, kids[1]), "/r/y");
         assert_eq!(idx.path(src, kids[2]), "/r/x[2]");
         assert_eq!(idx.path(src, kids[3]), "/r/x[3]");
+    }
+
+    /// Children, siblings and depth derived from subtree sizes agree with the parent links,
+    /// also for a tree cut short by an error.
+    fn check_links(src: &[u8]) {
+        let idx = index(src);
+        let mut kids = vec![Vec::new(); idx.len()];
+        for id in 1..idx.len() as NodeId {
+            kids[idx.node(id).parent as usize].push(id);
+        }
+        for id in 0..idx.len() as NodeId {
+            let k = &kids[id as usize];
+            assert_eq!(idx.children(id).collect::<Vec<_>>(), *k, "children of {id}");
+            assert_eq!(idx.child_count(id), k.len());
+            assert_eq!(idx.node(id).has_children(), !k.is_empty());
+            for w in k.windows(2) {
+                assert_eq!(idx.next_sibling(w[0]), Some(w[1]));
+            }
+            if let Some(&last) = k.last() {
+                assert_eq!(idx.next_sibling(last), None);
+            }
+            let p = idx.node(id).parent;
+            if p != NONE {
+                assert_eq!(idx.depth(id), idx.depth(p) + 1);
+            }
+        }
+        assert_eq!(idx.depth(ROOT), 0);
+        assert_eq!(idx.next_sibling(ROOT), None);
+    }
+
+    #[test]
+    fn links_follow_from_subtree_sizes() {
+        check_links(DOC);
+        check_links(b"<a><b>one</b><c>two<d/></a>");
+        check_links(b"<a><b><c>x");
+        check_links(b"<?xml version=\"1.0\"?><!--c--><r/><!--after-->");
+        check_links(b"");
+        let deep = format!("{}{}", "<x>".repeat(500), "</x>".repeat(500));
+        check_links(deep.as_bytes());
+        let idx = index(deep.as_bytes());
+        assert_eq!(idx.depth(idx.len() as NodeId - 1), 500);
+    }
+
+    /// The real-world files of the engine's corpus: byte order marks, UTF-16, errors, deep
+    /// nesting, one huge line.
+    #[test]
+    fn links_in_the_corpus() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/corpus");
+        let mut n = 0;
+        for entry in std::fs::read_dir(dir).expect("corpus") {
+            let path = entry.expect("entry").path();
+            check_links(&std::fs::read(&path).expect("read"));
+            n += 1;
+        }
+        assert!(n > 5, "corpus not found");
+    }
+
+    #[test]
+    fn refuses_names_the_index_cannot_hold() {
+        let ok = format!("<{}/>", "n".repeat(MAX_NAME_LEN));
+        let idx = index(ok.as_bytes());
+        assert!(idx.error.is_none());
+        assert_eq!(idx.name(ok.as_bytes(), 1).len(), MAX_NAME_LEN);
+        let long = format!("<r><{0}>x</{0}></r>", "n".repeat(MAX_NAME_LEN + 1));
+        let idx = index(long.as_bytes());
+        let err = idx.error.as_ref().expect("too long");
+        assert_eq!(err.offset, 3);
+        assert!(err.message.contains("longer than"));
+        // The tree up to the error is kept.
+        assert_eq!(idx.name(long.as_bytes(), idx.root_element().unwrap()), b"r");
     }
 
     #[test]

@@ -375,7 +375,7 @@ fn is_xml_space(b: u8) -> bool {
 /// their own lines.
 fn can_reindent(src: &[u8], index: &Index, id: NodeId) -> bool {
     let n = index.node(id);
-    if n.kind != NodeKind::Element || n.child_count == 0 {
+    if n.kind != NodeKind::Element || !n.has_children() {
         return false;
     }
     let layout_only = index.children(id).all(|c| {
