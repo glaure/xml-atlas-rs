@@ -29,8 +29,15 @@ The tree shows the structure of the document and is the main way to move around 
   go to the first and last row, Page Up and Page Down move by a screen. The tree scrolls only
   when the selection would leave the screen. Keys are not taken while a text field, such as
   Find, has the keyboard.
-- **TREE-9** `[planned]` Editing from the tree: rename, delete, duplicate and move an element
-  (EDIT-7 to EDIT-10; built in the engine and CLI).
+- **TREE-9** `[done]` Editing from the tree: rename, delete, duplicate and move an element
+  (EDIT-7 to EDIT-10), from the right-click menu of a row or with keys after a click in the
+  tree: F2 renames in place (Enter saves, Escape or a click elsewhere cancels), Delete
+  deletes, Ctrl+D duplicates, Alt+Shift+Up and Alt+Shift+Down move (Alt+Up and Alt+Down are
+  Drill Up and Down, TREE-10). On an attribute row Delete removes the attribute; on a text
+  row it deletes the text. The root element can only be renamed. The selection follows a
+  moved element, goes to a copy, and after a delete to the element that took its place, else
+  the one before, else the parent; expanded rows stay with their elements. A refused edit
+  says why in the status bar. Each edit is one undo step.
   XML Marker's tree cannot do this (XM-23); renaming is the one the owner has missed most.
 - **TREE-10** `[done]` Drill Up (Alt+Up), from anywhere, selects the parent of the selected
   element and outlines the element it came from. Drill Down (Alt+Down) selects the child that
@@ -59,6 +66,11 @@ The tree shows the structure of the document and is the main way to move around 
   selection stays on screen and the grid follows.
 - Select an `order`, press Alt+Down (its `customer`), then Alt+Up: the `order` again, with
   `customer` outlined; Alt+Down returns to `customer`.
+- In a CRLF file with a byte order mark: select the second `order`, F2, rename it
+  `bestellung`, Enter; Ctrl+D; Alt+Shift+Down; right-click the next `order` > Delete. Both
+  tags are renamed, the copy has the same indentation and line endings, the deleted lines
+  are gone. Four Ctrl+Z restore the file byte for byte.
+- F2, type `1x`, Enter: refused, "not a valid XML name"; the document is unchanged.
 
 ## Seen in the reference programs
 

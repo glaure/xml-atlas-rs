@@ -39,7 +39,8 @@ The order follows `docs/decisions.md`, D15.
       keep the selection and expanded rows (FMT-8, FMT-9)
 - [x] Index update of the changed element only (D9, EDIT-4); a worker thread when 1 GiB files
       are edited
-- [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
+- [x] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
+      (GRID-10, TREE-9)
 - [ ] Replace and Replace All (TEXT-14)
 - [x] The edits in the engine and the CLI: set text, set and remove attributes, rename,
       delete, duplicate, move (EDIT-5 to EDIT-10)

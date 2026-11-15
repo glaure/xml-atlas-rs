@@ -5,6 +5,7 @@
 
 use xml_atlas_xml::{Folded, NodeId, NodeKind};
 
+use crate::command::{as_parsed, holds_only_text};
 use crate::{Document, truncate};
 
 /// Rows examined to find the columns. Wide enough for real data, bounded for huge lists
@@ -36,6 +37,16 @@ pub enum Cell {
     Element(String),
     /// Several child elements of the same name: shown by name and count (GRID-12).
     Repeated { name: String, count: usize },
+}
+
+/// What editing a cell changes (GRID-10); see [`crate::command::set_cell`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CellTarget {
+    /// An attribute of the row element; added when the row does not have it.
+    Attribute { element: NodeId, name: String },
+    /// The text of an element that holds only text, or nothing: the row's own, or that of
+    /// the child a cell shows.
+    Text(NodeId),
 }
 
 /// Rows and columns for the children of one element.
@@ -140,6 +151,43 @@ impl Grid {
             Column::Attribute(_) | Column::Text => {
                 (self.cell(doc, row, column) != Cell::Absent).then_some(row)
             }
+        }
+    }
+
+    /// What editing the cell of `row` in `column` would change, and its whole current value
+    /// (not cut at [`CELL_CHARS`]). `None` when the cell cannot be edited: it stands for child
+    /// elements (GRID-12), the child is missing, or the element holds more than text.
+    pub fn edit_target(
+        &self,
+        doc: &Document,
+        row: NodeId,
+        column: &Column,
+    ) -> Option<(CellTarget, String)> {
+        let idx = &doc.index;
+        let src = &doc.src;
+        let text = |id| {
+            holds_only_text(doc, id)
+                .then(|| (CellTarget::Text(id), as_parsed(&idx.element_text(src, id))))
+        };
+        match column {
+            Column::Attribute(name) => {
+                let value = idx
+                    .attributes(src, row)
+                    .into_iter()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v)
+                    .unwrap_or_default();
+                let target = CellTarget::Attribute {
+                    element: row,
+                    name: name.clone(),
+                };
+                Some((target, value))
+            }
+            Column::Text => text(row),
+            Column::Child(_) => match self.cell(doc, row, column) {
+                Cell::Value(_) => text(self.cell_node(doc, row, column)?),
+                _ => None,
+            },
         }
     }
 }
@@ -347,5 +395,60 @@ mod tests {
         assert_eq!(g.cell_node(&d, first, &attr("id")), Some(first));
         assert_eq!(g.cell_node(&d, g.rows[1], &child("total")), None);
         assert_eq!(g.cell_node(&d, g.rows[1], &attr("status")), None);
+    }
+
+    #[test]
+    fn edit_targets_name_what_a_cell_changes_with_its_whole_value() {
+        let long = "ä".repeat(CELL_CHARS + 50);
+        let src = format!(
+            "\u{feff}<r>\r\n  <a id=\"1\" t=\"x &amp; y\"><c>{long}</c><m>p<b/>q</m><n><!-- c --></n><e k=\"v\"/></a>\r\n  <a/>\r\n</r>\r\n"
+        );
+        let doc = doc(&src);
+        let grid = grid_of(&doc, "r");
+        let (a1, a2) = (grid.rows[0], grid.rows[1]);
+        let child = |row, name: &str| {
+            grid.cell_node(&doc, row, &Column::Child(name.into()))
+                .unwrap()
+        };
+        let target = |row, c: Column| grid.edit_target(&doc, row, &c);
+        assert_eq!(
+            target(a1, Column::Attribute("t".into())),
+            Some((
+                CellTarget::Attribute {
+                    element: a1,
+                    name: "t".into()
+                },
+                "x & y".into()
+            ))
+        );
+        // A missing attribute can be added: its value starts empty.
+        assert_eq!(
+            target(a2, Column::Attribute("t".into())),
+            Some((
+                CellTarget::Attribute {
+                    element: a2,
+                    name: "t".into()
+                },
+                String::new()
+            ))
+        );
+        // The whole text, not the 200 characters the cell shows.
+        assert_eq!(
+            target(a1, Column::Child("c".into())),
+            Some((CellTarget::Text(child(a1, "c")), long))
+        );
+        // Mixed content, a comment, a child with attributes, a missing child: not editable.
+        assert_eq!(target(a1, Column::Child("m".into())), None);
+        assert_eq!(target(a1, Column::Child("n".into())), None);
+        assert_eq!(target(a1, Column::Child("e".into())), None);
+        assert_eq!(target(a2, Column::Child("c".into())), None);
+        // An empty row element can take text; one with children cannot.
+        let grid_a = grid_of(&doc, "c");
+        assert_eq!(grid_a.rows, [child(a1, "c")]);
+        assert_eq!(
+            Grid::build(&doc, a2).edit_target(&doc, a2, &Column::Text),
+            Some((CellTarget::Text(a2), String::new()))
+        );
+        assert_eq!(target(a1, Column::Text), None);
     }
 }
