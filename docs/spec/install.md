@@ -66,9 +66,18 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
   Applications. One universal app for Apple silicon and Intel, for macOS 12 and later. The
   app registers for XML files (PKG-4) and opens a file dropped on its Dock icon.
 - **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
-  Apple developer account and notarized, so Gatekeeper opens it without a warning. Whether
-  this runs in CI (with the account's credentials as repository secrets) or as a manual
-  step like PKG-14 is question 1.
+  Apple developer account and notarized, so Gatekeeper opens it without a warning. As for
+  Windows (PKG-14), this is a manual step, and the account's credentials never go into CI:
+  1. The draft release from PKG-14 step 1 also holds an unsigned DMG, with a note that it
+     still needs signing.
+  2. A maintainer with access to the account runs one script on a Mac. It downloads the
+     DMG, signs `xml-atlas-cli` and the app with the Developer ID and the hardened runtime,
+     builds the DMG again from the signed app, signs it, sends it for notarization, staples
+     the ticket to it, checks the signatures and that Gatekeeper accepts it, and uploads the
+     DMG and its new checksum in place of the unsigned one.
+  3. The draft is published only when both the Windows and the macOS files are signed. The
+     Homebrew cask (PKG-22) is updated after that, with the signed DMG's checksum.
+  The script is in the repository, and its steps are written down, as for PKG-14.
 - **PKG-22** `[planned]` `xml-atlas-cli` is inside the app; a Homebrew cask installs the app
   and puts the command on the PATH.
 
@@ -107,6 +116,9 @@ On a fresh virtual machine of each supported system, for each package:
 - Windows: Properties > Digital Signatures of `xml-atlas.exe`, `xml-atlas-cli.exe` and the
   MSI shows the company's certificate (PKG-13). A draft release with unsigned files cannot be
   mistaken for a published one (PKG-14).
+- macOS: on a Mac that has never run XML Atlas, open the downloaded DMG and start the app:
+  no Gatekeeper warning. `spctl --assess -vv` on the app names the company's Developer ID and
+  says "Notarized Developer ID" (PKG-21).
 - With an older version installed and a newer one released: the status bar says so once,
   with a link (PKG-7). Turned off in the settings: nothing is shown and no request is made.
 
@@ -126,6 +138,8 @@ On a fresh virtual machine of each supported system, for each package:
   (Owner, 2026-11-15.)
 - The owner's employer signs for Windows and Apple; Windows signing is a manual step
   (PKG-13, PKG-14, PKG-21). (Owner, 2026-11-15.)
+- macOS signing and notarization are a manual step too, not in CI (PKG-21). (Owner,
+  2026-11-15.)
 - Linux: `.deb` and `.rpm` first, Flatpak next, no AppImage or Snap (PKG-30 to PKG-33).
   (Owner, 2026-11-15.)
 - A notice about new versions is wanted; never an automatic download (PKG-7). (Owner,
@@ -134,6 +148,4 @@ On a fresh virtual machine of each supported system, for each package:
 
 ## Questions
 
-1. macOS signing and notarization (PKG-21): in CI with the developer account's credentials
-   stored as repository secrets, or a manual step like Windows (PKG-14)? CI is simpler to
-   repeat; a manual step keeps the credentials with the company.
+None open.
