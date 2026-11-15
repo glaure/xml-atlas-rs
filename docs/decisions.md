@@ -39,6 +39,7 @@ Marker, on Windows, Linux and macOS, natively and without wine.
 
 - **What:** `crates/xml` makes one pass with quick-xml and writes one fixed-size `Node` (48
   bytes) per node into a single `Vec`. Links (parent, first child, next sibling) are `u32` ids.
+  (Since D11, 32 bytes: a parent id and a subtree size, from which the other links follow.)
   Names, attributes and text are byte ranges into the source, decoded only when a view shows
   them. Whitespace-only text is skipped. Text split around entity references is merged back
   into one node.
@@ -55,7 +56,7 @@ Marker, on Windows, Linux and macOS, natively and without wine.
   3. Splice the new nodes in, and shift the offsets after the edit by the size change.
 
   Shifting offsets is O(n) per edit. Alternatives: store spans relative to the parent, use a
-  piece table, or keep the index in chunks. **Resolved by D9 and D10.**
+  piece table, or keep the index in chunks. **Resolved by D9, D10 and D11.**
 - **Revisit when:** the index costs more than reading the file, or memory per node becomes the
   limit. A SIMD scanner (like simdjson) needs `unsafe`, which is currently forbidden
   workspace-wide.
@@ -146,30 +147,43 @@ Still open, found by the same review:
   node and fixing ids takes 26 ms, and shifting 2.3 M line starts takes 1.4 ms. That is fine in
   the background and too slow per keystroke at 1 GiB (about ten times as much). Taking the index
   out of the keystroke path removes the need for a cleverer structure now.
-- **Must change first:**
-  - Tree expansion is a `Vec<bool>` indexed by node id. Ids move on every re-index, so
-    expansion and selection need to be remapped (ids before the splice stay, ids after it
-    shift by a constant).
-  - Every accessor takes the source as one contiguous `&[u8]`. With D10 a node's bytes can
-    span two pieces, so accessors need a source type that can return borrowed or copied bytes.
-- **Revisit when:** background updates lag visibly at 1 GiB. Then store offsets relative to
-  the parent and links as relative distances, so an edit touches only the ancestors and their
-  following siblings.
+- **Must change first:** tree expansion is a `Vec<bool>` indexed by node id, and the
+  selection, the grid and Find results hold node ids or byte offsets. Ids move on every
+  re-index, so all of them need to be remapped: ids before the splice stay, ids after it
+  shift by a constant.
+- **Since D11 (2026-11-15):** links are subtree sizes, so a splice changes the sizes of the
+  edited element's ancestors and shifts the parent of every node after it; byte offsets
+  after it shift too. The source stays one contiguous `&[u8]` (D10), so the accessors need
+  no source type; that item is dropped.
+- **Revisit when:** background updates lag visibly at 1 GiB. Then store offsets and parents
+  relative to the parent, so an edit touches only the ancestors and their following
+  siblings.
 
-## D10: Piece table instead of a rope
+## D10: One contiguous buffer, edited in place
 
-- **What:** the text buffer for editing is a piece table: the bytes read from the file stay
-  untouched, edits go to an append-only second buffer, and a list of pieces says which ranges
-  make up the document. This supersedes the roadmap's plan to use `ropey`.
+- **What:** the document stays one `Vec<u8>`. An edit replaces a byte range with new bytes
+  (`Vec::splice`); undo and redo keep, per edit, the offset, the removed bytes and the
+  inserted bytes. This supersedes the roadmap's plan to use `ropey`, and the piece table this
+  decision first chose (2026-11-14; changed 2026-11-15 with the owner's agreement).
 - **Why:**
-  - Opening stays zero-copy. A rope copies the whole file into chunks.
-  - Untouched regions are saved byte for byte, including the byte order mark, CRLF line
-    endings and bytes that are not valid UTF-8. `ropey` requires valid UTF-8.
-  - Index offsets into the original buffer stay meaningful.
-  - A snapshot for the worker thread (D9) is cheap: both buffers are append-only.
-  - Undo is a list of piece changes.
-- **Risk:** we write and test it ourselves. Keep it small: pieces in a `Vec` first, with a
-  newline count per piece for the line index; a tree of pieces only if edit counts demand it.
+  - Measured (2026-11-15, release build): replacing a few bytes costs 0.08 ms in the middle of
+    10 MiB, 3.9 ms in the middle of 100 MiB and 8.3 ms at its start (the worst case, every
+    byte moves), 44 to 86 ms at 1 GiB. The owner's files are about 10 MiB. Re-indexing after
+    the edit shifts every following offset anyway (13 ms at 100 MiB, D9), so a piece table
+    would not remove the cost per edit, only part of it.
+  - The piece table's other advantages do not hold here: the file is read into memory
+    anyway (D11), so there is no zero-copy open to keep; and a splice also saves untouched
+    bytes as they were, including the byte order mark, CRLF line endings and bytes that are
+    not valid UTF-8.
+  - The source is read as one `&[u8]` in 54 places in 13 files, and Find searches it with
+    `memchr`. Both keep working unchanged; with pieces every one would need a source type, and
+    Find would have to catch matches across a piece boundary.
+  - The worker thread (D9) gets a copy of the edited element's bytes, not of the document.
+- **Limit:** an edit that touches many places (Replace All, a rename across a million rows)
+  must not be a million splices; it builds the new buffer in one pass, as Format does, and
+  is undone as one step.
+- **Revisit when:** a single edit lags visibly on the largest files people edit. Then a piece
+  table or a gap buffer behind the same edit and undo API.
 
 ## D11: No memory-mapped open for now; shrink the index first
 
@@ -182,6 +196,17 @@ Still open, found by the same review:
   - Shrink `Node` from 48 to about 32 bytes: nodes are stored in document order, so the first
     child of node `n` is `n + 1`, and `child_count` and `depth` can be computed when needed.
   - Do this before the splice code of D9 is written, because that code depends on the layout.
+- **Done (2026-11-15): 32-byte nodes.** A node keeps its byte range, its parent, the number of
+  nodes in its subtree, the start-tag length, a 16-bit name length and its kind. First child,
+  next sibling, child count and depth are derived. An element name longer than 65,535 bytes
+  stops the index with an error, like any other parse error (D3). On the 100 MiB fixture:
+  - index memory (nodes and line starts) 181.8 MiB before, 129.5 MiB after;
+  - CLI open 442-456 ms before, 357-366 ms after, over three alternating rounds; the index
+    stage 374-386 ms before, 290-298 ms after. Building no sibling links is the gain, and it
+    is far outside the layout noise of D18;
+  - GUI, launch until loaded: 1.10-1.11 s best before, 1.06-1.07 s after; peak memory 505 MiB
+    before, 453 MiB after.
+- **Still to do:** folding text children.
 - **Kept open:** D10 keeps the original bytes behind one type, so a mapped file can replace
   the `Vec` later without touching the views.
 
