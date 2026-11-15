@@ -29,7 +29,8 @@ The tree shows the structure of the document and is the main way to move around 
   go to the first and last row, Page Up and Page Down move by a screen. The tree scrolls only
   when the selection would leave the screen. Keys are not taken while a text field, such as
   Find, has the keyboard.
-- **TREE-9** `[planned]` Editing from the tree: rename, delete, duplicate and move an element.
+- **TREE-9** `[planned]` Editing from the tree: rename, delete, duplicate and move an element
+  (EDIT-7 to EDIT-10; built in the engine and CLI).
   XML Marker's tree cannot do this (XM-23); renaming is the one the owner has missed most.
 - **TREE-10** `[done]` Drill Up (Alt+Up), from anywhere, selects the parent of the selected
   element and outlines the element it came from. Drill Down (Alt+Down) selects the child that
