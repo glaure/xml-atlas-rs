@@ -127,15 +127,12 @@ pub fn vertical_bar(ui: &Ui, rect: Rect, id: Id, rows: usize, visible: usize, s:
 }
 
 /// The horizontal scroll bar in `rect`, for content `width` pixels wide of which `view`
-/// show; `left` is how far it is scrolled.
-pub fn horizontal_bar(ui: &Ui, rect: Rect, id: Id, width: f32, view: f32, left: &mut f32) {
+/// show; `left` is how far it is scrolled. In `f64`: a very long line is wider than a
+/// float of pixels can count exactly (TEXT-5).
+pub fn horizontal_bar(ui: &Ui, rect: Rect, id: Id, width: f64, view: f64, left: &mut f64) {
     let room = (width - view).max(0.0);
-    let fraction = if room > 0.0 {
-        (*left / room) as f64
-    } else {
-        0.0
-    };
-    let (at, len) = thumb(rect.width(), view as f64, width as f64, fraction);
+    let fraction = if room > 0.0 { *left / room } else { 0.0 };
+    let (at, len) = thumb(rect.width(), view, width, fraction);
     let thumb_rect = Rect::from_min_size(pos2(rect.left() + at, rect.top()), vec2(len, BAR));
     let resp = ui.interact(rect, id, Sense::click_and_drag());
     if let Some(p) = resp.interact_pointer_pos() {
@@ -150,7 +147,7 @@ pub fn horizontal_bar(ui: &Ui, rect: Rect, id: Id, width: f32, view: f32, left: 
         }
         if resp.dragged() {
             let offset = ui.data(|d| d.get_temp::<f32>(grab)).unwrap_or(len / 2.0);
-            *left = fraction_at(rect.width(), len, p.x - rect.left() - offset) as f32 * room;
+            *left = fraction_at(rect.width(), len, p.x - rect.left() - offset) * room;
         } else if resp.clicked() && !thumb_rect.contains(p) {
             let step = if p.x < thumb_rect.left() { -view } else { view };
             *left = (*left + step).clamp(0.0, room);

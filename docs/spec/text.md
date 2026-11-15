@@ -11,8 +11,12 @@ of it.
 - **TEXT-3** `[gap]` Colours are right for comments, CDATA and attribute values that span
   several lines. Today each line is coloured on its own.
 - **TEXT-4** `[built]` A tab is shown as four spaces.
-- **TEXT-5** `[gap]` Very long lines can be read to the end. Today a line is cut at 4,000
-  bytes.
+- **TEXT-5** `[done]` Very long lines can be read to the end. A line longer than 4,000 bytes
+  is laid out only where it is on screen, so a minified file of one huge line scrolls, is
+  clicked and edited like any other. Find, and a click in tree or grid, scroll sideways to
+  what they show. Measured on a 10 MiB file of one line: counting its columns once
+  10.7 ms; afterwards each frame under 1.5 ms, also at its end; a typed letter about 2 ms,
+  with 2.3 to 3 ms for the frame that shows it.
 - **TEXT-6** `[done]` The selected element is highlighted from its `<` to its last `>`, not by
   whole lines, as in XML Marker (XM-22). On lines in between, the highlight covers the text from
   the first to the last non-blank character.
@@ -24,7 +28,7 @@ of it.
   D16). Checked on the 300 MiB fixture (7,033,083 lines): Ctrl+End shows the last line,
   each wheel notch near the end moves 80 px as near the top, dragging the thumb reaches both
   ends. Line numbers stay in place while the text scrolls sideways.
-- **TEXT-9** `[planned]` The text can be edited: cursor, selection, clipboard, undo. Tree and
+- **TEXT-9** `[done]` The text can be edited: cursor, selection, clipboard, undo. Tree and
   grid follow shortly after each change. TEXT-16 to TEXT-22 say what that means; the design
   is `docs/decisions.md`, D19.
 - **TEXT-10** `[done]` While the text is not well-formed, tree and grid keep showing the
