@@ -18,6 +18,9 @@ pub const TAB_WIDTH: usize = 4;
 /// The UTF-8 byte order mark.
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
+/// Bytes between the checkpoints of [`LineColumns`].
+const CHECKPOINT_BYTES: usize = 4096;
+
 /// A selection: from `anchor`, where it started, to `head`, where the cursor is. Empty when
 /// they are equal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,6 +34,17 @@ pub struct Selection {
 pub struct TextEdit {
     pub edit: Edit,
     pub selection: Selection,
+}
+
+/// Display columns along one long line, so that a view finds what is on screen without
+/// counting from the line's start (TEXT-5): a checkpoint every few kilobytes, each on a
+/// character boundary. Columns count as everywhere here: a tab is [`TAB_WIDTH`], any other
+/// character one, and so is a byte that is not valid UTF-8.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LineColumns {
+    /// `(byte, column)` of each checkpoint, the first at `(0, 0)`.
+    marks: Vec<(usize, usize)>,
+    total: usize,
 }
 
 /// Kinds of characters that words are made of, for moving and deleting by word.
@@ -71,6 +85,107 @@ impl Selection {
             Self::cursor(at)
         }
     }
+}
+
+impl LineColumns {
+    /// Counts the columns of `line` (without its line ending) once.
+    pub fn new(line: &[u8]) -> Self {
+        let mut marks = vec![(0, 0)];
+        let (mut at, mut col) = (0, 0);
+        while at < line.len() {
+            let mut end = (at + CHECKPOINT_BYTES).min(line.len());
+            // Not inside a character: past its continuation bytes, of which it has three
+            // at most.
+            for _ in 0..3 {
+                if end < line.len() && line[end] & 0xC0 == 0x80 {
+                    end += 1;
+                }
+            }
+            col += columns(&line[at..end]);
+            at = end;
+            if at < line.len() {
+                marks.push((at, col));
+            }
+        }
+        Self { marks, total: col }
+    }
+
+    /// Follows a change inside the line, `removed` bytes at byte `at` replaced by `inserted`
+    /// ones, `line` being the line after it: only the stretch between two checkpoints is
+    /// counted again, so typing in a long line costs a few kilobytes, not the line. Returns
+    /// `false`, changing nothing, when the columns must be counted anew.
+    pub fn edit(&mut self, line: &[u8], at: usize, removed: usize, inserted: usize) -> bool {
+        let i = self.marks.partition_point(|&(b, _)| b <= at) - 1;
+        let next = self.marks.get(i + 1).copied();
+        if next.is_some_and(|(b, _)| at + removed > b) {
+            return false;
+        }
+        let delta = inserted as isize - removed as isize;
+        let (b, c) = self.marks[i];
+        let end = next.map_or(line.len(), |(nb, _)| nb.wrapping_add_signed(delta));
+        if end > line.len() || next.is_some() && line[end] & 0xC0 == 0x80 {
+            return false;
+        }
+        let old = next.map_or(self.total - c, |(_, nc)| nc - c);
+        let new = columns(&line[b..end]);
+        for m in &mut self.marks[i + 1..] {
+            m.0 = m.0.wrapping_add_signed(delta);
+            m.1 = m.1 + new - old;
+        }
+        self.total = self.total + new - old;
+        if end - b > 4 * CHECKPOINT_BYTES {
+            *self = Self::new(line);
+        }
+        true
+    }
+
+    /// Columns of the whole line.
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    /// The display column of byte `at` of `line`, a character boundary.
+    pub fn column(&self, line: &[u8], at: usize) -> usize {
+        let i = self.marks.partition_point(|&(b, _)| b <= at) - 1;
+        let (b, c) = self.marks[i];
+        c + columns(&line[b..at])
+    }
+
+    /// The last character boundary of `line` at or before display column `col`, and its
+    /// column (smaller than `col` inside a tab).
+    pub fn at_column(&self, line: &[u8], col: usize) -> (usize, usize) {
+        let i = self.marks.partition_point(|&(_, c)| c <= col) - 1;
+        let (mut at, mut here) = self.marks[i];
+        while at < line.len() {
+            let w = if line[at] == b'\t' { TAB_WIDTH } else { 1 };
+            if here + w > col {
+                break;
+            }
+            here += w;
+            at = next_char(line, at);
+        }
+        (at, here)
+    }
+
+    /// The character boundary `cols` columns after byte `from` of `line`, or its end.
+    pub fn advance(line: &[u8], from: usize, cols: usize) -> usize {
+        let (mut at, mut n) = (from, 0);
+        while at < line.len() && n < cols {
+            n += if line[at] == b'\t' { TAB_WIDTH } else { 1 };
+            at = next_char(line, at);
+        }
+        at
+    }
+}
+
+/// Display columns of `bytes`, which start and end on character boundaries.
+fn columns(bytes: &[u8]) -> usize {
+    let tabs = bytes.iter().filter(|&&b| b == b'\t').count();
+    let chars: usize = bytes
+        .utf8_chunks()
+        .map(|c| c.valid().chars().count() + c.invalid().len())
+        .sum();
+    chars + tabs * (TAB_WIDTH - 1)
 }
 
 /// Letters, digits and `_` make up words.
@@ -865,5 +980,90 @@ mod tests {
         d.undo();
         let c = d.last_change().unwrap();
         assert_eq!((c.at, c.inserted, c.removed), (3, 0, 2));
+    }
+
+    /// Checkpointed columns agree with counting from the line's start, at every boundary of
+    /// a long line with tabs, `ü`, `日`, a byte order mark's bytes, bytes that are not UTF-8
+    /// and a character across every checkpoint.
+    #[test]
+    fn long_line_columns() {
+        let piece = "\t<a x=\"ü\">日本 \u{FEFF}Grüße</a>".as_bytes();
+        let mut line = Vec::new();
+        while line.len() < 3 * CHECKPOINT_BYTES {
+            line.extend_from_slice(piece);
+            line.push(0xE4);
+            line.extend_from_slice(b"\xE6\x97");
+            line.push(b'x');
+        }
+        let cols = LineColumns::new(&line);
+        assert!(cols.marks.len() >= 3);
+        let mut at = 0;
+        let mut col = 0;
+        loop {
+            assert_eq!(cols.column(&line, at), col, "at {at}");
+            assert_eq!(cols.at_column(&line, col), (at, col), "col {col}");
+            if at == line.len() {
+                break;
+            }
+            let w = if line[at] == b'\t' { TAB_WIDTH } else { 1 };
+            if w > 1 {
+                // Inside a tab: the tab's start.
+                assert_eq!(cols.at_column(&line, col + 2), (at, col));
+            }
+            assert_eq!(LineColumns::advance(&line, at, 1), next_char(&line, at));
+            col += w;
+            at = next_char(&line, at);
+        }
+        assert_eq!(cols.total(), col);
+        assert_eq!(cols.at_column(&line, col + 100), (line.len(), col));
+        // The same count as the view and the cursor use.
+        assert_eq!(
+            col,
+            decode(&line).chars().count() + 3 * line.iter().filter(|&&b| b == b'\t').count()
+        );
+        assert_eq!(LineColumns::new(b"").total(), 0);
+    }
+
+    /// Following changes keeps the columns equal to counting the line anew.
+    #[test]
+    fn long_line_columns_follow_changes() {
+        let piece = "\t<a x=\"ü\">日本 Grüße</a>".as_bytes();
+        let mut line = Vec::new();
+        while line.len() < 3 * CHECKPOINT_BYTES {
+            line.extend_from_slice(piece);
+            line.push(0xE4);
+        }
+        let mut cols = LineColumns::new(&line);
+        let mut state = 3u64;
+        let mut below = |n: usize| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 33) as usize) % n.max(1)
+        };
+        let typed: [&[u8]; 5] = [b"x", "ü".as_bytes(), b"\t", "日".as_bytes(), b""];
+        let mut followed = 0;
+        for _ in 0..500 {
+            let at = snap(&line, below(line.len() + 1));
+            let to = snap(&line, (at + below(6)).min(line.len())).max(at);
+            let ins = typed[below(typed.len())];
+            line.splice(at..to, ins.iter().copied());
+            if cols.edit(&line, at, to - at, ins.len()) {
+                followed += 1;
+            } else {
+                cols = LineColumns::new(&line);
+            }
+            let fresh = LineColumns::new(&line);
+            assert_eq!(cols.total(), fresh.total());
+            for probe in [0, at, at + ins.len(), line.len()] {
+                let probe = snap(&line, probe);
+                assert_eq!(
+                    cols.column(&line, probe),
+                    fresh.column(&line, probe),
+                    "at {probe}"
+                );
+            }
+        }
+        assert!(followed > 400, "followed {followed}");
     }
 }

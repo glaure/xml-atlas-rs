@@ -11,19 +11,26 @@ use egui::{
     Align2, Color32, Event, EventFilter, FontId, Galley, IMEPurpose, ImeEvent, Key, Painter, Rect,
     Sense, Stroke, Ui, pos2, vec2,
 };
-use xml_atlas_engine::FormatOptions;
 use xml_atlas_engine::problems::Problem;
 use xml_atlas_engine::text::{self, Selection, TextEdit};
+use xml_atlas_engine::{Document, FormatOptions};
 
 use crate::app::{Note, Open};
 use crate::highlight::{Palette, line_job};
 use crate::problems_panel;
 use crate::scroll::{self, BAR, RowScroll};
 
-/// Lines longer than this are cut for display. Minified one-line files stay responsive;
-/// wrapping and horizontal paging of huge lines are on the roadmap. The cursor stops at the
-/// cut (D19).
-const MAX_LINE_BYTES: usize = 4000;
+/// Lines up to this long are laid out whole. Of a longer one only the columns on screen are,
+/// with [`MARGIN_COLUMNS`] on each side, so a minified file of one huge line stays as quick
+/// as any other (TEXT-5).
+const WHOLE_LINE_BYTES: usize = 4000;
+
+/// Columns laid out beyond each side of the view on a long line.
+const MARGIN_COLUMNS: usize = 64;
+
+/// How far back from the view's left edge a long line's layout looks for a `<` to start
+/// from, so that its colours start right.
+const BACK_TO_TAG_BYTES: usize = 512;
 
 /// A tab is shown as this many spaces (TEXT-4).
 const TAB_WIDTH: usize = text::TAB_WIDTH;
@@ -38,6 +45,15 @@ pub struct Preedit {
     pub text: String,
     /// The part the input method is working on, in characters of `text`.
     pub active: Option<Range<usize>>,
+}
+
+/// Columns of the long lines on screen (TEXT-5), kept up to date with the document.
+#[derive(Clone, Debug, Default)]
+pub struct LongLines {
+    /// The document revision and line count they are for.
+    revision: u64,
+    lines: usize,
+    columns: Vec<(usize, text::LineColumns)>,
 }
 
 /// A preedit shown in a line: before byte `at` of the line as drawn, `chars` columns wide.
@@ -76,7 +92,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     // horizontal one below. The view scrolls by whole lines (D16).
     let area_rect = ui.available_rect_before_wrap();
     ui.allocate_rect(area_rect, Sense::hover());
-    let wide = open.text_width > area_rect.width() - BAR;
+    let wide = open.text_width > (area_rect.width() - BAR) as f64;
     let text_rect = Rect::from_min_max(
         area_rect.min,
         pos2(
@@ -136,6 +152,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     if open.text_scroll.top > max_top {
         open.text_scroll.to(max_top, max_top);
     }
+    let jumped = open.scroll_text_to.is_some();
     if let Some(line) = open.scroll_text_to.take() {
         open.text_scroll
             .to(line.saturating_sub(CONTEXT_LINES), max_top);
@@ -158,7 +175,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     if ui.rect_contains_pointer(area_rect) {
         let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
         open.text_scroll.by(-delta.y, row_h, max_top);
-        open.text_left -= delta.x;
+        open.text_left -= delta.x as f64;
     }
     scroll::vertical_bar(
         ui,
@@ -180,12 +197,12 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 pos2(text_rect.right(), area_rect.bottom()),
             ),
             id.with("h-bar"),
-            open.text_width - gutter,
-            text_view_w,
+            open.text_width - gutter as f64,
+            text_view_w as f64,
             &mut open.text_left,
         );
     }
-    let room = (open.text_width - gutter - text_view_w).max(0.0);
+    let room = (open.text_width - (gutter + text_view_w) as f64).max(0.0);
     open.text_left = open.text_left.clamp(0.0, room);
 
     let reveal = std::mem::take(&mut open.text_reveal);
@@ -211,19 +228,44 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     );
     let painter = ui.painter_at(text_clip);
     let left = open.text_left;
-    let mut widest: f32 = 0.0;
+    let mut widest: f64 = 0.0;
     let mut caret_x = None;
+    let view_columns = (text_view_w / char_w).ceil() as usize;
     {
         let doc = &open.doc;
+        let long_cache = &mut open.text_long;
+        long_cache.follow(doc);
         for (i, n) in range.enumerate() {
-            let start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
-            let len = doc.line(n).len() - (start - doc.line_starts[n] as usize);
-            let raw = &doc.src[start..start + len.min(MAX_LINE_BYTES)];
-            // The preedit, on the cursor's line where the cursor can be drawn.
-            let pre = match (&preedit, sel) {
-                (Some(p), Some(s)) if cursor_line == Some(n) && s.head - start <= raw.len() => {
-                    Some((p, s.head - start))
+            let line_start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
+            let len = doc.line(n).len() - (line_start - doc.line_starts[n] as usize);
+            let full = &doc.src[line_start..line_start + len];
+            // What of the line is laid out: all of a short one; of a long one the columns on
+            // screen and a margin, from a `<` so that the colours start right (TEXT-5).
+            let mut long = None;
+            let (from, to, from_col) = if len <= WHOLE_LINE_BYTES {
+                (0, len, 0)
+            } else {
+                let cols = long_cache.get(n, full);
+                let want = ((left / char_w as f64) as usize).saturating_sub(MARGIN_COLUMNS);
+                let (mut from, _) = cols.at_column(full, want);
+                let back = from.saturating_sub(BACK_TO_TAG_BYTES);
+                if let Some(i) = full[back..from].iter().rposition(|&b| b == b'<') {
+                    from = back + i;
                 }
+                let from_col = cols.column(full, from);
+                let span = want - from_col.min(want) + view_columns + 2 * MARGIN_COLUMNS;
+                let to = text::LineColumns::advance(full, from, span);
+                long = Some(cols);
+                (from, to, from_col)
+            };
+            let start = line_start + from;
+            let raw = &full[from..to];
+            let head_here = sel
+                .map(|s| s.head)
+                .filter(|&h| cursor_line == Some(n) && h >= start && h - start <= raw.len());
+            // The preedit, on the cursor's line where the cursor is laid out.
+            let pre = match (&preedit, head_here) {
+                (Some(p), Some(h)) => Some((p, h - start)),
                 _ => None,
             };
             let shift = pre.map(|(p, at)| Shift {
@@ -241,12 +283,20 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             };
             let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
             let galley = painter.layout_job(line_job(&line, &font, &palette));
-            widest = widest.max(gutter + galley.size().x + 8.0);
+            let line_w = match long {
+                Some(cols) => cols.total() as f64 * char_w as f64,
+                None => galley.size().x as f64,
+            };
+            widest = widest.max(gutter as f64 + line_w + 8.0);
             let y = text_rect.top() - px + i as f32 * row_h;
             let rect =
                 Rect::from_min_size(pos2(text_rect.left(), y), vec2(text_rect.width(), row_h));
-            let origin = pos2(text_rect.left() + gutter - left, y);
-            let line_bytes = start as u64..(start + len) as u64;
+            // Where the laid-out part starts, from the view's left edge: small even when the
+            // line is far wider than a float counts exactly.
+            let from_x = from_col as f64 * char_w as f64;
+            let origin = pos2(text_rect.left() + gutter - (left - from_x) as f32, y);
+            let line_bytes = start as u64..(start + raw.len()) as u64;
+            let whole_line = line_start as u64..(line_start + len) as u64;
             if let Some(r) = &selected {
                 paint_span(
                     &painter,
@@ -288,7 +338,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                         origin.x + col_x(&galley, shown_column(raw, at.min(raw.len()), shift))
                     };
                     let mut right = x(b);
-                    if b > line_bytes.end {
+                    if b > whole_line.end {
                         right += char_w * 0.6;
                     }
                     let r = Rect::from_x_y_ranges(x(a)..=right, rect.y_range());
@@ -305,7 +355,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             let here: Vec<&Problem> = open
                 .problems
                 .iter()
-                .filter(|p| line_bytes.start <= p.offset && p.offset <= line_bytes.end)
+                .filter(|p| whole_line.start <= p.offset && p.offset <= whole_line.end)
                 .collect();
             for p in &here {
                 let color = problems_panel::color(&visuals, p.severity);
@@ -316,21 +366,18 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     font.clone(),
                     color,
                 );
-                let at = ((p.offset - line_bytes.start) as usize).min(raw.len());
+                let at = (p.offset.saturating_sub(line_bytes.start) as usize).min(raw.len());
                 let x = origin.x + col_x(&galley, shown_column(raw, at, shift));
                 let end = galley.size().x.max(x - origin.x + 8.0) + origin.x;
                 squiggle(&painter, x, end.max(x + 8.0), rect.bottom() - 2.0, color);
             }
             // The cursor, where it can be drawn: not past the cut of a long line.
-            if let Some(s) = sel
-                && cursor_line == Some(n)
-                && s.head - start <= raw.len()
-            {
+            if let Some(head) = head_here {
                 // After the preedit, if there is one.
-                let x = origin.x + col_x(&galley, shown_column(raw, s.head - start, shift));
+                let x = origin.x + col_x(&galley, shown_column(raw, head - start, shift));
                 let caret = Rect::from_x_y_ranges(x..=x, rect.y_range());
                 caret_rect = Some(caret);
-                caret_x = Some(x - origin.x);
+                caret_x = Some(from_x + (x - origin.x) as f64);
                 if let Some((p, at)) = pre {
                     let color = visuals.text_color();
                     underline_preedit(&painter, &galley, origin, rect, column(raw, at), p, color);
@@ -352,26 +399,59 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             }
             if let Some(pos) = pointer_pos.filter(|p| rect.y_range().contains(p.y)) {
                 let col = unshift(raw, galley.cursor_from_pos(pos - origin).index.0, shift);
-                let indent = raw.iter().take_while(|b| b.is_ascii_whitespace()).count();
-                under = Some((start + byte_at(raw, col), start + indent));
+                let indent = full.iter().take_while(|b| b.is_ascii_whitespace()).count();
+                under = Some((start + byte_at(raw, col), line_start + indent));
+            }
+            // The cursor on a long line outside what is laid out: where it is, to bring it
+            // into view.
+            if let (Some(cols), Some(s)) = (long, sel)
+                && cursor_line == Some(n)
+                && head_here.is_none()
+            {
+                caret_x = Some(cols.column(full, s.head - line_start) as f64 * char_w as f64);
             }
         }
     }
     open.text_width = widest;
-    // Sideways, the cursor stays in view with a few characters around it.
-    if reveal && let Some(x) = caret_x {
-        let margin = char_w * 4.0;
-        let to = if x - margin < left {
-            (x - margin).max(0.0)
-        } else if x + margin > left + text_view_w {
-            x + margin - text_view_w
-        } else {
-            left
-        };
-        if to != left {
-            open.text_left = to;
-            ui.ctx().request_repaint();
+    // Sideways, the cursor stays in view with a few characters around it, and a match or
+    // item the view jumped to (Find, a click in grid or tree) is shown, however far along a
+    // long line it is.
+    let margin = char_w as f64 * 4.0;
+    let view_w = text_view_w as f64;
+    let mut to = left;
+    if let Some(x) = caret_x.filter(|_| reveal) {
+        if x - margin < left {
+            to = (x - margin).max(0.0);
+        } else if x + margin > left + view_w {
+            to = x + margin - view_w;
         }
+    }
+    if jumped && let Some(m) = &open.mark {
+        // A jump shows the whole match, its start a third into the view when it was not.
+        let doc = &open.doc;
+        let at = m.start as usize;
+        let n = doc.line_of(m.start);
+        let line_start = text::line_start(doc, at);
+        let len = doc.line(n).len() - (line_start - doc.line_starts[n] as usize);
+        let end = (m.end as usize).min(line_start + len);
+        let (a, b) = if len > WHOLE_LINE_BYTES {
+            let full = &doc.src[line_start..line_start + len];
+            let cols = open.text_long.get(n, full);
+            (
+                cols.column(full, at - line_start),
+                cols.column(full, end - line_start),
+            )
+        } else {
+            (text::column(doc, at), text::column(doc, end))
+        };
+        let (x, x_end) = (a as f64 * char_w as f64, b as f64 * char_w as f64);
+        if x < left || x_end > left + view_w {
+            to = (x - view_w / 3.0).max(0.0);
+        }
+    }
+    if to != left {
+        open.text_left = to;
+        ui.ctx().request_repaint();
     }
     let shift = ui.input(|i| i.modifiers.shift);
     let mut interrupt = false;
@@ -413,6 +493,52 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 should_interrupt_composition: interrupt,
             })
         });
+    }
+}
+
+impl LongLines {
+    /// Brings the columns up to the document: after a change that stayed inside one line,
+    /// only that line's columns around it are counted again; after anything else, all are
+    /// counted anew when next shown.
+    fn follow(&mut self, doc: &Document) {
+        if self.revision == doc.revision() && self.lines == doc.line_count() {
+            return;
+        }
+        let change = doc.last_change().filter(|c| {
+            !self.columns.is_empty()
+                && self.revision + 1 == doc.revision()
+                && self.lines == doc.line_count()
+                && !doc.src[c.at..c.at + c.inserted].contains(&b'\n')
+        });
+        match change {
+            Some(c) => {
+                let n = doc.line_of(c.at as u64);
+                let start = text::line_start(doc, c.at);
+                let len = doc.line(n).len() - (start - doc.line_starts[n] as usize);
+                let line = &doc.src[start..start + len];
+                self.columns.retain_mut(|(l, cols)| {
+                    *l != n || cols.edit(line, c.at - start, c.removed, c.inserted)
+                });
+            }
+            None => self.columns.clear(),
+        }
+        self.revision = doc.revision();
+        self.lines = doc.line_count();
+    }
+
+    /// The columns of long line `n`, whose bytes are `line`; counted when first shown.
+    fn get(&mut self, n: usize, line: &[u8]) -> &text::LineColumns {
+        let i = match self.columns.iter().position(|(l, _)| *l == n) {
+            Some(i) => i,
+            None => {
+                if self.columns.len() >= 64 {
+                    self.columns.clear();
+                }
+                self.columns.push((n, text::LineColumns::new(line)));
+                self.columns.len() - 1
+            }
+        };
+        &self.columns[i].1
     }
 }
 

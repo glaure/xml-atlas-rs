@@ -128,10 +128,13 @@ pub struct Open {
     pub text_rows: std::ops::Range<usize>,
     /// How far the text view is scrolled down, by whole lines (D16, TEXT-8).
     pub text_scroll: crate::scroll::RowScroll,
-    /// How far the text view is scrolled sideways, in pixels.
-    pub text_left: f32,
+    /// How far the text view is scrolled sideways, in pixels; `f64`, as a line of 100 MiB is
+    /// about 800 million pixels wide (TEXT-5).
+    pub text_left: f64,
     /// The widest line the text view drew last frame, gutter included.
-    pub text_width: f32,
+    pub text_width: f64,
+    /// Columns of the long lines the text view shows (TEXT-5).
+    pub text_long: crate::text_view::LongLines,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -411,6 +414,7 @@ impl App {
             text_scroll: crate::scroll::RowScroll::default(),
             text_left: 0.0,
             text_width: 0.0,
+            text_long: Default::default(),
             text_preedit: None,
             reparse: None,
             text_rows: 0..0,

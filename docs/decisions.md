@@ -421,6 +421,13 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - **Long lines (TEXT-5).** Lines are cut at 4,000 bytes for display; the cursor cannot be
     put where nothing is drawn. Until lines are paged sideways, the cursor stops at the cut and
     the status bar says why. Minified files, which are one line, need the paging.
+    **Built (2026-11-15):** a line over 4,000 bytes is laid out only from a `<` a little
+    left of the view to a margin past it. `text::LineColumns` keeps a column every 4 KiB of
+    the line, so finding what is on screen costs a few kilobytes; a change inside the line
+    counts only its stretch again (`LineColumns::edit`). The sideways position is an `f64`
+    of pixels, as a 100 MiB line is about 800 million pixels wide; drawing is relative to
+    the laid-out part. Up and Down on a long line still count its columns from its start
+    (`text::column`), so they cost the length of the line; not measured yet.
   - **Integer scrolling (D16).** D16 is due with the first custom text widget. Ctrl+End and
     Page Down must reach every line of a 300 MiB file, which float offsets do not guarantee.
 - **Order of pull requests:**
@@ -467,8 +474,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      the worker takes 54 ms on the UI thread, mostly fresh pages; reusing the buffer, or a
      shared source, would remove it.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
-     **Integer scrolling built (2026-11-15)** for the text view (D16, TEXT-8). Long lines
-     next.
+     **Built (2026-11-15):** integer scrolling for the text view (D16, TEXT-8), then long
+     lines (TEXT-5). With this every step of D19 is built.
      **Done first, as item 6 of "What" (2026-11-15): views follow by the replaced nodes.**
      The index records which ids a local change replaced (`NodeSplice`, from
      `splice_nodes`); `Open::type_edit` follows it in tree and grid instead of building them
