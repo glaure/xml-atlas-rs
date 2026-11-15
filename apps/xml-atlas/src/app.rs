@@ -126,6 +126,12 @@ pub struct Open {
     reparse: Option<Receiver<Reparsed>>,
     /// Lines the text view showed last frame.
     pub text_rows: std::ops::Range<usize>,
+    /// How far the text view is scrolled down, by whole lines (D16, TEXT-8).
+    pub text_scroll: crate::scroll::RowScroll,
+    /// How far the text view is scrolled sideways, in pixels.
+    pub text_left: f32,
+    /// The widest line the text view drew last frame, gutter included.
+    pub text_width: f32,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -402,6 +408,9 @@ impl App {
             text_goal: None,
             text_reveal: false,
             text_focus: false,
+            text_scroll: crate::scroll::RowScroll::default(),
+            text_left: 0.0,
+            text_width: 0.0,
             text_preedit: None,
             reparse: None,
             text_rows: 0..0,

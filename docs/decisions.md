@@ -326,7 +326,15 @@ Still open, found by the same review:
   (8 px there) are lost. Drawing was not affected: rows stayed evenly spaced and highlights
   exact, and every line could still be reached with Find, a click, the keyboard or another
   notch. Files of the owner's size (about 10 MiB, 3.4 million pixels) are far below this.
-  Not built yet; the owner decides when.
+- **Built for the text view (2026-11-15), as D19 planned:** `scroll::RowScroll` keeps the
+  top line as an integer and the pixels of it out of sight; the wheel, Page Up and Down,
+  Ctrl+End, Find and the scroll bars all go through it, and only the lines on screen are
+  laid out. Checked on the 300 MiB fixture: 12 wheel notches up near the end moved exactly
+  960 px (80 px each), 12 down came back; dragging the thumb reaches the first and the last
+  line. Sideways stays a float of pixels: lines are at most a few thousand pixels wide.
+- **Tree and grid keep egui's `ScrollArea`:** at 1.0's sizes they stay below 2^24 pixels,
+  where a float still steps by a pixel (300 MiB: 633,556 grid rows, about 14 million px).
+  They move to `RowScroll` when a file shows lost steps there.
 
 ## D17: The baseline changes the priorities
 
@@ -459,6 +467,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      the worker takes 54 ms on the UI thread, mostly fresh pages; reusing the buffer, or a
      shared source, would remove it.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
+     **Integer scrolling built (2026-11-15)** for the text view (D16, TEXT-8). Long lines
+     next.
      **Done first, as item 6 of "What" (2026-11-15): views follow by the replaced nodes.**
      The index records which ids a local change replaced (`NodeSplice`, from
      `splice_nodes`); `Open::type_edit` follows it in tree and grid instead of building them

@@ -18,6 +18,7 @@ use xml_atlas_engine::text::{self, Selection, TextEdit};
 use crate::app::{Note, Open};
 use crate::highlight::{Palette, line_job};
 use crate::problems_panel;
+use crate::scroll::{self, BAR, RowScroll};
 
 /// Lines longer than this are cut for display. Minified one-line files stay responsive;
 /// wrapping and horizontal paging of huge lines are on the roadmap. The cursor stops at the
@@ -71,8 +72,19 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     let id = focus_id(open.id);
     // The whole text is one widget with the keyboard focus id; the lines only paint. egui
     // keeps the focus only on an id a widget uses, and surrenders it on a click elsewhere.
+    // The text, a vertical scroll bar right of it and, when a line is wider than the view, a
+    // horizontal one below. The view scrolls by whole lines (D16).
     let area_rect = ui.available_rect_before_wrap();
-    let resp = ui.interact(area_rect, id, Sense::click_and_drag());
+    ui.allocate_rect(area_rect, Sense::hover());
+    let wide = open.text_width > area_rect.width() - BAR;
+    let text_rect = Rect::from_min_max(
+        area_rect.min,
+        pos2(
+            area_rect.right() - BAR,
+            area_rect.bottom() - if wide { BAR } else { 0.0 },
+        ),
+    );
+    let resp = ui.interact(text_rect, id, Sense::click_and_drag());
     if std::mem::take(&mut open.text_focus) {
         // After `interact`: egui drops the focus there when the frame has a click elsewhere,
         // such as the one on the Edit menu that asked for it.
@@ -116,35 +128,94 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     let text_fill = visuals.selection.bg_fill;
     let cursor_stroke = Stroke::new(2.0, visuals.text_cursor.stroke.color);
 
-    let mut area = egui::ScrollArea::both().id_salt("text").auto_shrink(false);
+    let total = open.doc.line_count();
+    let visible = ((text_rect.height() / row_h).floor() as usize).max(1);
+    let max_top = RowScroll::max_top(total, visible);
     let cursor_line = open.text_sel.map(|s| open.doc.line_of(s.head as u64));
+    // The document may have become shorter than where the view was.
+    if open.text_scroll.top > max_top {
+        open.text_scroll.to(max_top, max_top);
+    }
     if let Some(line) = open.scroll_text_to.take() {
-        area = area.vertical_scroll_offset(line.saturating_sub(CONTEXT_LINES) as f32 * row_h);
+        open.text_scroll
+            .to(line.saturating_sub(CONTEXT_LINES), max_top);
     } else if open.text_reveal
         && let Some(line) = cursor_line
     {
         // Only when the cursor's line is off screen; the line itself scrolls sideways below.
-        let shown = &open.text_rows;
-        if line < shown.start + 1 || line + 2 > shown.end {
-            let top = if line < shown.start + 1 {
+        let top = open.text_scroll.top;
+        if line < top + 1 || line + 2 > top + visible {
+            let to = if line < top + 1 {
                 line.saturating_sub(CONTEXT_LINES)
             } else {
-                (line + CONTEXT_LINES + 1).saturating_sub(shown.len().max(1))
+                (line + CONTEXT_LINES + 1).saturating_sub(visible)
             };
-            area = area.vertical_scroll_offset(top as f32 * row_h);
+            open.text_scroll.to(to, max_top);
         }
     }
+    // The mouse wheel, by whole lines and the pixels left over, however far down (TEXT-8);
+    // Shift turns it sideways.
+    if ui.rect_contains_pointer(area_rect) {
+        let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
+        open.text_scroll.by(-delta.y, row_h, max_top);
+        open.text_left -= delta.x;
+    }
+    scroll::vertical_bar(
+        ui,
+        Rect::from_min_max(
+            pos2(text_rect.right(), area_rect.top()),
+            pos2(area_rect.right(), text_rect.bottom()),
+        ),
+        id.with("v-bar"),
+        total,
+        visible,
+        &mut open.text_scroll,
+    );
+    let text_view_w = text_rect.width() - gutter;
+    if wide {
+        scroll::horizontal_bar(
+            ui,
+            Rect::from_min_max(
+                pos2(text_rect.left() + gutter, text_rect.bottom()),
+                pos2(text_rect.right(), area_rect.bottom()),
+            ),
+            id.with("h-bar"),
+            open.text_width - gutter,
+            text_view_w,
+            &mut open.text_left,
+        );
+    }
+    let room = (open.text_width - gutter - text_view_w).max(0.0);
+    open.text_left = open.text_left.clamp(0.0, room);
+
     let reveal = std::mem::take(&mut open.text_reveal);
     let sel = open.text_sel;
     let preedit = open.text_preedit.clone();
     let mut caret_rect = None;
     // The byte under the pointer, and the first non-blank byte of its line.
     let mut under: Option<(usize, usize)> = None;
-    let pointer_pos = ui.input(|i| i.pointer.interact_pos());
-    area.show_rows(ui, row_h, open.doc.line_count(), |ui, range| {
-        open.text_rows = range.clone();
+    let pointer_pos = ui
+        .input(|i| i.pointer.interact_pos())
+        .filter(|p| text_rect.contains(*p) || resp.dragged());
+    let RowScroll { top, px } = open.text_scroll;
+    let range = top..(top + visible + 2).min(total);
+    open.text_rows = top..(top + visible).min(total);
+    // Line numbers stay; the text scrolls sideways under its own clip.
+    let numbers = ui.painter_at(Rect::from_min_max(
+        text_rect.min,
+        pos2(text_rect.left() + gutter, text_rect.bottom()),
+    ));
+    let text_clip = Rect::from_min_max(
+        pos2(text_rect.left() + gutter - 4.0, text_rect.top()),
+        text_rect.max,
+    );
+    let painter = ui.painter_at(text_clip);
+    let left = open.text_left;
+    let mut widest: f32 = 0.0;
+    let mut caret_x = None;
+    {
         let doc = &open.doc;
-        for n in range {
+        for (i, n) in range.enumerate() {
             let start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
             let len = doc.line(n).len() - (start - doc.line_starts[n] as usize);
             let raw = &doc.src[start..start + len.min(MAX_LINE_BYTES)];
@@ -169,15 +240,16 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 None => text::decode(raw),
             };
             let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
-            let galley = ui.painter().layout_job(line_job(&line, &font, &palette));
-            let width = (gutter + galley.size().x + 8.0).max(ui.available_width());
-            let (rect, row) = ui.allocate_exact_size(vec2(width, row_h), Sense::hover());
-            let painter = ui.painter();
-            let origin = pos2(rect.left() + gutter, rect.top());
+            let galley = painter.layout_job(line_job(&line, &font, &palette));
+            widest = widest.max(gutter + galley.size().x + 8.0);
+            let y = text_rect.top() - px + i as f32 * row_h;
+            let rect =
+                Rect::from_min_size(pos2(text_rect.left(), y), vec2(text_rect.width(), row_h));
+            let origin = pos2(text_rect.left() + gutter - left, y);
             let line_bytes = start as u64..(start + len) as u64;
             if let Some(r) = &selected {
                 paint_span(
-                    painter,
+                    &painter,
                     &galley,
                     origin,
                     rect,
@@ -192,7 +264,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             if let Some(r) = &mark {
                 let stroke = Some(mark_stroke);
                 paint_span(
-                    painter,
+                    &painter,
                     &galley,
                     origin,
                     rect,
@@ -223,7 +295,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     painter.rect_filled(r, 0.0, text_fill);
                 }
             }
-            painter.text(
+            numbers.text(
                 pos2(rect.left() + gutter - 8.0, rect.center().y),
                 Align2::RIGHT_CENTER,
                 (n + 1).to_string(),
@@ -237,7 +309,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 .collect();
             for p in &here {
                 let color = problems_panel::color(&visuals, p.severity);
-                painter.text(
+                numbers.text(
                     pos2(rect.left() + 2.0, rect.center().y),
                     Align2::LEFT_CENTER,
                     problems_panel::symbol(p.severity),
@@ -247,7 +319,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 let at = ((p.offset - line_bytes.start) as usize).min(raw.len());
                 let x = origin.x + col_x(&galley, shown_column(raw, at, shift));
                 let end = galley.size().x.max(x - origin.x + 8.0) + origin.x;
-                squiggle(painter, x, end.max(x + 8.0), rect.bottom() - 2.0, color);
+                squiggle(&painter, x, end.max(x + 8.0), rect.bottom() - 2.0, color);
             }
             // The cursor, where it can be drawn: not past the cut of a long line.
             if let Some(s) = sel
@@ -258,22 +330,25 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 let x = origin.x + col_x(&galley, shown_column(raw, s.head - start, shift));
                 let caret = Rect::from_x_y_ranges(x..=x, rect.y_range());
                 caret_rect = Some(caret);
+                caret_x = Some(x - origin.x);
                 if let Some((p, at)) = pre {
                     let color = visuals.text_color();
-                    underline_preedit(painter, &galley, origin, rect, column(raw, at), p, color);
+                    underline_preedit(&painter, &galley, origin, rect, column(raw, at), p, color);
                 }
                 if focused {
                     painter
                         .line_segment([caret.center_top(), caret.center_bottom()], cursor_stroke);
                 }
-                if reveal {
-                    ui.scroll_to_rect(caret.expand2(vec2(char_w * 4.0, 0.0)), None);
-                }
             }
             painter.galley(origin, galley.clone(), visuals.text_color());
             if !here.is_empty() {
                 let text: Vec<&str> = here.iter().map(|p| p.message.as_str()).collect();
-                row.on_hover_text(text.join("\n"));
+                ui.interact(
+                    rect.intersect(text_rect),
+                    id.with(("problem", n)),
+                    Sense::hover(),
+                )
+                .on_hover_text(text.join("\n"));
             }
             if let Some(pos) = pointer_pos.filter(|p| rect.y_range().contains(p.y)) {
                 let col = unshift(raw, galley.cursor_from_pos(pos - origin).index.0, shift);
@@ -281,7 +356,23 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 under = Some((start + byte_at(raw, col), start + indent));
             }
         }
-    });
+    }
+    open.text_width = widest;
+    // Sideways, the cursor stays in view with a few characters around it.
+    if reveal && let Some(x) = caret_x {
+        let margin = char_w * 4.0;
+        let to = if x - margin < left {
+            (x - margin).max(0.0)
+        } else if x + margin > left + text_view_w {
+            x + margin - text_view_w
+        } else {
+            left
+        };
+        if to != left {
+            open.text_left = to;
+            ui.ctx().request_repaint();
+        }
+    }
     let shift = ui.input(|i| i.modifiers.shift);
     let mut interrupt = false;
     if let Some((at, line_first)) = under {
