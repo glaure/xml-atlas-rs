@@ -22,9 +22,30 @@
 - **OPEN-6** `[built]` If the file cannot be read, the status bar says why and the document
   that was open stays open.
 - **OPEN-7** `[done]` UTF-8 files open with or without a byte order mark.
-- **OPEN-8** `[gap]` Files in other encodings open correctly. The encoding comes from the byte
-  order mark, then from the XML declaration. Today a Latin-1 or UTF-16 file stops at the first
-  byte that is not UTF-8 and shows an empty tree.
+- **OPEN-8** `[done]` Files in other encodings open correctly, and are saved in their own
+  encoding. The encoding comes from the byte order mark, then from the XML declaration; a
+  UTF-16 file without a byte order mark is told by its first `<?`. Opening converts the file
+  to UTF-8, saving converts it back (`docs/decisions.md`, D23):
+  - Opening and saving without a change gives the file back byte for byte, its byte order
+    mark, line endings and declaration included. UTF-8 files are never converted.
+  - Every encoding of the Encoding Standard is read: UTF-16, the ISO-8859 and Windows code
+    pages, KOI8, Shift_JIS, EUC, GBK, Big5 and more. ISO-8859-1 and Latin-1 are read as
+    Windows-1252, as web browsers do: the same characters, and in 0x80 to 0x9F the ones
+    Windows puts there.
+  - When a file does not convert back to the same bytes (a UTF-16 file with an unpaired
+    surrogate, a byte its encoding does not define), the problems list says so where the
+    first such byte shows as `�`, and the document can be saved only as UTF-8.
+  - A character the encoding cannot hold, such as `日` typed into a Latin-1 file, makes Save
+    refuse: a dialog names the character and its line and column, writes nothing, and offers
+    Show it, Save as UTF-8 and Cancel (the owner's choice, 2026-11-15). Characters are never
+    written as `?` or `&#N;`.
+  - File > Save as UTF-8, there for a file that is not UTF-8, saves the document in UTF-8
+    from then on, without a byte order mark, and changes the declaration's `encoding` to
+    `UTF-8` as an edit that can be undone.
+  - The status bar shows the encoding of a file that is not UTF-8; `xml-atlas-cli stats`
+    prints it, and the CLI's commands write their output in it.
+  Measured (release build, 100 MiB fixture written in each encoding): UTF-8 377 ms as before;
+  Latin-1 553 ms, of which converting 157 ms; UTF-16 632 ms, converting 190 ms.
 - **OPEN-9** `[done]` A file that is not well-formed still opens. Everything before the first
   error is shown. The error is listed and marked where it is (OPEN-13), also when the cause is
   a byte that is not UTF-8.
@@ -35,8 +56,9 @@
   - An end tag that matches no open element is an error and is skipped.
   - Elements still open at the end of the file end there, one error each.
   - A byte that is not UTF-8 is an error; reading goes on from the next `<`. In a Latin-1 file
-    this can skip a start tag, and its end tag is a second error (OPEN-8 reads such files
-    right). A UTF-16 file stops at the first error.
+    this can skip a start tag, and its end tag is a second error. Files whose declaration
+    names their encoding are read right (OPEN-8); this happens only to a file in another
+    encoding that does not say so.
   - Markup that is never closed, such as `<!--` or an open quote in a start tag, runs to the
     end of the file: nothing after it can be recovered.
   At most 1,000 errors are kept; reading goes on after the last. Reading the 100 MiB fixture
@@ -58,8 +80,10 @@
   a sign left of the line number, a wavy line from the place to the end of the line, and the
   message when the pointer rests on the line. The status bar shows the first error; clicking
   it does the same as clicking the entry. The list holds every parse error, up to 1,000
-  (OPEN-10), and these encoding problems: a UTF-16 byte order mark is an error, and a declared
-  encoding other than UTF-8 is a warning that says the text is shown as UTF-8 (see OPEN-8).
+  (OPEN-10), and these encoding warnings (OPEN-8): a declared encoding that is unknown, or
+  UTF-16 in a file that is not, and so read as UTF-8; bytes that do not convert back; a
+  declaration that names another encoding than the UTF-8 the document is saved in (after
+  Save as UTF-8 was undone).
 - **OPEN-14** `[done]` When the file of an open document is changed, deleted or moved on disk
   by another program, a notice above the views says so within about a second, and the tab's
   name turns to the warning colour. The notice offers Reload (not when the file is gone;
@@ -87,6 +111,9 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
 
 - Open each corpus file (byte order mark, CRLF, Latin-1, UTF-16, one huge line, deep nesting):
   the tree shows the root element with its real name and the text view shows readable text.
+- Open `latin1.xml` and `utf16le_bom.xml` from the corpus and save them unchanged: both files
+  are byte for byte as before. Type `日` into the Latin-1 one and save: the dialog names line
+  and column; Save as UTF-8 writes UTF-8 with `encoding="UTF-8"`.
 - Open `<a><b>one</b><c>two</a>`: the tree shows `a`, `b` and `c`; the status bar names the
   mismatched tag; clicking the error goes to line 1.
 - Open a path that does not exist while a document is open: the document stays.
@@ -134,7 +161,10 @@ Details and limits in `reference.md`.
 - Several documents at once (OPEN-5), as tabs in one window. (Owner, 2026-11-15.)
 - A changed file on disk raises a notice (OPEN-14).
 - The owner's files are UTF-8 and about 10 MiB, growing. OPEN-8 (other encodings) matters less
-  than OPEN-7 for them.
+  than OPEN-7 for them, but is in 1.0, so that other people's files open. (Owner, 2026-11-15.)
+- Other encodings are converted to UTF-8 on open and back on save. A character the encoding
+  cannot hold refuses the save and offers Save as UTF-8, rather than writing `&#N;`. (Owner,
+  2026-11-15.)
 
 ## Questions
 

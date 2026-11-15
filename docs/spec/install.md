@@ -95,7 +95,7 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   `io.github.glaure.XmlAtlas`, for every other distribution and for users without
   administrator rights. It may read and write the files the user opens through the
   file dialog or the command line, and nothing else.
-- **PKG-33** `[built]` The `.deb` and `.rpm` install both programs into `/usr/bin`, a
+- **PKG-33** `[done]` The `.deb` and `.rpm` install both programs into `/usr/bin`, a
   desktop entry and icon (so XML Atlas appears in the application menu), and the MIME
   association of PKG-4. They depend only on libraries the distribution provides (the
   graphics, Wayland and X11 libraries the window needs), declared so the package manager
@@ -107,8 +107,10 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   fresh container of Ubuntu 22.04 and 24.04, Debian 12, Rocky Linux 9 and Fedora 43: the
   package manager finds every dependency, both programs run (also on Rocky's glibc 2.34),
   the window opens and draws with OpenGL (on a nested X server), and removing the package
-  removes its files. Not yet tried on a desktop: the menu entry, *Open with*, Wayland, and
-  an upgrade over an older version. dnf notes that the package is not signed (OpenPGP).
+  removes its files. On the owner's Ubuntu 26.04 desktop (Wayland) the `.deb` installs, the
+  menu entry starts it, the dock shows its icon, and *Open with* lists it for XML files
+  (2026-11-15). Not yet tried: an upgrade over an older version. dnf notes that the package
+  is not signed (OpenPGP).
 - **PKG-34** `[planned]` The window works under both Wayland and X11, and follows the
   desktop's light or dark setting (WIN-2), in every package.
 
