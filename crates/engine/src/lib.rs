@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
-pub use edit::{Edit, EditError, History};
+pub use edit::{Edit, EditError, History, Splice};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
 };
@@ -86,22 +86,22 @@ impl Document {
     /// Applies `edit` as one undo step and indexes the document again. On error nothing
     /// changes.
     pub fn apply(&mut self, edit: Edit) -> Result<(), EditError> {
-        self.history.apply(&mut self.src, edit)?;
-        self.reindex();
+        let splice = self.history.apply(&mut self.src, edit)?;
+        self.reindex(splice);
         Ok(())
     }
 
     /// Undoes the last edit; returns its label.
     pub fn undo(&mut self) -> Option<String> {
-        let label = self.history.undo(&mut self.src)?;
-        self.reindex();
+        let (label, splice) = self.history.undo(&mut self.src)?;
+        self.reindex(splice);
         Some(label)
     }
 
     /// Redoes the last undone edit; returns its label.
     pub fn redo(&mut self) -> Option<String> {
-        let label = self.history.redo(&mut self.src)?;
-        self.reindex();
+        let (label, splice) = self.history.redo(&mut self.src)?;
+        self.reindex(splice);
         Some(label)
     }
 
@@ -110,14 +110,22 @@ impl Document {
         self.history.is_modified()
     }
 
-    /// Builds the node and line index again after the source changed. The whole document for
-    /// now; D9 makes this an update of the changed element, off the UI thread.
-    fn reindex(&mut self) {
+    /// Brings the node and line index up to date after the source changed. A single change
+    /// re-indexes only the element around it when it can (D9); anything else indexes the
+    /// whole document.
+    fn reindex(&mut self, splice: Option<Splice>) {
         let t = Instant::now();
-        self.index = xml_atlas_xml::index(&self.src);
+        let updated =
+            splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
+        if !updated {
+            self.index = xml_atlas_xml::index(&self.src);
+        }
         self.timings.index = t.elapsed();
         let t = Instant::now();
-        self.line_starts = line_starts(&self.src);
+        match splice {
+            Some(s) => update_line_starts(&mut self.line_starts, &self.src, s),
+            None => self.line_starts = line_starts(&self.src),
+        }
         self.timings.lines = t.elapsed();
         self.timings.read = Duration::ZERO;
     }
@@ -213,6 +221,22 @@ fn line_starts(src: &[u8]) -> Vec<u64> {
     starts
 }
 
+/// Updates `starts` after `s.removed` bytes at `s.at` became `s.inserted` bytes of `src`:
+/// lines that began inside the removed bytes go, lines beginning in the inserted bytes come
+/// in, and every later line start moves by the difference.
+fn update_line_starts(starts: &mut Vec<u64>, src: &[u8], s: Splice) {
+    let (at, old_end) = (s.at as u64, (s.at + s.removed) as u64);
+    let delta = s.inserted as i64 - s.removed as i64;
+    let lo = starts.partition_point(|&p| p <= at);
+    let hi = starts.partition_point(|&p| p <= old_end);
+    for p in &mut starts[hi..] {
+        *p = p.wrapping_add_signed(delta);
+    }
+    let new =
+        memchr::memchr_iter(b'\n', &src[s.at..s.at + s.inserted]).map(|i| (s.at + i + 1) as u64);
+    starts.splice(lo..hi, new);
+}
+
 /// `s` without leading and trailing whitespace, cut after `max` characters with an ellipsis.
 pub fn truncate(s: &str, max: usize) -> String {
     let s = s.trim();
@@ -262,6 +286,62 @@ fn write_and_replace(tmp: &Path, target: &Path, bytes: &[u8]) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The index and line index after an edit, undo or redo equal those of opening the new
+    /// source, whether the index was updated in place (D9) or built again.
+    fn assert_fresh(doc: &Document, what: &str) {
+        let fresh = Document::from_bytes(doc.src.clone());
+        assert_eq!(doc.index.nodes, fresh.index.nodes, "{what}");
+        assert_eq!(doc.index.element_count, fresh.index.element_count, "{what}");
+        assert_eq!(
+            doc.index
+                .error
+                .as_ref()
+                .map(|e| (e.offset, e.message.clone())),
+            fresh
+                .index
+                .error
+                .as_ref()
+                .map(|e| (e.offset, e.message.clone())),
+            "{what}"
+        );
+        assert_eq!(doc.line_starts, fresh.line_starts, "{what}");
+    }
+
+    #[test]
+    fn edits_undo_and_redo_keep_the_indexes_exact() {
+        let src = "\u{feff}<?xml version=\"1.0\"?>\r\n<r>\r\n  <a x=\"1\">Grüße</a>\r\n  <b>\n    <c/>text<d>&amp;</d>\n  </b>\r\n  <![CDATA[x]]>\r\n</r>\r\n";
+        let snippets = ["<e/>", "\r\n", "\n  <f g=\"h\">i</f>", "ü", "<", "", "x\ny"];
+        let mut doc = Document::from_bytes(src.as_bytes().to_vec());
+        let mut seed: u64 = 7;
+        let mut next = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((seed >> 33) as usize) % n.max(1)
+        };
+        let mut steps = 0;
+        for _ in 0..300 {
+            let at = next(doc.src.len() + 1);
+            let len = next(5).min(doc.src.len() - at);
+            let bytes = snippets[next(snippets.len())];
+            if doc
+                .apply(Edit::new("e").replace(at..at + len, bytes))
+                .is_ok()
+            {
+                steps += 1;
+                assert_fresh(&doc, &format!("edit at {at} -{len} +{bytes:?}"));
+            }
+        }
+        for i in 0..steps {
+            assert!(doc.undo().is_some());
+            assert_fresh(&doc, &format!("undo {i}"));
+        }
+        assert_eq!(doc.src, src.as_bytes());
+        assert!(!doc.is_modified());
+        for i in 0..steps {
+            assert!(doc.redo().is_some());
+            assert_fresh(&doc, &format!("redo {i}"));
+        }
+    }
 
     /// An edit, its undo and its redo each leave an index and line index that match the
     /// source; saving makes the document unmodified.

@@ -18,9 +18,10 @@ built.
   back to that state makes it unmodified again.
 - **EDIT-3** `[done]` Undo keeps up to 512 MiB of old text; beyond that the oldest steps are
   dropped. The newest step is always kept, so the last Format of a large file can be undone.
-- **EDIT-4** `[gap]` Undo, redo and each edit take about as long as opening the file, because
-  the whole file is read again (0.4 s for 100 MiB, 40 ms for 10 MiB). They should take time
-  in proportion to what changed (`docs/decisions.md`, D9).
+- **EDIT-4** `[done]` An edit inside one element, its undo and its redo read again only that
+  element: 10 to 17 ms on a 100 MiB file, under 1 ms on 10 MiB (`docs/decisions.md`, D9).
+  Format, Compact, and changes that leave the document not well-formed read the whole file
+  again (0.4 s for 100 MiB), which also finds and reports the error.
 
 ## Acceptance tests
 

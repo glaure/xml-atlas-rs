@@ -63,7 +63,7 @@ pub const MAX_NAME_LEN: usize = u16::MAX as usize;
 /// An element whose whole content is one text or CDATA section (`<price>12.50</price>`) has no
 /// child node for it: [`Node::folded`] says so, and [`Index::text`] reads it. On typical
 /// documents that is a third of all nodes.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Node {
     /// Start of the node (the `<` for markup).
     pub start: u64,
@@ -113,6 +113,8 @@ pub struct Index {
     pub nodes: Vec<Node>,
     pub error: Option<ParseError>,
     pub element_count: u32,
+    /// Deepest element nesting; the root element is 1. After [`Index::update`] it can be
+    /// higher than the document now has (an upper bound), until the next full index.
     pub max_depth: u16,
 }
 
@@ -122,6 +124,104 @@ pub fn index(src: &[u8]) -> Index {
 }
 
 impl Index {
+    /// Updates the index after `removed` bytes at `at` were replaced by `inserted` bytes;
+    /// `src` is the source after the change. Only the smallest element around the change is
+    /// indexed again and spliced in (`docs/decisions.md`, D9), so the cost follows that
+    /// element plus one pass to shift the nodes after it.
+    ///
+    /// Returns false, with the index unchanged, when that is not possible: the document
+    /// already had an error, no element contains the change with a byte to spare on both
+    /// sides, or the element's new bytes are not one well-formed element on their own. The
+    /// caller then indexes the whole document.
+    pub fn update(&mut self, src: &[u8], at: usize, removed: usize, inserted: usize) -> bool {
+        if self.error.is_some() {
+            return false;
+        }
+        let (at, old_end) = (at as u64, (at + removed) as u64);
+        let delta = inserted as i64 - removed as i64;
+        let Some(e) = self.innermost_around(at, old_end) else {
+            return false;
+        };
+        let old = self.nodes[e as usize];
+        let Some(new_end) = old.end.checked_add_signed(delta) else {
+            return false;
+        };
+        let (start, new_end) = (old.start as usize, new_end as usize);
+        let Some(bytes) = src.get(start..new_end) else {
+            return false;
+        };
+        let frag = index(bytes);
+        let top = frag.nodes.get(1);
+        let whole = top.is_some_and(|n| {
+            n.kind == NodeKind::Element
+                && n.start == 0
+                && n.end == bytes.len() as u64
+                && n.descendants as usize + 2 == frag.nodes.len()
+        });
+        if frag.error.is_some() || !whole {
+            return false;
+        }
+        let after = e as usize + 1 + old.descendants as usize;
+        let old_elements = self.nodes[e as usize..after]
+            .iter()
+            .filter(|n| n.kind == NodeKind::Element)
+            .count() as u32;
+        let new_count = frag.nodes.len() - 1;
+        let dn = new_count as i64 - (after - e as usize) as i64;
+        let depth = self.depth(e);
+        // Nodes after the element move by `delta` bytes and `dn` ids; parents before it stay.
+        for n in &mut self.nodes[after..] {
+            n.start = n.start.wrapping_add_signed(delta);
+            n.end = n.end.wrapping_add_signed(delta);
+            if n.parent != NONE && n.parent as usize >= after {
+                n.parent = (n.parent as i64 + dn) as NodeId;
+            }
+        }
+        // The ancestors end later or earlier and hold more or fewer nodes.
+        let mut p = old.parent;
+        while p != NONE {
+            let n = &mut self.nodes[p as usize];
+            n.end = n.end.wrapping_add_signed(delta);
+            n.descendants = (n.descendants as i64 + dn) as u32;
+            p = n.parent;
+        }
+        let base = old.start;
+        let spliced = frag.nodes[1..].iter().map(|n| Node {
+            start: n.start + base,
+            end: n.end + base,
+            parent: if n.parent == ROOT {
+                old.parent
+            } else {
+                e + n.parent - 1
+            },
+            ..*n
+        });
+        self.nodes.splice(e as usize..after, spliced);
+        self.element_count = self.element_count - old_elements + frag.element_count;
+        self.max_depth = self.max_depth.max(depth - 1 + frag.max_depth);
+        true
+    }
+
+    /// The innermost element whose span contains `at..end` with at least one byte of the
+    /// element before and after it, so that its start and end stay where they were.
+    fn innermost_around(&self, at: u64, end: u64) -> Option<NodeId> {
+        let mut cur = ROOT;
+        'descend: loop {
+            for c in self.children(cur) {
+                let n = self.node(c);
+                if n.start >= at {
+                    break;
+                }
+                if n.kind == NodeKind::Element && end < n.end {
+                    cur = c;
+                    continue 'descend;
+                }
+            }
+            break;
+        }
+        (cur != ROOT).then_some(cur)
+    }
+
     pub fn node(&self, id: NodeId) -> &Node {
         &self.nodes[id as usize]
     }
@@ -963,6 +1063,126 @@ mod tests {
         assert_eq!(b.element_at_position(&[0, 3]), None);
         assert_eq!(b.element_at_position(&[]), None);
         assert_eq!(a.element_position(ROOT), Vec::<u32>::new());
+    }
+
+    /// Small generator for edits; no dependency needed.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n.max(1)
+        }
+    }
+
+    const SNIPPETS: &[&str] = &[
+        "<x/>",
+        "<y a=\"1\">t</y>",
+        "text",
+        "&amp;",
+        "</",
+        "<",
+        "\"",
+        "\r\n",
+        "<!--c-->",
+        "<![CDATA[z]]>",
+        "é",
+        " ",
+        "\n",
+        "<b>",
+        "</b>",
+        "=",
+        "q",
+    ];
+
+    /// Applies random single changes to `src` and checks that whenever [`Index::update`]
+    /// accepts one, the result equals a full index of the new source. Returns how many it
+    /// accepted.
+    fn check_updates(mut src: Vec<u8>, seed: u64, rounds: usize) -> usize {
+        let mut rng = Lcg(seed);
+        let mut idx = index(&src);
+        let mut accepted = 0;
+        for _ in 0..rounds {
+            let at = rng.below(src.len() + 1);
+            let removed = rng.below(7).min(src.len() - at);
+            let inserted: &[u8] = if rng.below(3) == 0 {
+                b""
+            } else {
+                SNIPPETS[rng.below(SNIPPETS.len())].as_bytes()
+            };
+            let old: Vec<u8> = src
+                .splice(at..at + removed, inserted.iter().copied())
+                .collect();
+            let full = index(&src);
+            if idx.update(&src, at, removed, inserted.len()) {
+                accepted += 1;
+                assert_eq!(
+                    idx.nodes, full.nodes,
+                    "seed {seed}: at {at} -{removed} +{inserted:?}"
+                );
+                assert_eq!(idx.element_count, full.element_count);
+                assert!(idx.error.is_none() && full.error.is_none());
+                assert!(idx.max_depth >= full.max_depth);
+            } else if full.error.is_some() && idx.error.is_none() {
+                // Keep editing a well-formed document: take back a change that broke it.
+                src.splice(at..at + inserted.len(), old);
+            } else {
+                idx = full;
+            }
+        }
+        accepted
+    }
+
+    #[test]
+    fn updates_match_a_full_index() {
+        let mut accepted = 0;
+        let mut total = 0;
+        for seed in 0..20 {
+            accepted += check_updates(DOC.to_vec(), seed, 200);
+            total += 200;
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/corpus");
+        for (i, entry) in std::fs::read_dir(dir).expect("corpus").enumerate() {
+            let src = std::fs::read(entry.expect("entry").path()).expect("read");
+            accepted += check_updates(src, i as u64, 200);
+            total += 200;
+        }
+        // Most random edits break the document; enough must take the fast path to test it.
+        assert!(
+            accepted * 10 > total,
+            "only {accepted} of {total} updates were local"
+        );
+    }
+
+    #[test]
+    fn update_handles_typical_edits_locally() {
+        let src = DOC.to_vec();
+        let edits: &[(&[u8], &[u8])] = &[
+            (b"12.50", b"13"),              // folded text
+            (b"<price>", b"<cost>"),        // start tag only: not well-formed alone
+            (b"lang=\"en &amp; de\"", b""), // an attribute
+            (b"<book id=\"b2\"/>", b""),    // a whole element
+            (b"a < b", b"a <<< b"),         // inside CDATA
+        ];
+        let mut local = Vec::new();
+        for (from, to) in edits {
+            let at = src.windows(from.len()).position(|w| w == *from).unwrap();
+            let mut new = src.clone();
+            new.splice(at..at + from.len(), to.iter().copied());
+            let mut idx = index(&src);
+            let ok = idx.update(&new, at, from.len(), to.len());
+            if ok {
+                assert_eq!(idx.nodes, index(&new).nodes);
+            }
+            local.push(ok);
+        }
+        assert_eq!(local, [true, false, true, true, true]);
+        // An index with an error always needs the full pass.
+        let mut broken = index(b"<a><b></a>");
+        assert!(!broken.update(b"<a><c></a>", 4, 1, 1));
     }
 
     #[test]
