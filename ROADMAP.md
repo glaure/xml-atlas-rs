@@ -1,6 +1,7 @@
 # Roadmap
 
-The order follows `docs/decisions.md`, D15.
+The order follows `docs/decisions.md`, D15. Version 1.0 is everything here except the items
+marked *after 1.0* (D20): all of 0.4 and the macOS package.
 
 ## 0.1: Viewer you can trust on real files (current)
 
@@ -21,7 +22,7 @@ The order follows `docs/decisions.md`, D15.
 - [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
 - [x] Tree: icons per kind of row (TREE-11)
-- [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
+- [x] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
@@ -66,7 +67,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
 - [ ] Word wrap (TEXT-13); page very long lines; minified-file mode
 
-## 0.4: Power features
+## 0.4: Power features (after 1.0, D20)
 
 - [ ] XPath query panel
 - [ ] Schema (XSD) validation
@@ -75,10 +76,12 @@ The order follows `docs/decisions.md`, D15.
 
 ## Distribution and automation
 
-- [ ] Packages, built by CI from a version tag (`docs/spec/install.md`, PKG-1 to PKG-34):
-      Windows MSI and zip with a manual signing step, macOS DMG (universal, Homebrew cask)
-      with a manual signing and notarization step, Linux `.deb` (Ubuntu, Debian) and `.rpm`
-      (RHEL, Fedora), then Flatpak
+- [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): Windows MSI
+      and zip with a manual signing step, Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL,
+      Fedora)
+- [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
+- [ ] macOS DMG (universal, Homebrew cask) with a manual signing and notarization step
+      (*after 1.0*, D20)
 - [ ] Notice when a newer version is released (PKG-7)
 - [ ] JSON control channel and MCP server over the engine commands
 - [ ] Web build (WebAssembly)

@@ -472,6 +472,16 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     checking on screen with a real input method. X11 with ibus is checked (step 4); a CJK
     input method, Wayland, Windows and macOS are not.
 
+## D20: What 1.0 holds
+
+- **What (owner, 2026-11-15):** 1.0 is everything on the roadmap up to and including 0.3,
+  with packages for Windows and Linux (`docs/spec/install.md`). After 1.0 come all of 0.4
+  (the XPath query panel, schema (XSD) validation, importing other XML files, memory-mapped
+  open for files larger than RAM) and the macOS package.
+- **Packages:** for Windows the MSI and the zip (PKG-10 to PKG-14); for Linux the `.deb` and
+  the `.rpm` (PKG-30, PKG-31, PKG-33, PKG-34). The Flatpak stays after them, as PKG-32 says.
+  Until there is a macOS package, a release waits only for the Windows signing (PKG-14).
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
