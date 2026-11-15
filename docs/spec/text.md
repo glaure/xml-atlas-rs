@@ -51,9 +51,12 @@ of it.
   clipboard text with each line break written as the file's line ending, the one the file
   had last even when the text holds no line break any more (Select All, Cut, Paste gives the
   file back). Cut and Paste are one undo step each, never joined with typing (TEXT-20).
-- **TEXT-19** `[planned]` Input methods: dead keys, compose sequences and input method
+- **TEXT-19** `[done]` Input methods: dead keys, compose sequences and input method
   editors (Chinese, Japanese, Korean) work. While composing, the text being composed is shown
-  underlined at the cursor; only what is committed goes into the document, as one change.
+  underlined at the cursor, the part being worked on underlined more heavily; only what is
+  committed goes into the document, as typing (TEXT-20). A click in the text, or leaving the
+  text view, ends the composition without committing it. The input method's window opens at
+  the cursor.
 - **TEXT-20** `[done]` Undo while typing goes word by word (EDIT-1): a word typed after a
   space or punctuation starts a new undo step, so `Grüße, Welt` is undone as `Welt`, then
   `Grüße, `. A run of Backspace or Delete is one step. A step also ends when the cursor is
