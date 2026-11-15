@@ -69,7 +69,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       `docs/decisions.md`, D19; also integer scrolling (TEXT-8) and long lines (TEXT-5)
 - [x] Highlighting across lines, driven by the index (it knows comment and CDATA spans) (TEXT-3)
 - [x] Page very long lines (TEXT-5)
-- [ ] Word wrap (TEXT-13); minified-file mode
+- [x] Word wrap (TEXT-13)
+- [ ] Minified-file mode
 
 ## 0.4: Power features (after 1.0, D20)
 

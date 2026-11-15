@@ -70,8 +70,9 @@ enum Role {
     Punct,
 }
 
-/// Lays out `line`, which starts in state `start`. Returns the job and the state the next
-/// line starts in.
+/// Lays out `line`, which starts in state `start`. Returns the job and the state at its end:
+/// what the next row of a wrapped line starts in (TEXT-13). The next line starts in
+/// [`after_line_break`] of it.
 pub fn line_job(line: &str, font: &FontId, p: &Palette, start: State) -> (LayoutJob, State) {
     let mut job = LayoutJob::default();
     let end = walk(line.as_bytes(), start, |r, role| {
@@ -93,13 +94,17 @@ pub fn line_job(line: &str, font: &FontId, p: &Palette, start: State) -> (Layout
             },
         );
     });
-    // The line break after an element name ends the name.
-    let next = if end == State::TagName {
+    (job, end)
+}
+
+/// The state a line starts in after a line that ended in `end`: the line break after an
+/// element name ends the name.
+pub fn after_line_break(end: State) -> State {
+    if end == State::TagName {
         State::InTag
     } else {
         end
-    };
-    (job, next)
+    }
 }
 
 /// The state at byte `at` of the source, from the node that holds it: what a line starting
@@ -251,7 +256,7 @@ mod tests {
                 (job.text[range].to_string(), s.format.color)
             })
             .collect();
-        (pieces, end)
+        (pieces, after_line_break(end))
     }
 
     /// A comment, a CDATA section and an attribute value over several lines, with a byte order

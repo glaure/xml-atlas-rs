@@ -47,6 +47,8 @@ pub struct Settings {
     pub tree_attributes: bool,
     /// The pane beside the grid for the clicked cell (GRID-16).
     pub cell_pane: bool,
+    /// Long lines wrap in the text view (TEXT-13).
+    pub word_wrap: bool,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
@@ -60,6 +62,7 @@ impl Default for Settings {
             theme: ThemeChoice::default(),
             tree_attributes: true,
             cell_pane: true,
+            word_wrap: false,
             find: FindOptions::default(),
             recent: Vec::new(),
         }
@@ -136,6 +139,7 @@ impl Settings {
              theme = \"{theme}\"\n\
              tree_attributes = {}\n\
              cell_pane = {}\n\
+             word_wrap = {}\n\
              \n\
              [find]\n\
              match_case = {}\n\
@@ -150,6 +154,7 @@ impl Settings {
             f.trim_text,
             self.tree_attributes,
             self.cell_pane,
+            self.word_wrap,
             self.find.match_case,
             self.find.whole_word,
             self.recent
@@ -222,6 +227,7 @@ impl Settings {
                 ),
                 ("view", "tree_attributes") => set(&mut s.tree_attributes, boolean(value)),
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
+                ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("find", "match_case") => set(&mut s.find.match_case, boolean(value)),
                 ("find", "whole_word") => set(&mut s.find.whole_word, boolean(value)),
                 _ => false,
@@ -326,6 +332,7 @@ mod tests {
             theme: ThemeChoice::Light,
             tree_attributes: false,
             cell_pane: false,
+            word_wrap: true,
             find: FindOptions {
                 match_case: true,
                 whole_word: true,

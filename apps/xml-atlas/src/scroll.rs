@@ -87,18 +87,56 @@ fn fraction_at(track: f32, len: f32, at: f32) -> f64 {
     }
 }
 
+/// What the user did with a vertical scroll bar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BarMove {
+    /// Dragged the thumb to this fraction of the way, from 0 at the top to 1 at the bottom.
+    To(f64),
+    /// Clicked above the thumb (`-1`) or below it (`1`): a page that way.
+    Page(isize),
+}
+
 /// The vertical scroll bar in `rect`, for `rows` rows of which `visible` fit. Dragging the
 /// thumb moves the view; a click beside it moves it by a page.
 pub fn vertical_bar(ui: &Ui, rect: Rect, id: Id, rows: usize, visible: usize, s: &mut RowScroll) {
     let max_top = RowScroll::max_top(rows, visible);
-    let (at, len) = thumb(
-        rect.height(),
+    let moved = vertical_bar_at(
+        ui,
+        rect,
+        id,
         visible as f64,
         rows as f64,
         s.fraction(max_top),
     );
+    match moved {
+        Some(BarMove::To(f)) => s.to((f * max_top as f64).round() as usize, max_top),
+        Some(BarMove::Page(dir)) => {
+            let page = visible.saturating_sub(1).max(1);
+            let top = if dir < 0 {
+                s.top.saturating_sub(page)
+            } else {
+                s.top + page
+            };
+            s.to(top, max_top);
+        }
+        None => {}
+    }
+}
+
+/// A vertical scroll bar in `rect` whose thumb stands for `shown` of `total` units and is
+/// `fraction` of the way down; returns what the user did with it.
+pub fn vertical_bar_at(
+    ui: &Ui,
+    rect: Rect,
+    id: Id,
+    shown: f64,
+    total: f64,
+    fraction: f64,
+) -> Option<BarMove> {
+    let (at, len) = thumb(rect.height(), shown, total, fraction);
     let thumb_rect = Rect::from_min_size(pos2(rect.left(), rect.top() + at), vec2(BAR, len));
     let resp = ui.interact(rect, id, Sense::click_and_drag());
+    let mut moved = None;
     if let Some(p) = resp.interact_pointer_pos() {
         let grab = id.with("grab");
         if resp.drag_started() {
@@ -112,18 +150,13 @@ pub fn vertical_bar(ui: &Ui, rect: Rect, id: Id, rows: usize, visible: usize, s:
         if resp.dragged() {
             let offset = ui.data(|d| d.get_temp::<f32>(grab)).unwrap_or(len / 2.0);
             let f = fraction_at(rect.height(), len, p.y - rect.top() - offset);
-            s.to((f * max_top as f64).round() as usize, max_top);
+            moved = Some(BarMove::To(f));
         } else if resp.clicked() && !thumb_rect.contains(p) {
-            let page = visible.saturating_sub(1).max(1);
-            let top = if p.y < thumb_rect.top() {
-                s.top.saturating_sub(page)
-            } else {
-                s.top + page
-            };
-            s.to(top, max_top);
+            moved = Some(BarMove::Page(if p.y < thumb_rect.top() { -1 } else { 1 }));
         }
     }
     paint_bar(ui, rect, thumb_rect, resp.hovered() || resp.dragged());
+    moved
 }
 
 /// The horizontal scroll bar in `rect`, for content `width` pixels wide of which `view`
