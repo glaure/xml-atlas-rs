@@ -18,9 +18,11 @@ Format makes the nesting visible without changing what the document means.
 - **FMT-6** `[done]` Formatting a formatted document changes nothing.
 - **FMT-7** `[done]` A document that is not well-formed is not formatted; the status bar says
   why.
-- **FMT-8** `[gap]` After Format, the selection and the expanded tree rows are as before.
-  Today the selection returns to the root element.
-- **FMT-9** `[planned]` Format can be undone. XML Marker cannot undo Indent (XM-57).
+- **FMT-8** `[done]` After Format, Compact, and their undo and redo, the selection and the
+  expanded tree rows are as before. Elements are found again by their position among their
+  element siblings, so this holds also when Remove comments took comments out.
+- **FMT-9** `[done]` Format and Compact can be undone and redone (EDIT-1). XML Marker cannot
+  undo Indent (XM-57).
 - **FMT-10** `[done]` Indent size and tabs or spaces are settings (Edit > Format options).
   The default is four spaces, as in XML Marker (XM-50). With tabs, each level is one tab. The
   status bar says which options Format used.
@@ -72,6 +74,9 @@ Format makes the nesting visible without changing what the document means.
 - `<name>Customer 5 &amp; Sons</name>` comes out unchanged.
 - The 100 MiB fixture: the output differs from the input only in whitespace between tags.
 - A CRLF file with a byte order mark keeps both.
+- Open the 10 MiB fixture, expand an order and its customer, select `name`, Format: the same
+  rows are expanded and `name` is still selected. Ctrl+Z: the file is as it was and no longer
+  marked modified; the selection is unchanged. Ctrl+Y: formatted again.
 - A file with the settings comment of FMT-15 (indent 4, 6 attributes) and a tag with 7
   attributes: Format puts each of the 7 on its own line, 8 spaces in; a tag with 6 stays as it
   is; the comment is unchanged; formatting again changes nothing.

@@ -35,7 +35,8 @@ The order follows `docs/decisions.md`, D15.
 
 - [x] Smaller index: 32-byte nodes (D11)
 - [x] Smaller index: fold single text children (D11)
-- [ ] Edits on the one buffer, with undo and redo (D10)
+- [x] Edits on the one buffer, with undo and redo (D10, EDIT-1 to EDIT-3); Format and Compact
+      keep the selection and expanded rows (FMT-8, FMT-9)
 - [ ] Index update on a worker thread, with ids remapped for selection and expansion (D9)
 - [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
 - [ ] Replace and Replace All (TEXT-14)

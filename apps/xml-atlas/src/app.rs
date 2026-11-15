@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
-use xml_atlas_engine::{Document, FormatError, FormatOptions};
+use xml_atlas_engine::{Document, Edit, EditError, FormatError, FormatOptions};
 
 use crate::settings::{Layout, Settings, ThemeChoice};
 use crate::{problems_panel, tree};
@@ -59,7 +59,6 @@ struct Loading {
 /// A document plus everything the views remember about it.
 pub struct Open {
     pub doc: Document,
-    pub modified: bool,
     /// Element shown in the grid and selected in the tree.
     pub selected: Option<NodeId>,
     /// Node the grid and tree mark: a grid row, or the selection.
@@ -134,7 +133,7 @@ impl App {
         self.loading = None;
         match result {
             Ok(doc) => {
-                self.set_document(doc, false);
+                self.set_document(doc);
                 self.settings.add_recent(&path);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
                     "{} — XML Atlas",
@@ -156,11 +155,10 @@ impl App {
         }
     }
 
-    fn set_document(&mut self, doc: Document, modified: bool) {
+    fn set_document(&mut self, doc: Document) {
         let mut open = Open {
             tree: tree::TreeState::new(&doc),
             doc,
-            modified,
             selected: None,
             focus: None,
             mark: None,
@@ -216,7 +214,7 @@ impl App {
 
     /// Runs `action`, or first asks whether to save when the document has unsaved changes.
     fn request(&mut self, ctx: &egui::Context, action: Action) {
-        if self.open.as_ref().is_some_and(|o| o.modified) {
+        if self.open.as_ref().is_some_and(|o| o.doc.is_modified()) {
             self.confirm = Some(action);
         } else {
             self.perform(ctx, action);
@@ -301,6 +299,7 @@ impl App {
         let Some(open) = &self.open else { return };
         let chosen = open.doc.format_options(self.settings.format);
         self.replace_with(
+            "Format",
             open.doc.format(&chosen.options),
             |options| {
                 let source = if chosen.from_document.is_empty() {
@@ -323,6 +322,7 @@ impl App {
         let options = self.settings.format;
         let result = open.doc.compact(&options);
         self.replace_with(
+            "Compact",
             result,
             |o| {
                 let mut s = "Compacted".to_string();
@@ -338,23 +338,51 @@ impl App {
         );
     }
 
-    /// Replaces the document with the result of Format or Compact, marked as modified.
+    /// Replaces the document with the result of Format or Compact, as one undo step called
+    /// `label` (FMT-9).
     fn replace_with(
         &mut self,
+        label: &str,
         result: Result<Vec<u8>, FormatError>,
         notice: impl FnOnce(FormatOptions) -> String,
         options: FormatOptions,
     ) {
-        let Some(open) = &self.open else { return };
+        let Some(open) = &mut self.open else { return };
         match result {
             Ok(out) => {
-                let path = open.doc.path.clone();
-                let mut doc = Document::from_bytes(out);
-                doc.path = path;
-                self.set_document(doc, true);
-                self.notice = Some(notice(options));
+                let edit = Edit::whole(label, open.doc.src.len(), out);
+                match open.edit(|doc| doc.apply(edit).map(|()| true)) {
+                    Ok(_) => self.notice = Some(notice(options)),
+                    // Already formatted: the edit changes nothing.
+                    Err(EditError::Empty) => self.notice = Some(notice(options)),
+                    Err(e) => self.message = Some(format!("Cannot {label}: {e}")),
+                }
             }
             Err(e) => self.message = Some(format!("Cannot format: {e}")),
+        }
+    }
+
+    /// Edit > Undo.
+    fn undo(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let mut label = None;
+        if let Ok(true) = open.edit(|doc| {
+            label = doc.undo();
+            Ok(label.is_some())
+        }) {
+            self.notice = label.map(|l| format!("Undid {l}"));
+        }
+    }
+
+    /// Edit > Redo.
+    fn redo(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let mut label = None;
+        if let Ok(true) = open.edit(|doc| {
+            label = doc.redo();
+            Ok(label.is_some())
+        }) {
+            self.notice = label.map(|l| format!("Redid {l}"));
         }
     }
 
@@ -457,7 +485,6 @@ impl App {
         };
         match open.doc.save(&path) {
             Ok(()) => {
-                open.modified = false;
                 self.settings.add_recent(&path);
                 true
             }
@@ -516,7 +543,7 @@ impl App {
                     self.request(&ctx, Action::PickFile);
                 }
                 self.recent_menu(ui, &ctx);
-                let can_save = self.open.as_ref().is_some_and(|o| o.modified);
+                let can_save = self.open.as_ref().is_some_and(|o| o.doc.is_modified());
                 if ui
                     .add_enabled(can_save, egui::Button::new("Save     Ctrl+S"))
                     .clicked()
@@ -531,6 +558,34 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
+                let history = self.open.as_ref().map(|o| &o.doc.history);
+                let undo = history.and_then(|h| h.undo_label()).map(str::to_owned);
+                let redo = history.and_then(|h| h.redo_label()).map(str::to_owned);
+                let text = |what: &str, label: &Option<String>, keys: &str| match label {
+                    Some(l) => format!("{what} {l}    {keys}"),
+                    None => format!("{what}    {keys}"),
+                };
+                if ui
+                    .add_enabled(
+                        undo.is_some(),
+                        egui::Button::new(text("Undo", &undo, "Ctrl+Z")),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.undo();
+                }
+                if ui
+                    .add_enabled(
+                        redo.is_some(),
+                        egui::Button::new(text("Redo", &redo, "Ctrl+Y")),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.redo();
+                }
+                ui.separator();
                 if ui
                     .add_enabled(self.open.is_some(), egui::Button::new("Find…    Ctrl+F"))
                     .clicked()
@@ -611,7 +666,11 @@ impl App {
             let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
             ui.label(format!(
                 "{name}{}  ·  {:.1} MiB  ·  {} lines  ·  {} elements  ·  opened in {:.0} ms",
-                if open.modified { " (modified)" } else { "" },
+                if open.doc.is_modified() {
+                    " (modified)"
+                } else {
+                    ""
+                },
                 s.bytes as f64 / 1048576.0,
                 s.lines,
                 s.elements,
@@ -661,7 +720,7 @@ impl eframe::App for App {
         // The window's close button: hold the close until the user has answered.
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
-            && self.open.as_ref().is_some_and(|o| o.modified)
+            && self.open.as_ref().is_some_and(|o| o.doc.is_modified())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Action::Quit);
@@ -671,6 +730,22 @@ impl eframe::App for App {
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
         {
             self.save();
+        }
+        // A focused text field (Find) has its own undo.
+        if !ctx.text_edit_focused() && self.confirm.is_none() {
+            let redo = ctx.input_mut(|i| {
+                i.consume_shortcut(&KeyboardShortcut::new(
+                    Modifiers::COMMAND | Modifiers::SHIFT,
+                    Key::Z,
+                )) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
+            });
+            if redo {
+                self.redo();
+            } else if ctx.input_mut(|i| {
+                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z))
+            }) {
+                self.undo();
+            }
         }
 
         self.find.shortcuts(&ctx, self.open.as_mut());
@@ -727,6 +802,50 @@ impl eframe::App for App {
 }
 
 impl Open {
+    /// Runs `change` on the document and, when it reports a change, rebuilds the views around
+    /// the same elements: the selection and the expanded tree rows are found again by their
+    /// position among their element siblings (FMT-8).
+    pub fn edit(
+        &mut self,
+        change: impl FnOnce(&mut Document) -> Result<bool, EditError>,
+    ) -> Result<bool, EditError> {
+        let idx = &self.doc.index;
+        let selected = self.selected.map(|id| idx.element_position(id));
+        let expanded: Vec<Vec<u32>> = self
+            .tree
+            .expanded_ids()
+            .map(|id| idx.element_position(id))
+            .collect();
+        if !change(&mut self.doc)? {
+            return Ok(false);
+        }
+        let attributes = self.tree.options.attributes;
+        self.tree = tree::TreeState::new(&self.doc);
+        self.tree.set_attributes(attributes);
+        let idx = &self.doc.index;
+        let found: Vec<NodeId> = expanded
+            .iter()
+            .filter_map(|p| idx.element_at_position(p))
+            .collect();
+        for id in found {
+            self.tree.expand(id);
+        }
+        self.problems = self.doc.problems();
+        self.focus = None;
+        self.mark = None;
+        let selected = selected
+            .and_then(|p| self.doc.index.element_at_position(&p))
+            .or_else(|| self.doc.index.root_element());
+        match selected {
+            Some(id) => self.select(id),
+            None => {
+                self.selected = None;
+                self.grid = None;
+            }
+        }
+        Ok(true)
+    }
+
     /// Makes `id` the selected element: grid shows its children, tree reveals it, text scrolls.
     pub fn select(&mut self, id: NodeId) {
         let id = self.element_or_parent(id);

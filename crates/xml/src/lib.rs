@@ -334,6 +334,45 @@ impl Index {
         out
     }
 
+    /// Where element `id` sits: its position among the element children of its parent, for
+    /// each level from the top. Comments, text and whitespace do not count, so the position
+    /// survives Format and Remove comments; [`Index::element_at_position`] finds the element
+    /// again in a new index. Walks the siblings before `id` at every level.
+    pub fn element_position(&self, id: NodeId) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut cur = id;
+        while cur != ROOT && cur != NONE {
+            let n = self.node(cur);
+            if n.kind != NodeKind::Element {
+                return Vec::new();
+            }
+            let before = self
+                .children(n.parent)
+                .take_while(|&c| c != cur)
+                .filter(|&c| self.node(c).kind == NodeKind::Element)
+                .count();
+            out.push(before as u32);
+            cur = n.parent;
+        }
+        out.reverse();
+        out
+    }
+
+    /// The element at `position` (see [`Index::element_position`]), if there is one.
+    pub fn element_at_position(&self, position: &[u32]) -> Option<NodeId> {
+        if position.is_empty() {
+            return None;
+        }
+        let mut cur = ROOT;
+        for &p in position {
+            cur = self
+                .children(cur)
+                .filter(|&c| self.node(c).kind == NodeKind::Element)
+                .nth(p as usize)?;
+        }
+        Some(cur)
+    }
+
     /// Path from the root element, e.g. `/catalog/book[3]/title`.
     ///
     /// Walks the siblings before `id` at every level, so it costs time on wide parents.
@@ -903,6 +942,27 @@ mod tests {
         let a = idx.children(idx.root_element().unwrap()).next().unwrap();
         assert_eq!(idx.node(a).folded, Folded::No);
         assert_eq!(idx.element_text(src, a), "text");
+    }
+
+    #[test]
+    fn element_positions_ignore_comments_and_text() {
+        let a = index(DOC);
+        let b = index(b"<catalog><book/><!-- x --><book/>text<note/></catalog>");
+        let note_a = a.children(a.root_element().unwrap()).nth(2).unwrap();
+        let pos = a.element_position(note_a);
+        assert_eq!(pos, [0, 2]);
+        let note_b = b.element_at_position(&pos).unwrap();
+        assert_eq!(
+            b.name(
+                b"<catalog><book/><!-- x --><book/>text<note/></catalog>",
+                note_b
+            ),
+            b"note"
+        );
+        assert_eq!(a.element_position(a.root_element().unwrap()), [0]);
+        assert_eq!(b.element_at_position(&[0, 3]), None);
+        assert_eq!(b.element_at_position(&[]), None);
+        assert_eq!(a.element_position(ROOT), Vec::<u32>::new());
     }
 
     #[test]

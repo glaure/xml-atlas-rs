@@ -62,6 +62,25 @@ impl TreeState {
         s
     }
 
+    /// The expanded elements.
+    pub fn expanded_ids(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.expanded
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| **e)
+            .map(|(id, _)| id as NodeId)
+    }
+
+    /// Expands `id`.
+    pub fn expand(&mut self, id: NodeId) {
+        if let Some(e) = self.expanded.get_mut(id as usize)
+            && !*e
+        {
+            *e = true;
+            self.dirty = true;
+        }
+    }
+
     /// Expands every ancestor of `id`, marks it selected and scrolls to it.
     pub fn reveal(&mut self, doc: &Document, id: NodeId) {
         let mut p = doc.index.node(id).parent;
