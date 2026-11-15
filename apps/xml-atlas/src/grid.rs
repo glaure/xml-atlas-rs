@@ -71,9 +71,16 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     attributes(ui, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
     let scroll = open.grid_scroll_to.take();
+    let reveal = std::mem::take(&mut open.grid_reveal_cell);
+    let parent = grid.parent;
     let action = ui.scope(|ui| {
         ui.style_mut().interaction.selectable_labels = false;
-        table(ui, open, scroll)
+        // Columns that do not fit scroll sideways; the header scrolls with them.
+        egui::ScrollArea::horizontal()
+            .id_salt(("grid-across", parent))
+            .auto_shrink(false)
+            .show(ui, |ui| table(ui, open, scroll, reveal))
+            .inner
     });
     if let Some(action) = action.inner {
         open.keys = Pane::Grid;
@@ -221,7 +228,8 @@ pub(crate) fn attributes(ui: &mut Ui, grid: &Grid) {
 }
 
 /// The child table. Returns what a click asked for.
-fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> {
+/// `reveal`: scroll the marked cell into view sideways.
+fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> Option<Action> {
     let Open {
         grid,
         doc,
@@ -238,6 +246,8 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
         .filter(|&i| !grid.is_hidden(&grid.columns[i]))
         .collect();
     let mut editor_shown = false;
+    // Where the marked cell was drawn, to scroll it into view sideways.
+    let mut reveal_rect = None;
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let digits = grid.rows.len().to_string().len() as f32;
     let number_width = digits
@@ -282,6 +292,9 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
                 row.set_selected(marked);
                 row.col(|ui| {
                     ui.label(RichText::new(grid.number(i).to_string()).weak());
+                    if reveal && marked && grid_cell.is_none() {
+                        reveal_rect = Some(ui.max_rect());
+                    }
                 });
                 row.col(|ui| {
                     ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
@@ -305,6 +318,9 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
                         draw_cell(ui, &cell);
                         if marked && *grid_cell == Some(ci) {
                             outline(ui);
+                            if reveal {
+                                reveal_rect = Some(ui.max_rect());
+                            }
                         }
                     });
                     // A nested cell stands for its child element: a click highlights that
@@ -349,6 +365,11 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
                 }
             });
         });
+    // Asked for here, outside the table: the table's own scroll area, which scrolls only up
+    // and down, would swallow it.
+    if let Some(rect) = reveal_rect {
+        ui.scroll_to_rect(rect, None);
+    }
     // The edited row scrolled out of view: its editor is gone, so the edit is cancelled.
     if grid_edit.is_some() && !editor_shown && action.is_none() {
         action = Some(Action::Close { save: false });
@@ -537,12 +558,14 @@ pub fn key(open: &mut Open, key: GridKey) {
         // Hidden columns are skipped (GRID-15).
         (GridKey::Left, Some(_), cell) => {
             open.grid_cell = cell.and_then(|c| (0..c).rev().find(|&i| shown(i)));
+            open.grid_reveal_cell = true;
             return;
         }
         (GridKey::Right, Some(_), cell) => {
             let from = cell.map_or(0, |c| c + 1);
             if let Some(next) = (from..columns).find(|&i| shown(i)) {
                 open.grid_cell = Some(next);
+                open.grid_reveal_cell = true;
             }
             return;
         }

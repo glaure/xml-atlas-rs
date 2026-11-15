@@ -69,7 +69,11 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
             go = ui
                 .scope(|ui| {
                     ui.style_mut().interaction.selectable_labels = false;
-                    table(ui, &open.doc, grid)
+                    egui::ScrollArea::horizontal()
+                        .id_salt(("cell-pane-across", grid.parent))
+                        .auto_shrink(false)
+                        .show(ui, |ui| table(ui, &open.doc, grid))
+                        .inner
                 })
                 .inner;
         }

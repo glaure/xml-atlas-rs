@@ -95,6 +95,9 @@ pub struct Open {
     pub keys: Pane,
     /// Grid row to scroll into view on the next frame.
     pub grid_scroll_to: Option<usize>,
+    /// Scroll the marked cell (or, with none, the row's start) into view sideways on the
+    /// next frame: Left or Right moved it.
+    pub grid_reveal_cell: bool,
     /// The marked grid cell of the marked row: an index into the grid's columns. `None`
     /// marks the whole row.
     pub grid_cell: Option<usize>,
@@ -371,6 +374,7 @@ impl App {
             problems: Vec::new(),
             keys: Pane::Tree,
             grid_scroll_to: None,
+            grid_reveal_cell: false,
             grid_cell: None,
             grid_edit: None,
             note: None,
