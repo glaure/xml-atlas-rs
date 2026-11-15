@@ -1535,6 +1535,59 @@ impl Open {
         Ok(true)
     }
 
+    /// Applies what a key typed, cut or pasted in the text view (D19). The index changes only
+    /// around it, and tree, grid and problems list follow the replaced nodes instead of being
+    /// built again, so a key costs what the change touches, not the size of the file. The
+    /// selection stays; when its element was replaced, it goes to the element that starts
+    /// where it started.
+    pub fn type_edit(&mut self, edit: Edit) -> Result<(), EditError> {
+        let selected_start = self.selected.map(|id| self.doc.index.node(id).start);
+        self.doc.apply_typed(edit)?;
+        let Some(ns) = self.doc.node_splice() else {
+            // Not expected for a typed change; build the views again.
+            self.refresh(|_| true);
+            return Ok(());
+        };
+        self.tree.follow(&self.doc, &ns);
+        let moved = |start: u64| match self.doc.last_change() {
+            Some(c) if start >= (c.at + c.removed) as u64 => {
+                start + c.inserted as u64 - c.removed as u64
+            }
+            _ => start,
+        };
+        let selected = self
+            .selected
+            .and_then(|id| ns.map(id))
+            .or_else(|| selected_start.and_then(|s| self.element_at(moved(s))))
+            .or_else(|| self.doc.index.root_element());
+        self.selected = selected;
+        self.focus = selected;
+        self.mark = None;
+        if let Some(id) = selected
+            && self.tree.selected().is_none()
+        {
+            self.tree.mark(xml_atlas_engine::tree::Row::Node(id));
+        }
+        let followed = match &mut self.grid {
+            Some(grid) => grid.follow(&self.doc, &ns),
+            None => true,
+        };
+        if !followed {
+            let view = self.grid.as_ref().map(|g| g.view().clone());
+            self.grid = selected.map(|id| {
+                let mut grid = Grid::build(&self.doc, id);
+                if let Some(view) = view {
+                    grid.set_view(&self.doc, view);
+                }
+                grid
+            });
+            self.grid_cell = None;
+        }
+        self.grid_edit = None;
+        self.problems = self.doc.problems();
+        Ok(())
+    }
+
     /// Reads the document again when typing broke it and the pause is over (TEXT-22, D19):
     /// on this thread up to [`REPARSE_INLINE_BYTES`], else on a worker thread with a copy of
     /// the source. Call once per frame for every open document.
