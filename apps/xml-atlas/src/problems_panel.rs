@@ -15,14 +15,18 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         ui.strong("Problems");
         ui.label(RichText::new(format!("{errors} error(s), {warnings} warning(s)")).weak());
     });
-    let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    let row_h = ui
+        .text_style_height(&egui::TextStyle::Body)
+        .max(ui.spacing().interact_size.y);
     let mut go = None;
+    // Only the entries on screen are laid out: a broken file can have up to 1,000 (OPEN-10).
     egui::ScrollArea::vertical()
         .id_salt("problems")
-        .max_height(row_h * VISIBLE_ENTRIES)
+        .max_height((row_h + ui.spacing().item_spacing.y) * VISIBLE_ENTRIES)
         .auto_shrink([false, true])
-        .show(ui, |ui| {
-            for (i, p) in open.problems.iter().enumerate() {
+        .show_rows(ui, row_h, open.problems.len(), |ui, rows| {
+            for i in rows {
+                let p = &open.problems[i];
                 let line = open.doc.line_of(p.offset);
                 let column = column_of(open, p.offset);
                 let text = format!("Line {}, column {}:  {}", line + 1, column + 1, p.message);

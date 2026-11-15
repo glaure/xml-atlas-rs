@@ -358,10 +358,13 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 font.clone(),
                 visuals.weak_text_color(),
             );
-            let here: Vec<&Problem> = open
+            // Problems are in document order: find the line's by binary search.
+            let first = open
                 .problems
+                .partition_point(|p| p.offset < whole_line.start);
+            let here: Vec<&Problem> = open.problems[first..]
                 .iter()
-                .filter(|p| whole_line.start <= p.offset && p.offset <= whole_line.end)
+                .take_while(|p| p.offset <= whole_line.end)
                 .collect();
             for p in &here {
                 let color = problems_panel::color(&visuals, p.severity);

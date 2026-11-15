@@ -28,8 +28,19 @@
 - **OPEN-9** `[done]` A file that is not well-formed still opens. Everything before the first
   error is shown. The error is listed and marked where it is (OPEN-13), also when the cause is
   a byte that is not UTF-8.
-- **OPEN-10** `[gap]` Elements after the first error are shown too, as far as they can be
-  recovered. Today nothing after the error appears in the tree or grid.
+- **OPEN-10** `[done]` Elements after the first error are shown too, as far as they can be
+  recovered (D14's rule):
+  - An end tag closes the elements left open inside the element it matches; each of them is
+    an error where its start tag is. `<a><b>one</b><c>two</a>` is `a` with `b` and `c`.
+  - An end tag that matches no open element is an error and is skipped.
+  - Elements still open at the end of the file end there, one error each.
+  - A byte that is not UTF-8 is an error; reading goes on from the next `<`. In a Latin-1 file
+    this can skip a start tag, and its end tag is a second error (OPEN-8 reads such files
+    right). A UTF-16 file stops at the first error.
+  - Markup that is never closed, such as `<!--` or an open quote in a start tag, runs to the
+    end of the file: nothing after it can be recovered.
+  At most 1,000 errors are kept; reading goes on after the last. Reading the 100 MiB fixture
+  takes as long as before (within 1 %).
 - **OPEN-11** `[done]` Closing a tab (OPEN-5), File > Quit and the window's close button ask
   first if there are unsaved changes: Save, Don't save or Cancel. Quitting shows each tab
   with unsaved changes in turn and asks about it. The action goes ahead after Don't save, or
@@ -46,8 +57,8 @@
   selects the element at that place and outlines it. Each problem is also marked in the text:
   a sign left of the line number, a wavy line from the place to the end of the line, and the
   message when the pointer rests on the line. The status bar shows the first error; clicking
-  it does the same as clicking the entry. Today the list holds the first parse error (see
-  OPEN-10) and these encoding problems: a UTF-16 byte order mark is an error, and a declared
+  it does the same as clicking the entry. The list holds every parse error, up to 1,000
+  (OPEN-10), and these encoding problems: a UTF-16 byte order mark is an error, and a declared
   encoding other than UTF-8 is a warning that says the text is shown as UTF-8 (see OPEN-8).
 - **OPEN-14** `[done]` When the file of an open document is changed, deleted or moved on disk
   by another program, a notice above the views says so within about a second, and the tab's
@@ -106,8 +117,8 @@ Details and limits in `reference.md`.
 - XML Marker opens a file that is not well-formed without a dialog and switches to an error
   list with warnings and errors; each error is marked in the text (XM-10). For an unclosed tag
   its tree is empty (XM-11); for a stray `<` in a start tag the tree stayed complete (XM-12).
-  OPEN-9 already shows more than XML Marker in the first case; OPEN-10 asks for what it does
-  in the second. OPEN-13 follows its error list.
+  OPEN-9 already shows more than XML Marker in the first case; OPEN-10 does what it does
+  in the second, and shows the whole tree in the first too. OPEN-13 follows its error list.
 - XML Marker shows UTF-8 files with wrong characters and the byte order mark as stray
   characters; Latin-1 is right; UTF-16 opens but loses characters outside the code page (XM-6
   to XM-8, under wine). OPEN-7 and OPEN-8 ask for more than XML Marker does.

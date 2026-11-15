@@ -234,6 +234,7 @@ impl Document {
             self.stale = None;
         } else {
             self.index.error = done.index.error;
+            self.index.more_errors = done.index.more_errors;
             self.index.last_splice = None;
             self.stale = Some(Stale {
                 typed: None,
@@ -767,9 +768,14 @@ mod tests {
         assert_eq!(doc.index.len(), nodes);
         assert_eq!(doc.reparse_wait(now), None, "nothing waits after the read");
         assert!(!doc.reparse(), "nothing to do twice");
+        // `<üße</a>` is read as a start tag, so it and `a` are not closed.
         let problems = doc.problems();
-        assert_eq!(problems.len(), 1);
-        assert_eq!(problems[0].severity, problems::Severity::Error);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .all(|p| p.severity == problems::Severity::Error)
+        );
 
         // More typing in the broken part works as anywhere else; deleting the `<` mends it.
         type_at(&mut doc, "üße", "y");

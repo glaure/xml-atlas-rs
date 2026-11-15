@@ -36,7 +36,7 @@ impl Document {
         if let Some(p) = encoding_problem(&self.src) {
             out.push(p);
         }
-        if let Some(e) = &self.index.error {
+        for e in self.index.error.iter().chain(&self.index.more_errors) {
             out.push(Problem {
                 severity: Severity::Error,
                 offset: e.offset,
@@ -144,9 +144,10 @@ mod tests {
 
     #[test]
     fn parse_error_is_listed() {
+        // XML Marker's example (XM-11): `</a>` closes `c`, which is reported where it starts.
         let p = problems(b"<a><b>one</b><c>two</a>");
         assert_eq!(p.len(), 1);
-        assert_eq!(p[0].severity, Severity::Error);
-        assert!(p[0].message.contains("</c>"), "{}", p[0].message);
+        assert_eq!((p[0].severity, p[0].offset), (Severity::Error, 13));
+        assert!(p[0].message.contains("<c>"), "{}", p[0].message);
     }
 }
