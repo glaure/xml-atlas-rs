@@ -268,6 +268,32 @@ mod tests {
         assert_eq!(civil_from_days(11_016), (2000, 2, 29));
     }
 
+    /// Windows Installer saves each icon under its Id, and the shell reads it by that name's
+    /// extension; an Id without one leaves the Start menu entry blank.
+    #[test]
+    fn installer_icons_keep_their_extension() {
+        let wxs = include_str!("../../packaging/windows/xml-atlas.wxs");
+        let mut icons = 0;
+        for (i, _) in wxs.match_indices("<Icon ") {
+            let rest = &wxs[i..];
+            let id = rest
+                .split_once("Id=\"")
+                .and_then(|(_, after)| after.split_once('"'))
+                .map(|(id, _)| id)
+                .expect("Icon without Id");
+            assert!(
+                id.ends_with(".ico") || id.ends_with(".exe"),
+                "Icon Id {id:?} needs the .ico or .exe extension"
+            );
+            assert!(
+                wxs.contains(&format!("Icon=\"{id}\"")),
+                "the shortcut does not use {id:?}"
+            );
+            icons += 1;
+        }
+        assert_eq!(icons, 1);
+    }
+
     #[test]
     fn crlf_once() {
         assert_eq!(crlf("a\nb\r\nc"), "a\r\nb\r\nc");

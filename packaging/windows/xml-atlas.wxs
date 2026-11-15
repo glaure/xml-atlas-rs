@@ -25,8 +25,10 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of XML Atlas is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="XmlAtlasIcon" SourceFile="$(IconFile)" />
-    <Property Id="ARPPRODUCTICON" Value="XmlAtlasIcon" />
+    <!-- Windows Installer saves the icon under its Id, and the shell reads it by that file's
+         extension: without .ico the Start menu entry shows a blank page. -->
+    <Icon Id="XmlAtlas.ico" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="XmlAtlas.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/glaure/xml-atlas-rs" />
     <Property Id="ARPHELPLINK" Value="https://github.com/glaure/xml-atlas-rs/issues" />
 
@@ -60,7 +62,7 @@
         <File Source="$(SourceDir)\xml-atlas.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="XML Atlas"
                     Description="View and edit large XML files"
-                    WorkingDirectory="APPLICATIONFOLDER" Icon="XmlAtlasIcon" Advertise="yes" />
+                    WorkingDirectory="APPLICATIONFOLDER" Icon="XmlAtlas.ico" Advertise="yes" />
         </File>
       </Component>
       <Component>
