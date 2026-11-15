@@ -40,10 +40,20 @@ this file needs the most observation.
   name, the cell shows the name and how many: `<note> ×2` (XM-34).
 - **GRID-13** `[done]` A cell with no value is hatched; a cell with an empty value is blank
   (XM-35). `<gift/>` counts as an empty value.
-- **GRID-14** `[planned]` Clicking a header, or its menu, sorts the rows by that column,
-  ascending or descending (XM-39). Clicking again reverses the direction.
-- **GRID-15** `[planned]` Columns can be hidden and shown again. A command hides the columns
-  that are empty in every row. This replaces XML Marker's unique consolidation (XM-33).
+- **GRID-14** `[done]` Clicking a header, or its menu, sorts the rows by that column,
+  ascending or descending (XM-39); the header shows an arrow. Clicking again reverses the
+  direction; clicking `#`, or Document order in the menu, restores document order. `element`
+  sorts by element name. Numbers compare as numbers and come before text; text compares
+  ignoring case, letter by code point (`ä` after `z`); cells that stand for child elements
+  come after values, by count; absent cells come last in either direction. Equal values keep
+  document order. The row number stays the document position.
+- **GRID-15** `[done]` Columns can be hidden and shown again from the header menu: Hide
+  column, Hide empty columns (absent or empty in every row), Show column > a column or Show
+  all. Above the table, how many columns are hidden. Left and Right skip hidden columns.
+  This replaces XML Marker's unique consolidation (XM-33).
+- **GRID-19** `[done]` Sort and hidden columns stay when an edit, undo or redo rebuilds the
+  grid of the same element. Selecting another element starts in document order with every
+  column shown.
 - **GRID-16** `[planned]` Clicking a cell shows what it stands for in a second pane: an element
   with its attributes and children, or a table when the cell stands for several elements
   (XM-37). The grid does not change. To be tried before it is kept.
