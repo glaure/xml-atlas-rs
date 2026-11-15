@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::command::CommandError;
@@ -10,12 +10,18 @@ use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{Document, Edit, EditError, FormatError, FormatOptions};
 
 use crate::settings::{Layout, Settings, ThemeChoice};
+use crate::tabs::Tabs;
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
 
 pub struct App {
-    open: Option<Open>,
+    /// The open documents, one tab each (OPEN-5).
+    docs: Tabs<Open>,
+    /// Gives each document its own [`Open::id`].
+    next_id: u64,
+    /// The window title last set.
+    title: String,
     /// Settings remembered between sessions (WIN-3), and what was last written to disk.
     settings: Settings,
     saved: Settings,
@@ -24,12 +30,13 @@ pub struct App {
     desktop_theme_rx: Option<Receiver<egui::Theme>>,
     /// The theme last handed to egui, so it is set only when it changes.
     applied_theme: Option<ThemePreference>,
-    /// An action waiting for the answer to "save changes?" (OPEN-11).
+    /// An action waiting for the answer to "save changes?" about the tab shown (OPEN-11).
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
     quitting: bool,
     find: crate::find_bar::FindBar,
-    loading: Option<Loading>,
+    /// Files being opened, in the order asked for.
+    loading: Vec<Loading>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<Note>,
@@ -44,11 +51,11 @@ enum Answer {
     Cancel,
 }
 
-/// Something that replaces or closes the open document, and so may lose unsaved changes.
+/// Something that closes documents, and so may lose unsaved changes (OPEN-11).
 #[derive(Clone, Debug)]
 enum Action {
-    Open(PathBuf),
-    PickFile,
+    /// Close the tab of the document with this [`Open::id`].
+    Close(egui::Id),
     Quit,
 }
 
@@ -60,6 +67,11 @@ struct Loading {
 /// A document plus everything the views remember about it.
 pub struct Open {
     pub doc: Document,
+    /// Tells this document's views apart from another tab's, so that each keeps its own
+    /// scroll positions.
+    pub id: egui::Id,
+    /// While quitting: Don't save was answered for this document.
+    discard: bool,
     /// Element shown in the grid and selected in the tree.
     pub selected: Option<NodeId>,
     /// Node the grid and tree mark: a grid row, or the selection.
@@ -174,12 +186,14 @@ pub enum Pane {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
         let settings = Settings::load();
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);
         let mut app = Self {
-            open: None,
+            docs: Tabs::default(),
+            next_id: 0,
+            title: String::new(),
             settings: settings.clone(),
             saved: settings,
             desktop_theme: None,
@@ -188,15 +202,34 @@ impl App {
             confirm: None,
             quitting: false,
             find,
-            loading: None,
+            loading: Vec::new(),
             message: None,
             notice: None,
             format_dialog: None,
         };
-        if let Some(path) = path {
-            app.start_loading(&cc.egui_ctx, path);
+        for path in paths {
+            app.open_file(&cc.egui_ctx, path);
         }
         app
+    }
+
+    /// Opens `path` in a new tab, or shows its tab when it is open already (OPEN-5).
+    fn open_file(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let same = |p: &Path| same_file(p, &path);
+        if let Some(i) = self
+            .docs
+            .position(|o| o.doc.path.as_deref().is_some_and(same))
+        {
+            self.docs.select(i);
+            self.settings.add_recent(&path);
+            self.message = None;
+            self.notice = Some(Note::info(format!("{} is open already", file_name(&path))));
+            return;
+        }
+        if self.loading.iter().any(|l| same(&l.path)) {
+            return;
+        }
+        self.start_loading(ctx, path);
     }
 
     fn start_loading(&mut self, ctx: &egui::Context, path: PathBuf) {
@@ -207,26 +240,34 @@ impl App {
             let _ = tx.send(Document::open(&p));
             ctx.request_repaint();
         });
-        self.loading = Some(Loading { path, rx });
+        self.loading.push(Loading { path, rx });
         self.message = None;
         self.notice = None;
     }
 
-    fn poll_loading(&mut self, ctx: &egui::Context) {
-        let Some(loading) = &self.loading else { return };
-        let Ok(result) = loading.rx.try_recv() else {
-            return;
-        };
-        let path = loading.path.clone();
-        self.loading = None;
+    /// Adds the files that finished loading in tabs, in the order they finished (OPEN-2,
+    /// OPEN-5).
+    fn poll_loading(&mut self) {
+        let mut i = 0;
+        while i < self.loading.len() {
+            let result = match self.loading[i].rx.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => {
+                    i += 1;
+                    continue;
+                }
+                Err(TryRecvError::Disconnected) => Err(std::io::Error::other("loading stopped")),
+            };
+            let path = self.loading.remove(i).path;
+            self.loaded(path, result);
+        }
+    }
+
+    fn loaded(&mut self, path: PathBuf, result: std::io::Result<Document>) {
         match result {
             Ok(doc) => {
-                self.set_document(doc);
+                self.add_document(doc);
                 self.settings.add_recent(&path);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                    "{} — XML Atlas",
-                    file_name(&path)
-                )));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 // A file that is gone leaves the recent list (OPEN-12).
@@ -243,10 +284,14 @@ impl App {
         }
     }
 
-    fn set_document(&mut self, doc: Document) {
+    /// Shows `doc` in a new tab.
+    fn add_document(&mut self, doc: Document) {
+        self.next_id += 1;
         let mut open = Open {
             tree: tree::TreeState::new(&doc),
             doc,
+            id: egui::Id::unique(("document", self.next_id)),
+            discard: false,
             selected: None,
             focus: None,
             mark: None,
@@ -264,7 +309,7 @@ impl App {
         if let Some(root) = open.doc.index.root_element() {
             open.select(root);
         }
-        self.open = Some(open);
+        self.docs.push(open);
     }
 
     /// Light, dark, or the desktop's preference (WIN-2). On Linux the desktop's preference comes
@@ -303,19 +348,33 @@ impl App {
         }
     }
 
-    /// Runs `action`, or first asks whether to save when the document has unsaved changes.
+    /// Runs `action`, or first shows the document it would lose changes in and asks whether
+    /// to save them (OPEN-11). Quitting asks about each modified document in turn.
     fn request(&mut self, ctx: &egui::Context, action: Action) {
-        if self.open.as_ref().is_some_and(|o| o.doc.is_modified()) {
-            self.confirm = Some(action);
-        } else {
-            self.perform(ctx, action);
+        let ask = match &action {
+            Action::Close(id) => self
+                .docs
+                .position(|o| o.id == *id)
+                .filter(|&i| self.docs.get(i).is_some_and(|o| o.doc.is_modified())),
+            Action::Quit => self.docs.position(|o| o.doc.is_modified() && !o.discard),
+        };
+        match ask {
+            Some(i) => {
+                self.docs.select(i);
+                self.confirm = Some(action);
+            }
+            None => self.perform(ctx, action),
         }
     }
 
     fn perform(&mut self, ctx: &egui::Context, action: Action) {
         match action {
-            Action::Open(path) => self.start_loading(ctx, path),
-            Action::PickFile => self.pick_file(ctx),
+            Action::Close(id) => {
+                if let Some(i) = self.docs.position(|o| o.id == id) {
+                    self.docs.close(i);
+                    self.notice = None;
+                }
+            }
             Action::Quit => {
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -323,15 +382,15 @@ impl App {
         }
     }
 
-    /// The "save changes?" dialog. Save runs the action only if saving worked.
+    /// The "save changes?" dialog about the tab shown. Save goes on only if saving worked.
     fn confirm_dialog(&mut self, ui: &mut Ui) {
         let Some(action) = self.confirm.clone() else {
             return;
         };
         let ctx = ui.ctx().clone();
         let name = self
-            .open
-            .as_ref()
+            .docs
+            .active()
             .and_then(|o| o.doc.path.as_deref())
             .map(file_name)
             .unwrap_or_else(|| "the document".into());
@@ -356,19 +415,115 @@ impl App {
         if modal.should_close() && answer.is_none() {
             answer = Some(Answer::Cancel);
         }
-        match answer {
-            Some(Answer::Save) => {
-                self.confirm = None;
+        let Some(answer) = answer else { return };
+        self.confirm = None;
+        match (answer, action) {
+            (Answer::Save, action) => {
                 if self.save() {
-                    self.perform(&ctx, action);
+                    self.request(&ctx, action);
+                } else {
+                    self.cancel_quit();
                 }
             }
-            Some(Answer::Discard) => {
-                self.confirm = None;
-                self.perform(&ctx, action);
+            (Answer::Discard, Action::Close(id)) => self.perform(&ctx, Action::Close(id)),
+            (Answer::Discard, Action::Quit) => {
+                if let Some(open) = self.docs.active_mut() {
+                    open.discard = true;
+                }
+                self.request(&ctx, Action::Quit);
             }
-            Some(Answer::Cancel) => self.confirm = None,
-            None => {}
+            (Answer::Cancel, _) => self.cancel_quit(),
+        }
+    }
+
+    /// Quitting stopped: a later quit asks about every modified document again.
+    fn cancel_quit(&mut self) {
+        for open in self.docs.iter_mut() {
+            open.discard = false;
+        }
+    }
+
+    /// Closes the tab shown, asking first if it has unsaved changes.
+    fn close_tab(&mut self, ctx: &egui::Context) {
+        if let Some(id) = self.docs.active().map(|o| o.id) {
+            self.request(ctx, Action::Close(id));
+        }
+    }
+
+    /// The tabs, one per document (OPEN-5): click shows one, × or a middle click closes it.
+    fn tab_bar(&mut self, ui: &mut Ui) {
+        let mut show = None;
+        let mut close = None;
+        egui::ScrollArea::horizontal()
+            .id_salt("tabs")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (i, open) in self.docs.iter().enumerate() {
+                        let path = open.doc.path.as_deref();
+                        let mut name = path.map(file_name).unwrap_or_else(|| "untitled".into());
+                        if open.doc.is_modified() {
+                            name.push_str(" *");
+                        }
+                        let active = i == self.docs.active_index();
+                        let tab = ui.selectable_label(active, name).on_hover_text(
+                            path.map(|p| p.display().to_string()).unwrap_or_default(),
+                        );
+                        if tab.clicked() {
+                            show = Some(i);
+                        }
+                        if tab.middle_clicked() {
+                            close = Some(open.id);
+                        }
+                        let x = ui
+                            .add(egui::Button::new(RichText::new("×").weak()).frame(false))
+                            .on_hover_text("Close    Ctrl+W");
+                        if x.clicked() {
+                            close = Some(open.id);
+                        }
+                        ui.separator();
+                    }
+                });
+            });
+        if let Some(i) = show
+            && i != self.docs.active_index()
+        {
+            self.docs.select(i);
+            self.notice = None;
+        }
+        if let Some(id) = close {
+            self.request(ui.ctx(), Action::Close(id));
+        }
+    }
+
+    /// Ctrl+W closes the tab shown; Ctrl+Tab and Ctrl+Page Down show the next tab,
+    /// Ctrl+Shift+Tab and Ctrl+Page Up the one before (OPEN-5).
+    fn tab_shortcuts(&mut self, ctx: &egui::Context) {
+        let pressed = |modifiers, key| {
+            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
+        };
+        let back = Modifiers::COMMAND | Modifiers::SHIFT;
+        if pressed(Modifiers::COMMAND, Key::W) {
+            self.close_tab(ctx);
+        } else if pressed(back, Key::Tab) || pressed(Modifiers::COMMAND, Key::PageUp) {
+            self.docs.cycle(true);
+            self.notice = None;
+        } else if pressed(Modifiers::COMMAND, Key::Tab)
+            || pressed(Modifiers::COMMAND, Key::PageDown)
+        {
+            self.docs.cycle(false);
+            self.notice = None;
+        }
+    }
+
+    /// The window title: the file of the tab shown.
+    fn update_title(&mut self, ctx: &egui::Context) {
+        let title = match self.docs.active().and_then(|o| o.doc.path.as_deref()) {
+            Some(p) => format!("{} — XML Atlas", file_name(p)),
+            None => "XML Atlas".to_string(),
+        };
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
         }
     }
 
@@ -381,13 +536,17 @@ impl App {
                 ],
             )
             .add_filter("All files", &["*"]);
-        if let Some(path) = dialog.pick_file() {
-            self.start_loading(ctx, path);
+        if let Some(paths) = dialog.pick_files() {
+            for path in paths {
+                self.open_file(ctx, path);
+            }
         }
     }
 
     fn format_document(&mut self) {
-        let Some(open) = &self.open else { return };
+        let Some(open) = self.docs.active() else {
+            return;
+        };
         let chosen = open.doc.format_options(self.settings.format);
         self.replace_with(
             "Format",
@@ -409,7 +568,9 @@ impl App {
 
     /// Edit > Compact (FMT-14): the document on one line.
     fn compact_document(&mut self) {
-        let Some(open) = &self.open else { return };
+        let Some(open) = self.docs.active() else {
+            return;
+        };
         let options = self.settings.format;
         let result = open.doc.compact(&options);
         self.replace_with(
@@ -438,7 +599,9 @@ impl App {
         notice: impl FnOnce(FormatOptions) -> String,
         options: FormatOptions,
     ) {
-        let Some(open) = &mut self.open else { return };
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
         match result {
             Ok(out) => {
                 let edit = Edit::whole(label, open.doc.src.len(), out);
@@ -455,7 +618,9 @@ impl App {
 
     /// Edit > Undo.
     fn undo(&mut self) {
-        let Some(open) = &mut self.open else { return };
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
         let mut label = None;
         if let Ok(true) = open.edit(|doc| {
             label = doc.undo();
@@ -467,7 +632,9 @@ impl App {
 
     /// Edit > Redo.
     fn redo(&mut self) {
-        let Some(open) = &mut self.open else { return };
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
         let mut label = None;
         if let Ok(true) = open.edit(|doc| {
             label = doc.redo();
@@ -483,8 +650,8 @@ impl App {
             return;
         };
         let overrides = self
-            .open
-            .as_ref()
+            .docs
+            .active()
             .map(|o| o.doc.format_options(edit).from_document)
             .unwrap_or_default();
         let mut close = None;
@@ -564,7 +731,7 @@ impl App {
 
     /// Saves the document. False if there is none, the user cancelled, or writing failed.
     fn save(&mut self) -> bool {
-        let Some(open) = &mut self.open else {
+        let Some(open) = self.docs.active_mut() else {
             return false;
         };
         let path = match open.doc.path.clone() {
@@ -617,7 +784,7 @@ impl App {
         });
         if let Some(path) = chosen {
             ui.close();
-            self.request(ctx, Action::Open(path));
+            self.open_file(ctx, path);
         }
         if clear {
             ui.close();
@@ -631,16 +798,23 @@ impl App {
             ui.menu_button("File", |ui| {
                 if ui.button("Open…    Ctrl+O").clicked() {
                     ui.close();
-                    self.request(&ctx, Action::PickFile);
+                    self.pick_file(&ctx);
                 }
                 self.recent_menu(ui, &ctx);
-                let can_save = self.open.as_ref().is_some_and(|o| o.doc.is_modified());
+                let can_save = self.docs.active().is_some_and(|o| o.doc.is_modified());
                 if ui
                     .add_enabled(can_save, egui::Button::new("Save     Ctrl+S"))
                     .clicked()
                 {
                     ui.close();
                     self.save();
+                }
+                if ui
+                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Close    Ctrl+W"))
+                    .clicked()
+                {
+                    ui.close();
+                    self.close_tab(&ctx);
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -649,7 +823,7 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                let history = self.open.as_ref().map(|o| &o.doc.history);
+                let history = self.docs.active().map(|o| &o.doc.history);
                 let undo = history.and_then(|h| h.undo_label()).map(str::to_owned);
                 let redo = history.and_then(|h| h.redo_label()).map(str::to_owned);
                 let text = |what: &str, label: &Option<String>, keys: &str| match label {
@@ -678,28 +852,31 @@ impl App {
                 }
                 ui.separator();
                 if ui
-                    .add_enabled(self.open.is_some(), egui::Button::new("Find…    Ctrl+F"))
+                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Find…    Ctrl+F"))
                     .clicked()
                 {
                     ui.close();
                     self.find.open();
                 }
                 if ui
-                    .add_enabled(self.open.is_some(), egui::Button::new("Replace…    Ctrl+H"))
+                    .add_enabled(
+                        !self.docs.is_empty(),
+                        egui::Button::new("Replace…    Ctrl+H"),
+                    )
                     .clicked()
                 {
                     ui.close();
                     self.find.open_replace();
                 }
                 if ui
-                    .add_enabled(self.open.is_some(), egui::Button::new("Format"))
+                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Format"))
                     .clicked()
                 {
                     ui.close();
                     self.format_document();
                 }
                 if ui
-                    .add_enabled(self.open.is_some(), egui::Button::new("Compact"))
+                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Compact"))
                     .clicked()
                 {
                     ui.close();
@@ -711,12 +888,13 @@ impl App {
                 }
             });
             ui.menu_button("View", |ui| {
-                ui.add_enabled_ui(self.open.is_some(), |ui| {
-                    let mut show = self.open.as_ref().is_none_or(|o| o.tree.options.attributes);
-                    if ui.checkbox(&mut show, "Attributes in the tree").changed()
-                        && let Some(open) = &mut self.open
-                    {
-                        open.tree.set_attributes(show);
+                ui.add_enabled_ui(!self.docs.is_empty(), |ui| {
+                    let mut show = self.docs.active().is_none_or(|o| o.tree.options.attributes);
+                    if ui.checkbox(&mut show, "Attributes in the tree").changed() {
+                        // A view setting: for every tab.
+                        for open in self.docs.iter_mut() {
+                            open.tree.set_attributes(show);
+                        }
                         self.settings.tree_attributes = show;
                     }
                 });
@@ -747,7 +925,7 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            if let Some(l) = &self.loading {
+            if let Some(l) = self.loading.first() {
                 ui.spinner();
                 ui.label(format!("Opening {}…", l.path.display()));
                 return;
@@ -756,7 +934,7 @@ impl App {
                 ui.colored_label(ui.visuals().error_fg_color, m);
                 return;
             }
-            let Some(open) = &mut self.open else {
+            let Some(open) = self.docs.active_mut() else {
                 ui.label("Open a file with Ctrl+O or drop it on the window.");
                 return;
             };
@@ -802,31 +980,38 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.poll_loading(&ctx);
+        self.poll_loading();
         self.apply_theme(&ctx);
         self.save_settings();
 
-        let dropped = ctx.input(|i| {
+        // Every file dropped opens, each in its own tab.
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
                 .iter()
                 .map(|f| f.path().to_path_buf())
-                .find(|p| !p.as_os_str().is_empty())
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
         });
-        if let Some(path) = dropped {
-            self.request(&ctx, Action::Open(path));
+        for path in dropped {
+            self.open_file(&ctx, path);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
         {
-            self.request(&ctx, Action::PickFile);
+            self.pick_file(&ctx);
         }
         // The window's close button: hold the close until the user has answered.
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
-            && self.open.as_ref().is_some_and(|o| o.doc.is_modified())
+            && self.docs.iter().any(|o| o.doc.is_modified())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.confirm = Some(Action::Quit);
+            if self.confirm.is_none() {
+                self.request(&ctx, Action::Quit);
+            }
+        }
+        if self.confirm.is_none() {
+            self.tab_shortcuts(&ctx);
         }
         self.confirm_dialog(ui);
         self.format_dialog(&ctx);
@@ -851,17 +1036,21 @@ impl eframe::App for App {
             }
         }
 
-        self.find.shortcuts(&ctx, self.open.as_mut());
+        self.find.shortcuts(&ctx, self.docs.active_mut());
         if self.confirm.is_none()
-            && let Some(open) = &mut self.open
+            && let Some(open) = self.docs.active_mut()
         {
             crate::nav::handle(&ctx, open);
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
+        if !self.docs.is_empty() {
+            egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(ui));
+        }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        self.update_title(&ctx);
 
-        let Some(open) = &mut self.open else {
+        let Some(open) = self.docs.active_mut() else {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
                     ui.heading("Drop an XML file here, or press Ctrl+O");
@@ -874,7 +1063,8 @@ impl eframe::App for App {
             .resizable(true)
             .default_size(320.0)
             .show(ui, |ui| {
-                tree::show(ui, open);
+                let id = open.id;
+                ui.push_id(id, |ui| tree::show(ui, open));
             });
         let layout = self.settings.layout;
         egui::CentralPanel::default().show(ui, |ui| {
@@ -887,18 +1077,20 @@ impl eframe::App for App {
             grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
-                    crate::grid::show(ui, open);
+                    ui.push_id(open.id, |ui| crate::grid::show(ui, open));
                 });
             if !open.problems.is_empty() {
                 egui::Panel::bottom("problems")
                     .resizable(true)
-                    .show(ui, |ui| problems_panel::show(ui, open));
+                    .show(ui, |ui| {
+                        ui.push_id(open.id, |ui| problems_panel::show(ui, open));
+                    });
             }
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }
             egui::CentralPanel::default().show(ui, |ui| {
-                crate::text_view::show(ui, open);
+                ui.push_id(open.id, |ui| crate::text_view::show(ui, open));
             });
         });
         if let Some(note) = open.note.take() {
@@ -1143,6 +1335,15 @@ fn shorten_left(s: &str, max: usize) -> String {
     format!("…{tail}")
 }
 
+/// Whether two paths name the same file: equal, or equal once links and `..` are resolved.
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b
+        || std::fs::canonicalize(a)
+            .ok()
+            .zip(std::fs::canonicalize(b).ok())
+            .is_some_and(|(a, b)| a == b)
+}
+
 fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1184,5 +1385,22 @@ mod tests {
         assert_eq!(name(vec![0, 1, 1]), "c");
         assert_eq!(name(vec![0, 0, 0]), "a");
         assert_eq!(name(vec![0, 5]), "r");
+    }
+
+    /// OPEN-5: a file already open is found again under another spelling of its path.
+    #[test]
+    fn same_file_sees_through_dot_dot() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-same-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let file = dir.join("größe.xml");
+        std::fs::write(&file, "<a/>").unwrap();
+        let other = dir.join("sub").join("..").join("größe.xml");
+        assert!(same_file(&file, &other));
+        assert!(!same_file(&file, &dir.join("sub")));
+        // A file that does not exist is only the same as its own path.
+        let gone = dir.join("gone.xml");
+        assert!(same_file(&gone, &gone));
+        assert!(!same_file(&gone, &file));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

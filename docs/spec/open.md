@@ -2,16 +2,23 @@
 
 ## Rules
 
-- **OPEN-1** `[built]` A file opens in three ways: as the program's first argument, with
-  File > Open (Ctrl+O), or by dropping it on the window.
+- **OPEN-1** `[built]` A file opens in three ways: as a program argument, with File > Open
+  (Ctrl+O), or by dropping it on the window. Each way takes several files at once.
 - **OPEN-2** `[built]` Loading happens in the background. The window stays responsive and the
   status bar shows "Opening" with the path.
 - **OPEN-3** `[built]` When loading ends, the root element is selected: expanded in the tree,
   its children in the grid, its first line in the text view.
 - **OPEN-4** `[built]` The status bar shows the file name, size, line count, element count and
   how long opening took.
-- **OPEN-5** `[gap]` Several documents can be open at once. Today one document is open at a
-  time and opening another replaces it.
+- **OPEN-5** `[done]` Several documents can be open at once, as tabs in one window, above the
+  views. Each file opened gets a new tab, which is shown; a file whose tab is already open
+  is shown again, not loaded twice. Clicking a tab, Ctrl+Tab and Ctrl+Page Down (next),
+  Ctrl+Shift+Tab and Ctrl+Page Up (previous) switch tabs; after the last comes the first. A
+  tab shows the file name, with `*` when it has unsaved changes, and the path on hover. Its
+  ×, a middle click, File > Close or Ctrl+W close it (OPEN-11); then the tab after it is
+  shown, or the one before when it was the last. Each tab keeps its own selection, expanded
+  rows, scroll positions, grid sort and undo history. The window title names the file of the
+  tab shown. View settings apply to every tab.
 - **OPEN-6** `[built]` If the file cannot be read, the status bar says why and the document
   that was open stays open.
 - **OPEN-7** `[done]` UTF-8 files open with or without a byte order mark.
@@ -23,15 +30,16 @@
   a byte that is not UTF-8.
 - **OPEN-10** `[gap]` Elements after the first error are shown too, as far as they can be
   recovered. Today nothing after the error appears in the tree or grid.
-- **OPEN-11** `[done]` Opening another file (File > Open, Ctrl+O, dropping a file), File >
-  Quit and the window's close button ask first if there are unsaved changes: Save, Don't save
-  or Cancel. The action goes ahead after Don't save, or after Save has written the file; if
-  saving fails or is cancelled, nothing is lost and the document stays open. Without unsaved
-  changes nothing is asked.
+- **OPEN-11** `[done]` Closing a tab (OPEN-5), File > Quit and the window's close button ask
+  first if there are unsaved changes: Save, Don't save or Cancel. Quitting shows each tab
+  with unsaved changes in turn and asks about it. The action goes ahead after Don't save, or
+  after Save has written the file; if saving fails or is cancelled, nothing is lost, the
+  document stays open, and quitting stops. Without unsaved changes nothing is asked. Opening a
+  file asks nothing: it gets its own tab.
 - **OPEN-12** `[done]` File > Open Recent lists the last 10 files opened or saved, newest
   first, as name and folder; the full path shows on hover. Opening one again moves it to the
   top. A listed file that no longer exists is reported and leaves the list. Clear list empties
-  it. Opening from the list asks about unsaved changes like any other open (OPEN-11). The list
+  it. A file from the list opens in a tab like any other (OPEN-5). The list
   is kept with the other settings (WIN-3); a path that is not valid UTF-8 is not remembered.
 - **OPEN-13** `[done]` A list below the text shows every warning and error of the document,
   as `Line N, column C: message`; it is there only when there are any. Clicking an entry
@@ -63,6 +71,11 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
   gone and removed from the list; the other document stays open.
 - Format a document, then close the window: the dialog asks. Cancel keeps it open; Don't save
   closes and leaves the file as it was; Save writes the formatted file, then closes.
+- Open three files, the second with a non-ASCII name: three tabs, the last shown. Scroll the
+  tree in one, switch tabs and back: it is where it was. Change two of them and quit: each is
+  shown and asked about in turn; Don't save, then Save writes only the second, keeping its
+  byte order mark and CRLF line endings.
+- Open a file that is open already: its tab is shown, and no second tab appears.
 - Open `crates/engine/tests/corpus/latin1.xml`: the list shows a warning on line 1 at
   `ISO-8859-1` and an error on line 2, column 10, at the `Ä`. Clicking the error outlines that
   byte.
@@ -90,13 +103,12 @@ Details and limits in `reference.md`.
 ## Decided
 
 - Errors: an error list and markers in the text (OPEN-13), not only the status bar message.
-- Several documents at once (OPEN-5).
+- Several documents at once (OPEN-5), as tabs in one window. (Owner, 2026-11-15.)
 - A changed file on disk raises a notice (OPEN-14).
 - The owner's files are UTF-8 and about 10 MiB, growing. OPEN-8 (other encodings) matters less
   than OPEN-7 for them.
 
 ## Questions
 
-1. Several documents: tabs in one window, or one window each?
-2. "Import other XML files" is wanted later. What should it do: insert another file's
+1. "Import other XML files" is wanted later. What should it do: insert another file's
    elements into this document, follow XInclude references, or something else?

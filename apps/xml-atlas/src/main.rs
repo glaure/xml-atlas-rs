@@ -9,12 +9,17 @@ mod nav;
 mod problems_panel;
 mod settings;
 mod system_theme;
+mod tabs;
 mod text_view;
 mod tree;
 
 fn main() -> eframe::Result {
     env_logger::init();
-    let path = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    // Each file named opens in its own tab (OPEN-1, OPEN-5).
+    let paths = std::env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .collect();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("XML Atlas")
@@ -25,6 +30,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "XML Atlas",
         options,
-        Box::new(move |cc| Ok(Box::new(app::App::new(cc, path)))),
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, paths)))),
     )
 }
