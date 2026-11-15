@@ -26,6 +26,12 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
   finds it again.
 - **PKG-6** `[planned]` 64-bit x86 on every platform; 64-bit ARM on macOS (Apple silicon)
   and on Windows and Linux where CI can build it.
+- **PKG-7** `[planned]` The program can tell the user that a newer version exists: at most
+  once a day it asks GitHub for the latest release and, when it is newer, says so in the
+  status bar with a link to the releases page. It never downloads or installs anything by
+  itself, sends nothing but that request, and can be turned off in the settings (WIN-3).
+  Without a network it stays silent. In a Linux package or the Flatpak the notice says to
+  update with the package manager.
 
 ### Windows
 
@@ -33,20 +39,36 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
   current user (no administrator rights needed) or for all users. It adds a Start menu entry
   "XML Atlas", an entry in Settings > Apps for uninstalling, and *Open with* for `.xml`
   (PKG-4). A checkbox, off by default, adds `xml-atlas-cli` to the PATH.
-- **PKG-11** `[planned]` The MSI replaces an installed Qt XML Atlas (QT-13), so its users
-  move to the new version by installing it. (Owner to confirm, question 1.)
+- **PKG-11** `[planned]` The MSI has an upgrade code of its own, not the Qt XML Atlas's
+  (QT-13): the Qt version has no install base to carry over, so the two are separate
+  programs to Windows.
 - **PKG-12** `[planned]` A zip with the two executables, for use without installing
   ("portable"). It stores settings in the usual place, not next to the program.
-- **PKG-13** `[planned]` The executables and the MSI are signed, so Windows does not warn
-  that the publisher is unknown. (Needs a certificate, question 2.)
+- **PKG-13** `[planned]` The executables and the MSI are signed with the owner's employer's
+  code-signing certificate, so Windows does not warn that the publisher is unknown.
+- **PKG-14** `[planned]` Signing for Windows is a manual step, because the certificate stays
+  with the company and never goes into CI:
+  1. CI builds the release from the tag as a draft on GitHub, with unsigned Windows files
+     and a note that they still need signing.
+  2. A maintainer with access to the certificate runs one script on a Windows machine. It
+     downloads the draft's Windows files, signs `xml-atlas.exe` and `xml-atlas-cli.exe`,
+     builds the MSI and the zip again from the signed executables, signs the MSI, checks
+     every signature, and uploads the files and their new checksums in place of the
+     unsigned ones.
+  3. The maintainer publishes the draft. A release is never published with unsigned Windows
+     files.
+  The script is in the repository, and its steps are written down, so that someone else at
+  the company can sign a release.
 
 ### macOS
 
 - **PKG-20** `[planned]` A disk image (DMG) holding `XML Atlas.app`, to drag into
   Applications. One universal app for Apple silicon and Intel, for macOS 12 and later. The
   app registers for XML files (PKG-4) and opens a file dropped on its Dock icon.
-- **PKG-21** `[planned]` The app is signed with a Developer ID and notarized, so Gatekeeper
-  opens it without a warning. (Needs an Apple developer account, question 2.)
+- **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
+  Apple developer account and notarized, so Gatekeeper opens it without a warning. Whether
+  this runs in CI (with the account's credentials as repository secrets) or as a manual
+  step like PKG-14 is question 1.
 - **PKG-22** `[planned]` `xml-atlas-cli` is inside the app; a Homebrew cask installs the app
   and puts the command on the PATH.
 
@@ -56,14 +78,17 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
   later, installable with `apt install ./xml-atlas_….deb`.
 - **PKG-31** `[planned]` An `.rpm` package for RHEL 9 and its rebuilds (Rocky Linux,
   AlmaLinux), and for current Fedora, installable with `dnf install ./xml-atlas-….rpm`.
-- **PKG-32** `[planned]` A Flatpak on Flathub, for every other distribution and for users
-  without administrator rights. It may read and write the files the user opens through the
+- **PKG-32** `[planned]` After the `.deb` and `.rpm`: a Flatpak on Flathub, with the id
+  `io.github.glaure.XmlAtlas`, for every other distribution and for users without
+  administrator rights. It may read and write the files the user opens through the
   file dialog or the command line, and nothing else.
 - **PKG-33** `[planned]` The `.deb` and `.rpm` install both programs into `/usr/bin`, a
   desktop entry and icon (so XML Atlas appears in the application menu), and the MIME
   association of PKG-4. They depend only on libraries the distribution provides (the
   graphics, Wayland and X11 libraries the window needs), declared so the package manager
-  installs them. One build runs on the oldest supported release of each family.
+  installs them. One build runs on the oldest supported release of each family. The desktop
+  entry and icon use the id `io.github.glaure.XmlAtlas`. There is no AppImage or Snap
+  unless someone asks for one.
 - **PKG-34** `[planned]` The window works under both Wayland and X11, and follows the
   desktop's light or dark setting (WIN-2), in every package.
 
@@ -71,8 +96,7 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
 
 On a fresh virtual machine of each supported system, for each package:
 
-- Install without errors or warnings about the publisher (PKG-13, PKG-21 once signing is
-  set up). XML Atlas appears in the Start menu, Applications or the application menu.
+- Install without errors or warnings about the publisher (PKG-13, PKG-21). XML Atlas appears in the Start menu, Applications or the application menu.
 - Right-click an XML file, *Open with* > XML Atlas: it opens. Double-clicking it still opens
   the previous default program.
 - `xml-atlas-cli --version` in a terminal prints the release's version (Windows: after
@@ -80,14 +104,17 @@ On a fresh virtual machine of each supported system, for each package:
 - Change the layout, quit, install the next version over it: the layout is kept.
 - Uninstall: the program, menu entry and *Open with* entry are gone; the settings file is
   still there.
-- Windows, with the Qt XML Atlas MSI installed: installing XML Atlas replaces it
-  (PKG-11).
+- Windows: Properties > Digital Signatures of `xml-atlas.exe`, `xml-atlas-cli.exe` and the
+  MSI shows the company's certificate (PKG-13). A draft release with unsigned files cannot be
+  mistaken for a published one (PKG-14).
+- With an older version installed and a newer one released: the status bar says so once,
+  with a link (PKG-7). Turned off in the settings: nothing is shown and no request is made.
 
 ## Seen in the reference programs
 
 - Qt XML Atlas: Windows MSI only, with a fixed upgrade code and a Start menu shortcut; a
-  Flatpak was prepared but never finished (QT-13). PKG-10 and PKG-11 continue from it; the
-  other platforms are new.
+  Flatpak was prepared but never finished (QT-13). PKG-10 continues from it; PKG-11 differs
+  on purpose. The other platforms are new.
 - XML Marker: not observed. It is a Windows program; how it installs is not written down
   yet.
 
@@ -95,18 +122,18 @@ On a fresh virtual machine of each supported system, for each package:
 
 - Packages for Windows, macOS and Linux, Linux at least for Ubuntu, Debian and RHEL. (Owner,
   2026-11-15.)
+- No install base to carry over from the Qt XML Atlas: the MSI does not replace it (PKG-11).
+  (Owner, 2026-11-15.)
+- The owner's employer signs for Windows and Apple; Windows signing is a manual step
+  (PKG-13, PKG-14, PKG-21). (Owner, 2026-11-15.)
+- Linux: `.deb` and `.rpm` first, Flatpak next, no AppImage or Snap (PKG-30 to PKG-33).
+  (Owner, 2026-11-15.)
+- A notice about new versions is wanted; never an automatic download (PKG-7). (Owner,
+  2026-11-15.)
+- Application id `io.github.glaure.XmlAtlas` (PKG-32, PKG-33). (Owner, 2026-11-15.)
 
 ## Questions
 
-1. Should the new MSI replace the Qt XML Atlas (same upgrade code, PKG-11), or install next
-   to it while both exist?
-2. Signing costs money: a Windows code-signing certificate (about 200 to 400 USD a year, or
-   Azure Trusted Signing at about 10 USD a month) and an Apple developer account (99 USD a
-   year). Without them Windows shows a SmartScreen warning and macOS refuses to open the app
-   until it is allowed in System Settings. Sign from the first release, or later?
-3. Which Linux formats first? A suggestion: `.deb` and `.rpm` first (the systems named),
-   Flatpak next, and no AppImage or Snap unless someone asks.
-4. Should the program check for new versions itself (a notice, never an automatic
-   download), or leave that to the package managers and the releases page?
-5. The Flatpak and the desktop entry need an application id in reverse-domain form. A
-   suggestion: `io.github.glaure.XmlAtlas`.
+1. macOS signing and notarization (PKG-21): in CI with the developer account's credentials
+   stored as repository secrets, or a manual step like Windows (PKG-14)? CI is simpler to
+   repeat; a manual step keeps the credentials with the company.
