@@ -619,9 +619,29 @@ impl Index {
     /// closing quote of its value, in the order of [`Index::attributes`]. Lets a view
     /// highlight one attribute in the source.
     pub fn attribute_spans(&self, src: &[u8], id: NodeId) -> Vec<Range<usize>> {
+        self.attribute_iter(src, id).collect()
+    }
+
+    /// The name of each attribute of an element, raw, in the order of [`Index::attributes`].
+    /// Allocates nothing: for scanning many elements, as the grid's columns do (GRID-3).
+    pub fn attribute_names<'s>(
+        &self,
+        src: &'s [u8],
+        id: NodeId,
+    ) -> impl Iterator<Item = &'s [u8]> + use<'s> {
+        let ws = |b: &u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+        self.attribute_iter(src, id).map(move |r| {
+            let a = &src[r];
+            let name = a.split(|&b| b == b'=').next().unwrap_or(a);
+            let end = name.iter().rposition(|b| !ws(b)).map_or(0, |i| i + 1);
+            &name[..end]
+        })
+    }
+
+    fn attribute_iter<'s>(&self, src: &'s [u8], id: NodeId) -> AttributeSpans<'s> {
         let n = self.node(id);
         if n.kind != NodeKind::Element {
-            return Vec::new();
+            return AttributeSpans { src, at: 0, end: 0 };
         }
         let start = n.start as usize;
         let mut end = start + n.head_len as usize;
@@ -630,44 +650,11 @@ impl Index {
         if end > start && src[end - 1] == b'/' {
             end -= 1;
         }
-        let ws = |b: u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
-        let mut spans = Vec::new();
-        let mut i = start + 1 + n.name_len as usize;
-        loop {
-            while i < end && ws(src[i]) {
-                i += 1;
-            }
-            let name = i;
-            while i < end && !ws(src[i]) && src[i] != b'=' {
-                i += 1;
-            }
-            while i < end && ws(src[i]) {
-                i += 1;
-            }
-            if i >= end || src[i] != b'=' || i == name {
-                break;
-            }
-            i += 1;
-            while i < end && ws(src[i]) {
-                i += 1;
-            }
-            let Some(&quote) = src
-                .get(i)
-                .filter(|&&q| i < end && (q == b'"' || q == b'\''))
-            else {
-                break;
-            };
-            i += 1;
-            while i < end && src[i] != quote {
-                i += 1;
-            }
-            if i >= end {
-                break;
-            }
-            i += 1;
-            spans.push(name..i);
+        AttributeSpans {
+            src,
+            at: start + 1 + n.name_len as usize,
+            end,
         }
-        spans
     }
 
     /// Text content of a text or CDATA node, or the folded text of an element, unescaped.
@@ -840,6 +827,57 @@ impl Iterator for Children<'_> {
         let id = self.next as NodeId;
         self.next += 1 + self.index.node(id).descendants as u64;
         Some(id)
+    }
+}
+
+/// Walks the attributes of a start tag in `at..end` of the source; see
+/// [`Index::attribute_spans`]. Stops at the first one that is not `name = "value"`.
+struct AttributeSpans<'s> {
+    src: &'s [u8],
+    at: usize,
+    end: usize,
+}
+
+impl Iterator for AttributeSpans<'_> {
+    type Item = Range<usize>;
+
+    fn next(&mut self) -> Option<Range<usize>> {
+        let src = self.src;
+        let ws = |b: u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+        let end = self.end;
+        let mut i = self.at;
+        // Ends the walk whatever is returned.
+        self.at = end;
+        while i < end && ws(src[i]) {
+            i += 1;
+        }
+        let name = i;
+        while i < end && !ws(src[i]) && src[i] != b'=' {
+            i += 1;
+        }
+        while i < end && ws(src[i]) {
+            i += 1;
+        }
+        if i >= end || src[i] != b'=' || i == name {
+            return None;
+        }
+        i += 1;
+        while i < end && ws(src[i]) {
+            i += 1;
+        }
+        let &quote = src
+            .get(i)
+            .filter(|&&q| i < end && (q == b'"' || q == b'\''))?;
+        i += 1;
+        while i < end && src[i] != quote {
+            i += 1;
+        }
+        if i >= end {
+            return None;
+        }
+        i += 1;
+        self.at = i;
+        Some(name..i)
     }
 }
 

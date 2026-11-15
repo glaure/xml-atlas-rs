@@ -82,7 +82,8 @@ Marker, on Windows, Linux and macOS, natively and without wine.
 - **Tree:** a flat list of visible element rows, rebuilt only when expansion changes. Rows are
   painted directly (no widget per row). Selecting a node expands its ancestors and scrolls to it.
 - **Grid:** like XML Marker. The child elements of the selection are rows. The columns are the
-  union of attributes, leaf child elements and `text()`, taken from the first 1,000 rows. Cells
+  union of attributes, leaf child elements and `text()`, taken from every row: the first 1,000
+  at once, the rest over the next frames (GRID-3). Cells
   are decoded only for visible rows. A click shows the row in the text; a double-click makes it
   the selection.
 - **Text:** a line index built with `memchr`. Only visible lines are laid out. The highlighter
@@ -131,7 +132,7 @@ Still open, found by the same review:
 - Files that are not UTF-8 (Latin-1, UTF-16) stop at the first non-UTF-8 byte and show an empty
   tree. See D14.
 - The grid takes its columns from the first 1,000 rows. An attribute that first appears later
-  is not shown.
+  is not shown. Done: every row is examined now (GRID-3).
 - A start tag with malformed attributes (`<a x=1 y="2">`) shows only the well-formed ones, with
   no warning.
 
