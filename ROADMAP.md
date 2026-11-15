@@ -31,7 +31,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       a float's precision at 1.0's sizes
 - [x] Keyboard navigation in tree and grid (TREE-8, GRID-17); Drill Up and Drill Down (TREE-10)
 - [x] Ask before closing with unsaved changes (OPEN-11)
-- [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
+- [x] CI: fmt, clippy and tests on Linux; build with Rust 1.95 (Windows and macOS dropped to
+      save Actions minutes)
 
 ## 0.2: Structured editing
 
