@@ -8,12 +8,13 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
+use xml_atlas_xml::{Index, NodeId};
 
 use crate::format::newline_style;
 
 pub use disk::{DiskChange, FileStamp};
 pub use edit::{Edit, EditError, History, Splice, Typing};
+pub use encoding::{FileEncoding, Unencodable};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
 };
@@ -22,6 +23,7 @@ pub use xml_atlas_xml as xml;
 pub mod command;
 pub mod disk;
 pub mod edit;
+pub mod encoding;
 pub mod find;
 pub mod format;
 pub mod grid;
@@ -84,12 +86,30 @@ pub struct Document {
     newline: &'static [u8],
     /// Set while typing has broken the text and the index lags behind it.
     stale: Option<Stale>,
+    /// The file's encoding when it is not UTF-8: `src` holds the text converted to UTF-8,
+    /// and saving converts it back (OPEN-8).
+    encoding: Option<FileEncoding>,
+    /// A declared encoding that is not used, and why (OPEN-13).
+    encoding_note: Option<String>,
+}
+
+/// Why a document could not be saved.
+#[derive(Debug, thiserror::Error)]
+pub enum SaveError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    /// The text cannot be written in the file's encoding; Save as UTF-8 can
+    /// ([`Document::convert_to_utf8`]).
+    #[error(transparent)]
+    Encoding(#[from] Unencodable),
 }
 
 /// How long each stage of opening took.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Timings {
     pub read: Duration,
+    /// Converting a file that is not UTF-8 (OPEN-8); zero for UTF-8.
+    pub decode: Duration,
     pub index: Duration,
     pub lines: Duration,
 }
@@ -109,7 +129,7 @@ impl ReparseJob {
 
 impl Timings {
     pub fn total(&self) -> Duration {
-        self.read + self.index + self.lines
+        self.read + self.decode + self.index + self.lines
     }
 }
 
@@ -131,7 +151,12 @@ impl Document {
         Ok(doc)
     }
 
-    pub fn from_bytes(src: Vec<u8>) -> Self {
+    /// The document of a file's bytes: converted to UTF-8 when the file is in another
+    /// encoding (OPEN-8), as they are otherwise.
+    pub fn from_bytes(file: Vec<u8>) -> Self {
+        let t = Instant::now();
+        let (src, opened) = encoding::decode(file);
+        let decode_time = t.elapsed();
         let t = Instant::now();
         let index = xml_atlas_xml::index(&src);
         let index_time = t.elapsed();
@@ -146,6 +171,7 @@ impl Document {
             line_starts,
             timings: Timings {
                 read: Duration::ZERO,
+                decode: decode_time,
                 index: index_time,
                 lines: lines_time,
             },
@@ -155,7 +181,48 @@ impl Document {
             last_change: None,
             newline,
             stale: None,
+            encoding: opened.encoding,
+            encoding_note: opened.ignored,
         }
+    }
+
+    /// The file's encoding when it is not UTF-8 (OPEN-8).
+    pub fn encoding(&self) -> Option<&FileEncoding> {
+        self.encoding.as_ref()
+    }
+
+    /// The bytes [`save`](Self::save) writes: the source in the file's encoding.
+    pub fn encoded(&self) -> Result<std::borrow::Cow<'_, [u8]>, Unencodable> {
+        encoding::encode(&self.src, self.encoding.as_ref())
+    }
+
+    /// Save as UTF-8: from now on the document is saved in UTF-8, without a byte order
+    /// mark. The XML declaration's `encoding` says UTF-8 too, changed as an edit that can be
+    /// undone. Returns whether anything changed.
+    pub fn convert_to_utf8(&mut self) -> bool {
+        let Some(enc) = self.encoding.take() else {
+            return false;
+        };
+        if let Some((label, at)) = encoding::declared(&self.src)
+            && !label.eq_ignore_ascii_case("utf-8")
+        {
+            let edit =
+                Edit::new("Convert to UTF-8").replace(at..at + label.len(), b"UTF-8".to_vec());
+            if let Err(e) = self.apply(edit) {
+                log::warn!("declaration not changed: {e}");
+            }
+        } else {
+            // Nothing in the text changes, but the file will.
+            self.history.mark_unsaved();
+        }
+        self.encoding_note = None;
+        log::info!("converted from {} to UTF-8", enc.label);
+        true
+    }
+
+    /// A declared encoding that is not used, and why.
+    pub fn encoding_note(&self) -> Option<&str> {
+        self.encoding_note.as_deref()
     }
 
     /// Applies `edit` as one undo step and indexes the document again. On error nothing
@@ -343,9 +410,11 @@ impl Document {
         format::options_for(&self.src, &self.index, base)
     }
 
-    /// Writes the source to `path` with [`save_atomic`] and makes it the document's path.
-    pub fn save(&mut self, path: &Path) -> io::Result<()> {
-        save_atomic(path, &self.src)?;
+    /// Writes the source to `path` with [`save_atomic`], in the file's encoding, and makes
+    /// it the document's path. Text that the encoding cannot hold is refused with where it
+    /// is, and nothing is written (OPEN-8).
+    pub fn save(&mut self, path: &Path) -> Result<(), SaveError> {
+        save_atomic(path, &self.encoded()?)?;
         self.path = Some(path.to_path_buf());
         self.history.mark_saved();
         self.disk = FileStamp::of(path).unwrap_or(None);

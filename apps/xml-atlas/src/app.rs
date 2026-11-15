@@ -10,7 +10,7 @@ use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{
     DiskChange, Document, Edit, EditError, FormatError, FormatOptions, REPARSE_INLINE_BYTES,
-    Reparsed,
+    Reparsed, SaveError, Unencodable,
 };
 
 use crate::disk_watch::DiskWatch;
@@ -56,6 +56,9 @@ pub struct App {
     format_dialog: Option<FormatOptions>,
     /// Wakes the window when the file of an open document changes on disk (OPEN-14).
     disk_watch: DiskWatch,
+    /// Saving the tab shown was refused because its text does not fit the file's encoding;
+    /// the dialog offers Save as UTF-8 (OPEN-8).
+    unencodable: Option<(PathBuf, Unencodable)>,
 }
 
 /// The answers of the "save changes?" dialog.
@@ -257,6 +260,7 @@ impl App {
             message: None,
             notice: None,
             format_dialog: None,
+            unencodable: None,
             disk_watch: DiskWatch::start(cc.egui_ctx.clone()),
         };
         for path in paths {
@@ -561,6 +565,95 @@ impl App {
                 self.request(&ctx, Action::Quit);
             }
             (Answer::Cancel, _) => self.cancel_quit(),
+        }
+    }
+
+    /// Saving was refused because the text does not fit the file's encoding (OPEN-8): says
+    /// what and where, and offers to show it or to save as UTF-8 instead.
+    fn encoding_dialog(&mut self, ui: &mut Ui) {
+        let Some((path, error)) = self.unencodable.clone() else {
+            return;
+        };
+        let ctx = ui.ctx().clone();
+        let Some(open) = self.docs.active() else {
+            self.unencodable = None;
+            return;
+        };
+        let text = match &error {
+            Unencodable::Char {
+                offset,
+                ch,
+                encoding,
+            } => {
+                let line = open.doc.line_of(*offset as u64);
+                let column = xml_atlas_engine::text::column(&open.doc, *offset) + 1;
+                format!(
+                    "{ch} on line {}, column {column}, cannot be written in {encoding}, the \
+                     file's encoding. Nothing was saved.",
+                    line + 1
+                )
+            }
+            Unencodable::Lossy { encoding } => format!(
+                "The file has bytes that are not valid {encoding}; they are shown as \u{FFFD} \
+                 and cannot be written back. Nothing was saved."
+            ),
+        };
+        let (mut show, mut utf8, mut cancel) = (false, false, false);
+        let modal = egui::Modal::new(egui::Id::unique("unencodable")).show(&ctx, |ui| {
+            ui.set_width(420.0);
+            ui.heading("Cannot save in this encoding");
+            ui.label(text);
+            ui.label("Save as UTF-8 writes the file in UTF-8, and its declaration says so.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                utf8 = ui.button("Save as UTF-8").clicked();
+                if matches!(error, Unencodable::Char { .. }) {
+                    show = ui.button("Show it").clicked();
+                }
+                cancel = ui.button("Cancel").clicked();
+            });
+        });
+        if utf8 {
+            self.unencodable = None;
+            self.save_as_utf8(Some(path));
+        } else if show {
+            self.unencodable = None;
+            if let (Some(open), Unencodable::Char { offset, ch, .. }) =
+                (self.docs.active_mut(), error)
+            {
+                open.text_sel = Some(xml_atlas_engine::text::Selection {
+                    anchor: offset,
+                    head: offset + ch.len_utf8(),
+                });
+                open.scroll_text_to = Some(open.doc.line_of(offset as u64));
+                open.text_reveal = true;
+                open.text_focus = true;
+            }
+        } else if cancel || modal.should_close() {
+            self.unencodable = None;
+        }
+    }
+
+    /// File > Save as UTF-8 (OPEN-8): the document is saved in UTF-8 from now on, its
+    /// declaration changed to say so, to `path` or to its own file.
+    fn save_as_utf8(&mut self, path: Option<PathBuf>) {
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
+        if let Err(e) = open.edit(|doc| Ok(doc.convert_to_utf8())) {
+            self.message = Some(format!("Cannot convert to UTF-8: {e}"));
+            return;
+        }
+        let path = path.or_else(|| open.doc.path.clone());
+        match path {
+            Some(p) => {
+                if self.save_to(p) {
+                    self.notice = Some(Note::info("Saved as UTF-8".to_string()));
+                }
+            }
+            None => {
+                self.save();
+            }
         }
     }
 
@@ -920,6 +1013,10 @@ impl App {
                 self.message = None;
                 true
             }
+            Err(SaveError::Encoding(e)) => {
+                self.unencodable = Some((path, e));
+                false
+            }
             Err(e) => {
                 self.message = Some(format!("Could not save {}: {e}", path.display()));
                 false
@@ -1045,6 +1142,15 @@ impl App {
                 {
                     ui.close();
                     self.save_as();
+                }
+                if self
+                    .docs
+                    .active()
+                    .is_some_and(|o| o.doc.encoding().is_some())
+                    && ui.button("Save as UTF-8").clicked()
+                {
+                    ui.close();
+                    self.save_as_utf8(None);
                 }
                 if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Close    Ctrl+W"))
@@ -1234,8 +1340,14 @@ impl App {
             };
             let s = open.doc.stats();
             let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
+            // The file's encoding, when it is not UTF-8 (OPEN-8).
+            let encoding = open
+                .doc
+                .encoding()
+                .map(|e| format!("  ·  {}", e.label))
+                .unwrap_or_default();
             ui.label(format!(
-                "{name}{}  ·  {:.1} MiB  ·  {} lines  ·  {} elements  ·  opened in {:.0} ms",
+                "{name}{}{encoding}  ·  {:.1} MiB  ·  {} lines  ·  {} elements  ·  opened in {:.0} ms",
                 if open.doc.is_modified() {
                     " (modified)"
                 } else {
@@ -1321,6 +1433,7 @@ impl eframe::App for App {
             self.tab_shortcuts(&ctx);
         }
         self.confirm_dialog(ui);
+        self.encoding_dialog(ui);
         self.format_dialog(&ctx);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
         if ctx.input_mut(|i| {

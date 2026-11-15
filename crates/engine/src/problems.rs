@@ -1,16 +1,10 @@
 //! Warnings and errors about a document, for the error list (`docs/spec/open.md`, OPEN-13).
 //!
-//! Today the list holds the first parse error, and what the start of the file says about its
-//! encoding when that encoding is not UTF-8. Only the first bytes are read, so building the
-//! list costs nothing measurable. Parsing on after the first error is OPEN-10.
+//! The list holds the parse errors (OPEN-10) and what is wrong with the file's encoding
+//! (OPEN-8). Only the first bytes are read for the latter, so building the list costs
+//! nothing measurable.
 
-use crate::Document;
-
-/// Bytes at the start of the file searched for the XML declaration.
-const DECLARATION_BYTES: usize = 256;
-
-const UTF16_LE_BOM: &[u8] = b"\xFF\xFE";
-const UTF16_BE_BOM: &[u8] = b"\xFE\xFF";
+use crate::{Document, encoding};
 
 /// Encoding names that need no conversion.
 const UTF8_NAMES: &[&str] = &["utf-8", "utf8", "us-ascii", "ascii"];
@@ -33,7 +27,7 @@ impl Document {
     /// Problems in document order.
     pub fn problems(&self) -> Vec<Problem> {
         let mut out = Vec::new();
-        if let Some(p) = encoding_problem(&self.src) {
+        if let Some(p) = encoding_problem(self) {
             out.push(p);
         }
         for e in self.index.error.iter().chain(&self.index.more_errors) {
@@ -48,54 +42,47 @@ impl Document {
     }
 }
 
-/// A UTF-16 byte order mark, or a declared encoding other than UTF-8.
-fn encoding_problem(src: &[u8]) -> Option<Problem> {
-    if src.starts_with(UTF16_LE_BOM) || src.starts_with(UTF16_BE_BOM) {
+/// What is wrong with the file's encoding: a declaration that is not used, bytes that do
+/// not convert back, or a declaration that no longer says what the document is saved in.
+fn encoding_problem(doc: &Document) -> Option<Problem> {
+    let declared = encoding::declared(&doc.src);
+    let at = declared.as_ref().map_or(0, |d| d.1 as u64);
+    if let Some(note) = doc.encoding_note() {
         return Some(Problem {
-            severity: Severity::Error,
-            offset: 0,
-            message: "UTF-16 is not supported yet; the file cannot be read".into(),
+            severity: Severity::Warning,
+            offset: at,
+            message: note.to_string(),
         });
     }
-    let (name, at) = declared_encoding(src)?;
-    if UTF8_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+    if let Some(enc) = doc.encoding() {
+        if enc.lossless {
+            return None;
+        }
+        // Where the first byte that did not convert is shown.
+        let bad = memchr::memmem::find(&doc.src, "\u{FFFD}".as_bytes()).unwrap_or(0);
+        return Some(Problem {
+            severity: Severity::Warning,
+            offset: bad as u64,
+            message: format!(
+                "The file has bytes that are not valid {}; they are shown as \u{FFFD}. It can \
+                 only be saved as UTF-8",
+                enc.label
+            ),
+        });
+    }
+    // A UTF-8 document whose declaration names another encoding: after Save as UTF-8 was
+    // undone.
+    let (name, at) = declared?;
+    if UTF8_NAMES.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
         return None;
     }
     Some(Problem {
         severity: Severity::Warning,
         offset: at as u64,
         message: format!(
-            "The file declares encoding {name}, which is not supported yet: it is shown as \
-             UTF-8, so characters outside ASCII are wrong"
+            "The declaration says encoding {name}, but the document is saved as UTF-8"
         ),
     })
-}
-
-/// The value of `encoding` in the XML declaration, and the byte where it starts.
-fn declared_encoding(src: &[u8]) -> Option<(&str, usize)> {
-    let head = &src[..src.len().min(DECLARATION_BYTES)];
-    let start = if head.starts_with(crate::UTF8_BOM) {
-        crate::UTF8_BOM.len()
-    } else {
-        0
-    };
-    let head = &head[start..];
-    if !head.starts_with(b"<?xml") {
-        return None;
-    }
-    let end = memchr::memmem::find(head, b"?>")?;
-    let decl = &head[..end];
-    let key = memchr::memmem::find(decl, b"encoding")?;
-    let rest = &decl[key + b"encoding".len()..];
-    let eq = rest.iter().position(|&b| b == b'=')?;
-    let after = &rest[eq + 1..];
-    let q = after.iter().position(|&b| b == b'"' || b == b'\'')?;
-    let quote = after[q];
-    let value = &after[q + 1..];
-    let close = value.iter().position(|&b| b == quote)?;
-    let name = std::str::from_utf8(&value[..close]).ok()?;
-    let at = start + key + b"encoding".len() + eq + 1 + q + 1;
-    Some((name, at))
 }
 
 #[cfg(test)]
@@ -120,26 +107,36 @@ mod tests {
     }
 
     #[test]
-    fn declared_latin1_is_a_warning_at_the_encoding_name() {
+    fn latin1_and_utf16_have_none() {
         let src = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><r>Gr\u{f6}\u{df}e</r>";
         let bytes: Vec<u8> = src.chars().map(|c| c as u8).collect();
-        let p = problems(&bytes);
-        assert_eq!(p[0].severity, Severity::Warning);
-        assert_eq!(&bytes[p[0].offset as usize..][..10], b"ISO-8859-1");
-        assert!(p[0].message.contains("ISO-8859-1"));
-        // The bytes that are not UTF-8 also stop the parser, after the warning.
-        assert_eq!(p.len(), 2);
-        assert_eq!(p[1].severity, Severity::Error);
-        assert!(p[1].offset > p[0].offset);
+        assert_eq!(problems(&bytes), []);
+        let mut src = b"\xFF\xFE".to_vec();
+        src.extend("<r/>".encode_utf16().flat_map(u16::to_le_bytes));
+        assert_eq!(problems(&src), []);
     }
 
     #[test]
-    fn utf16_is_an_error_at_the_start() {
+    fn an_unknown_encoding_is_a_warning_at_its_name() {
+        let src = b"<?xml version=\"1.0\" encoding=\"klingon\"?><r/>";
+        let p = problems(src);
+        assert_eq!(p[0].severity, Severity::Warning);
+        assert_eq!(&src[p[0].offset as usize..][..7], b"klingon");
+    }
+
+    #[test]
+    fn bytes_that_do_not_convert_back_are_a_warning_where_they_show() {
         let mut src = b"\xFF\xFE".to_vec();
-        src.extend("<r/>".encode_utf16().flat_map(u16::to_le_bytes));
+        for u in "<r>"
+            .encode_utf16()
+            .chain([0xDC00])
+            .chain("</r>".encode_utf16())
+        {
+            src.extend(u.to_le_bytes());
+        }
         let p = problems(&src);
-        assert_eq!((p[0].severity, p[0].offset), (Severity::Error, 0));
-        assert!(p[0].message.contains("UTF-16"));
+        assert_eq!((p[0].severity, p[0].offset), (Severity::Warning, 3));
+        assert!(p[0].message.contains("only be saved as UTF-8"));
     }
 
     #[test]

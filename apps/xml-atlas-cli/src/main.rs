@@ -182,7 +182,7 @@ fn main() -> anyhow::Result<()> {
                 chosen.options
             };
             eprintln!("format: {options}");
-            write_output(output, &doc.format(&options)?)
+            write_output(output, &in_file_encoding(&doc, &doc.format(&options)?)?)
         }
         Command::Compact {
             file,
@@ -196,7 +196,7 @@ fn main() -> anyhow::Result<()> {
                 trim_text: content.trim_text,
                 ..FormatOptions::default()
             };
-            write_output(output, &doc.compact(&options)?)
+            write_output(output, &in_file_encoding(&doc, &doc.compact(&options)?)?)
         }
         Command::SetText { target, text } => edit(target, |d, id| command::set_text(d, id, &text)),
         Command::SetAttribute {
@@ -290,7 +290,7 @@ fn replace(
             }
         }
     }
-    write_output(output, &doc.src)
+    write_output(output, &doc.encoded()?)
 }
 
 /// Options of format and compact that change content, so both are off unless asked for.
@@ -327,7 +327,12 @@ fn edit(
     if let Some(e) = &doc.index.error {
         anyhow::bail!("the edit would leave the document not well-formed: {e}");
     }
-    write_output(target.output, &doc.src)
+    write_output(target.output, &doc.encoded()?)
+}
+
+/// `bytes`, a new text of `doc`, in the encoding of `doc`'s file (OPEN-8).
+fn in_file_encoding(doc: &Document, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    Ok(xml_atlas_engine::encoding::encode(bytes, doc.encoding())?.into_owned())
 }
 
 fn write_output(output: Option<PathBuf>, bytes: &[u8]) -> anyhow::Result<()> {
@@ -379,6 +384,9 @@ fn stats(file: &PathBuf, repeat: u32) -> anyhow::Result<()> {
     let s = doc.stats();
     println!("file          {}", file.display());
     println!("size          {}", mib(s.bytes));
+    if let Some(enc) = doc.encoding() {
+        println!("encoding      {} (converted to UTF-8)", enc.label);
+    }
     println!("lines         {}", s.lines);
     println!(
         "nodes         {} ({} elements, max depth {})",
@@ -392,9 +400,10 @@ fn stats(file: &PathBuf, repeat: u32) -> anyhow::Result<()> {
     let best = runs[0];
     let median = runs[runs.len() / 2];
     println!(
-        "open (best)   {:>9} total = read {} + index {} + lines {}",
+        "open (best)   {:>9} total = read {} + decode {} + index {} + lines {}",
         ms(best.total()),
         ms(best.read),
+        ms(best.decode),
         ms(best.index),
         ms(best.lines)
     );

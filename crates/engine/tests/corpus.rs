@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use xml_atlas_engine::{Document, FormatOptions};
+use xml_atlas_engine::{Document, Edit, FormatOptions, SaveError, Unencodable};
 
 use xml_atlas_engine::xml::{NodeId, NodeKind};
 
@@ -235,16 +235,16 @@ fn malformed_file_recovers_after_the_error() {
 /// OPEN-13: the problems of each corpus file, by line.
 #[test]
 fn problems_of_the_corpus() {
-    use xml_atlas_engine::problems::Severity::{Error, Warning};
+    use xml_atlas_engine::problems::Severity::Error;
     let cases: &[(&str, &[(xml_atlas_engine::problems::Severity, usize)])] = &[
         ("utf8_bom_crlf.xml", &[]),
         ("namespaces.xml", &[]),
         ("malformed_unclosed.xml", &[(Error, 4)]),
-        // The first byte that is not UTF-8 is in `<n a="Äpfel">`, so that start tag is
-        // skipped and its end tag matches nothing (OPEN-10); OPEN-8 reads such files right.
-        ("latin1.xml", &[(Warning, 0), (Error, 1), (Error, 1)]),
-        ("windows1252.xml", &[(Warning, 0), (Error, 1)]),
-        ("utf16le_bom.xml", &[(Error, 0), (Error, 0)]),
+        // Read in their own encoding (OPEN-8): nothing to report.
+        ("latin1.xml", &[]),
+        ("windows1252.xml", &[]),
+        ("utf16le_bom.xml", &[]),
+        ("utf16be_bom.xml", &[]),
     ];
     for (file, expected) in cases {
         let doc = open(file);
@@ -258,31 +258,101 @@ fn problems_of_the_corpus() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Other encodings (OPEN-8): today they stop at the first byte that is not UTF-8.
+// Other encodings (OPEN-8): converted to UTF-8 when opened.
 
 #[test]
-#[ignore = "OPEN-8: encodings other than UTF-8"]
 fn latin1_from_declaration() {
     assert_encoded_file("latin1.xml", "Größe über");
 }
 
 #[test]
-#[ignore = "OPEN-8: encodings other than UTF-8"]
 fn windows1252_from_declaration() {
     let doc = open("windows1252.xml");
     assert_eq!(text(&doc, find(&doc, "n")), "5 € – „gut“");
 }
 
 #[test]
-#[ignore = "OPEN-8: encodings other than UTF-8"]
 fn utf16_little_endian_from_bom() {
     assert_encoded_file("utf16le_bom.xml", "Größe 日本");
 }
 
 #[test]
-#[ignore = "OPEN-8: encodings other than UTF-8"]
 fn utf16_big_endian_from_bom() {
     assert_encoded_file("utf16be_bom.xml", "Größe 日本");
+}
+
+/// OPEN-8: a file in another encoding is saved byte for byte as it was, and an edit is
+/// saved in that encoding too.
+#[test]
+fn encoded_files_save_as_they_were() {
+    let dir = std::env::temp_dir().join(format!("xml-atlas-encodings-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in [
+        "latin1.xml",
+        "windows1252.xml",
+        "utf16le_bom.xml",
+        "utf16be_bom.xml",
+        "utf8_bom_crlf.xml",
+    ] {
+        let original = std::fs::read(corpus(file)).unwrap();
+        let mut doc = open(file);
+        let out = dir.join(file);
+        doc.save(&out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), original, "{file} unchanged");
+        // `ä` typed at the start of the second line is one character, in the file's own
+        // encoding: one byte in Latin-1 and Windows-1252, two in UTF-16 and UTF-8.
+        let at = doc.line_starts[1] as usize;
+        doc.apply(Edit::new("Type").replace(at..at, "ä".as_bytes().to_vec()))
+            .unwrap();
+        doc.save(&out).unwrap();
+        let again = Document::open(&out).unwrap();
+        assert_eq!(again.encoding(), doc.encoding(), "{file}");
+        assert_eq!(again.src, doc.src, "{file}");
+        let grew = if file.starts_with("latin1") || file.starts_with("windows") {
+            1
+        } else {
+            2
+        };
+        assert_eq!(
+            std::fs::read(&out).unwrap().len(),
+            original.len() + grew,
+            "{file}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// OPEN-8: a character Latin-1 cannot hold is refused where it is, nothing is written, and
+/// Save as UTF-8 writes the file in UTF-8 with its declaration saying so.
+#[test]
+fn a_character_latin1_cannot_hold_is_refused() {
+    let dir = std::env::temp_dir().join(format!("xml-atlas-refuse-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("latin1.xml");
+    std::fs::copy(corpus("latin1.xml"), &out).unwrap();
+    let original = std::fs::read(&out).unwrap();
+    let mut doc = Document::open(&out).unwrap();
+    let at = find_bytes(&doc.src, "Größe".as_bytes());
+    doc.apply(Edit::new("Type").replace(at..at, "日本 ".as_bytes().to_vec()))
+        .unwrap();
+    match doc.save(&out) {
+        Err(SaveError::Encoding(Unencodable::Char { offset, ch, .. })) => {
+            assert_eq!((offset, ch), (at, '日'));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(std::fs::read(&out).unwrap(), original, "nothing written");
+    assert!(doc.convert_to_utf8());
+    doc.save(&out).unwrap();
+    let saved = std::fs::read(&out).unwrap();
+    let text = std::str::from_utf8(&saved).expect("UTF-8 now");
+    assert!(
+        text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+        "{text}"
+    );
+    assert!(text.contains("日本 Größe"));
+    assert_eq!(Document::open(&out).unwrap().encoding(), None);
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -317,11 +387,21 @@ fn deep_nesting() {
 // ---------------------------------------------------------------------------------------------
 // Helpers
 
-fn open(name: &str) -> Document {
-    let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), "tests", "corpus", name]
+fn corpus(name: &str) -> PathBuf {
+    [env!("CARGO_MANIFEST_DIR"), "tests", "corpus", name]
         .iter()
-        .collect();
+        .collect()
+}
+
+fn open(name: &str) -> Document {
+    let path = corpus(name);
     Document::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn find_bytes(src: &[u8], what: &[u8]) -> usize {
+    src.windows(what.len())
+        .position(|w| w == what)
+        .expect("found")
 }
 
 fn assert_encoded_file(file: &str, expected_text: &str) {

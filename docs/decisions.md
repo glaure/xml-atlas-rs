@@ -287,7 +287,7 @@ Still open, found by the same review:
 - **Expected gains, none measured yet:**
   - Speed: quick-xml 0.42 validates UTF-8 and builds an event per token.
   - Latin-1 and Windows-1252 files index without transcoding, because all markup is ASCII.
-    UTF-16 still needs transcoding at load.
+    UTF-16 still needs transcoding at load. Not needed any more: D23 converts at load.
   - Error recovery: on a mismatched end tag, close elements up to the matching ancestor and
     carry on, collecting a list of errors instead of stopping at the first (D3, D9).
   - No hidden offset rules such as the byte order mark.
@@ -568,6 +568,27 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   developer machine may not allow); `cargo-deb` and `cargo-generate-rpm` (two tools with two
   configurations for one file list).
 
+## D23: Other encodings are converted at open and back at save
+
+- **What:** `crates/engine/src/encoding.rs` converts a file that is not UTF-8 to UTF-8 when it
+  is opened, with `encoding_rs`, and back when it is saved. The document remembers the
+  encoding, its label and the byte order mark. A UTF-8 file is never converted.
+- **Why:** everything else (index, views, find, edits, format) works on UTF-8 and stays as
+  it is. A tokenizer that reads Latin-1 itself (D14) would move the conversion into every
+  place that shows or takes text, and would not help UTF-16. (Owner, 2026-11-15.)
+- **Bytes kept (`AGENTS.md`, rule 7):** a file that does not convert back the same can be
+  saved only as UTF-8. For UTF-16 and the single-byte encodings the decoder's error report
+  says so, which a test checks for each of the 28 single-byte encodings and every byte;
+  multi-byte encodings such as Shift_JIS are converted back at open and compared.
+- **A character the encoding cannot hold:** saving fails with its place, and the app offers
+  Save as UTF-8. Numeric character references are not written: they would change the
+  meaning inside comments and CDATA and are not allowed in names. (Owner, 2026-11-15.)
+- **Cost:** converting a 100 MiB file at open: 157 ms for Latin-1, 190 ms for UTF-16, about
+  what `encoding_rs` takes to decode; the round trip at open would have doubled it. UTF-8
+  files cost nothing more (377 ms, as before).
+- **Offsets:** problems, find results and the CLI's positions count bytes of the UTF-8
+  text, not of the file.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
@@ -578,4 +599,5 @@ New ones:
 1. Does the tokenizer of D14 pay for itself?
 2. How should node identity survive a full re-index (after Format, or when a splice fails)?
    Paths of child positions are one option.
-3. Which encodings do the owner's real files use? That sets the priority of UTF-16.
+3. Which encodings do the owner's real files use? Answered: UTF-8. Other encodings are in
+   1.0 anyway (D23).
