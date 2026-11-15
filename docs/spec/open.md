@@ -49,8 +49,18 @@
   it does the same as clicking the entry. Today the list holds the first parse error (see
   OPEN-10) and these encoding problems: a UTF-16 byte order mark is an error, and a declared
   encoding other than UTF-8 is a warning that says the text is shown as UTF-8 (see OPEN-8).
-- **OPEN-14** `[planned]` When the open file changes on disk, a notice offers to reload it or
-  to save the open document, also under another name. XML Marker does not notice (XM-14).
+- **OPEN-14** `[done]` When the file of an open document is changed, deleted or moved on disk
+  by another program, a notice above the views says so within about a second, and the tab's
+  name turns to the warning colour. The notice offers Reload (not when the file is gone;
+  "Reload, discarding changes" when there are unsaved ones), Save, Save as… and Keep. Reload
+  reads the file in the background; the selection and the expanded rows stay where they were
+  as far as the elements are still there, and the undo history starts afresh. Save writes the
+  open document over the file; Save as… asks for another name, which the tab then keeps. Keep
+  leaves the file alone and counts the document as modified, so Save is offered and closing
+  asks (OPEN-11); the notice comes back only on the next change. Saving from XML Atlas itself
+  is no change. File > Save As… (Ctrl+Shift+S) is in the menu too. Files are looked at once a
+  second on a thread of their own, and the window is woken only when one changed. XML Marker
+  does not notice (XM-14).
 
 ## Speed targets
 
@@ -76,6 +86,11 @@ Measured from starting the program until the file is loaded (`docs/benchmarks.md
   shown and asked about in turn; Don't save, then Save writes only the second, keeping its
   byte order mark and CRLF line endings.
 - Open a file that is open already: its tab is shown, and no second tab appears.
+- Open a UTF-8 file with a byte order mark, CRLF line endings and a non-ASCII name; change it
+  in another program: the notice appears; Reload shows the new contents. Delete it: the
+  notice says it is gone and has no Reload; Save writes it back byte for byte. Change it
+  again and Keep: the file stays as the other program wrote it, the tab shows `*`, and Ctrl+S
+  writes the open version.
 - Open `crates/engine/tests/corpus/latin1.xml`: the list shows a warning on line 1 at
   `ISO-8859-1` and an error on line 2, column 10, at the `Ä`. Clicking the error outlines that
   byte.

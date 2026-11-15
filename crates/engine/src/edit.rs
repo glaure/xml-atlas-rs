@@ -199,6 +199,12 @@ impl History {
         self.saved = Some(self.undo.len());
     }
 
+    /// The file no longer matches the document, whatever undo or redo does, until the next
+    /// save.
+    pub fn mark_unsaved(&mut self) {
+        self.saved = None;
+    }
+
     /// Bytes the history holds.
     pub fn bytes(&self) -> usize {
         self.undo.iter().chain(&self.redo).map(Step::bytes).sum()
