@@ -1,7 +1,7 @@
 # Roadmap
 
 The order follows `docs/decisions.md`, D15. Version 1.0 is everything here except the items
-marked *after 1.0* (D20); two items of 0.4 are not decided yet.
+marked *after 1.0* (D20): all of 0.4 and the macOS package.
 
 ## 0.1: Viewer you can trust on real files (current)
 
@@ -67,20 +67,21 @@ marked *after 1.0* (D20); two items of 0.4 are not decided yet.
 - [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
 - [ ] Word wrap (TEXT-13); page very long lines; minified-file mode
 
-## 0.4: Power features
+## 0.4: Power features (after 1.0, D20)
 
-- [ ] XPath query panel (*after 1.0*, D20)
-- [ ] Schema (XSD) validation (*after 1.0*, D20)
-- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`; in 1.0 or
-      not is not decided, D20)
-- [ ] Memory-mapped open for files larger than RAM (D11; in 1.0 or not is not decided, D20)
+- [ ] XPath query panel
+- [ ] Schema (XSD) validation
+- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`)
+- [ ] Memory-mapped open for files larger than RAM (D11)
 
 ## Distribution and automation
 
-- [ ] Packages, built by CI from a version tag (`docs/spec/install.md`, PKG-1 to PKG-34):
-      Windows MSI and zip with a manual signing step, macOS DMG (universal, Homebrew cask)
-      with a manual signing and notarization step, Linux `.deb` (Ubuntu, Debian) and `.rpm`
-      (RHEL, Fedora), then Flatpak
+- [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): Windows MSI
+      and zip with a manual signing step, Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL,
+      Fedora)
+- [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
+- [ ] macOS DMG (universal, Homebrew cask) with a manual signing and notarization step
+      (*after 1.0*, D20)
 - [ ] Notice when a newer version is released (PKG-7)
 - [ ] JSON control channel and MCP server over the engine commands
 - [ ] Web build (WebAssembly)

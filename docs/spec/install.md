@@ -4,6 +4,9 @@ How people get XML Atlas onto their computer, keep it up to date and remove it. 
 itself is one executable for the window (`xml-atlas`) and one for the command line
 (`xml-atlas-cli`); there is no runtime to install alongside it.
 
+Version 1.0 has packages for Windows and Linux; the macOS package follows after it
+(`docs/decisions.md`, D20).
+
 ## Rules
 
 ### Every platform
@@ -62,7 +65,7 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
 
 ### macOS
 
-- **PKG-20** `[planned]` A disk image (DMG) holding `XML Atlas.app`, to drag into
+- **PKG-20** `[planned]` (after 1.0, D20) A disk image (DMG) holding `XML Atlas.app`, to drag into
   Applications. One universal app for Apple silicon and Intel, for macOS 12 and later. The
   app registers for XML files (PKG-4) and opens a file dropped on its Dock icon.
 - **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
@@ -75,7 +78,8 @@ itself is one executable for the window (`xml-atlas`) and one for the command li
      builds the DMG again from the signed app, signs it, sends it for notarization, staples
      the ticket to it, checks the signatures and that Gatekeeper accepts it, and uploads the
      DMG and its new checksum in place of the unsigned one.
-  3. The draft is published only when both the Windows and the macOS files are signed. The
+  3. Once there is a macOS package, the draft is published only when both the Windows and
+     the macOS files are signed; until then, when the Windows files are. The
      Homebrew cask (PKG-22) is updated after that, with the signed DMG's checksum.
   The script is in the repository, and its steps are written down, as for PKG-14.
 - **PKG-22** `[planned]` `xml-atlas-cli` is inside the app; a Homebrew cask installs the app
