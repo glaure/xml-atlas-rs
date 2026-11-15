@@ -357,6 +357,82 @@ Still open, found by the same review:
   appears without a change to the open path is layout until shown otherwise. The fix belongs
   to the index loop itself (D14), or profile-guided optimization.
 
+## D19: The text editor is our own view, and the index waits while the text is broken
+
+Proposed (2026-11-15), for the owner to agree before code is written. Rules: TEXT-9, TEXT-10,
+TEXT-16 to TEXT-22 in `docs/spec/text.md`.
+
+- **Measured first** (release build, one edit in the middle of the file, `Document::apply`
+  with today's index update):
+
+  | | 10 MiB | 100 MiB |
+  |---|---|---|
+  | type a letter in a text (local update, D9) | 0.6–0.7 ms | 15 ms |
+  | type `<` there (breaks the element; read up to the error) | 16 ms | 166–169 ms |
+  | delete the `<` again (whole document read) | 30–31 ms | 300–306 ms |
+  | `Grid::build` of the root element (21,183 and 211,383 rows) | 1.7 ms | 16 ms |
+
+- **What:**
+  1. **Our own widget, grown from today's text view.** egui's `TextEdit` needs the whole
+     document as one `String` and lays all of it out; at 100 MiB that is neither possible
+     every frame nor true to bytes that are not UTF-8. The text view already lays out only the
+     lines on screen (D5). It gains a cursor and a selection, and reads egui's input events
+     itself: `Event::Text`, `Event::Key`, `Event::Copy`, `Event::Cut`, `Event::Paste` and
+     `Event::Ime` (`ImeEvent::Preedit`, `ImeEvent::Commit`), and it tells egui where the
+     cursor is through `PlatformOutput::ime` (`IMEOutput { rect, cursor_rect, .. }`), so input
+     method windows open next to it. These names were checked in egui 0.37's source.
+  2. **Positions are byte offsets in the source**, always on a character boundary (TEXT-21).
+     Line and column come from the line index. The column Up and Down keep is a display
+     column (TEXT-4 tabs included), held by the view.
+  3. **The engine owns the editing commands** (D4): moving by character, word and line,
+     word boundaries, the edit for typed text, Backspace, Delete, Enter with indentation,
+     Tab, paste with line endings converted. They are functions from a document and a
+     selection to a new selection or an `Edit`, tested on files with a byte order mark, CRLF,
+     non-ASCII text and bytes that are not UTF-8. The view only maps keys to them.
+  4. **Undo groups typing in `History`.** An edit can be marked as typing; it joins the
+     previous step when that step was typing of the same kind at the same place less than a
+     second ago (TEXT-20). One step stays one entry, so EDIT-1 to EDIT-3 hold as they are.
+  5. **The index while typing.** Each edit updates the buffer and the line index at once.
+     Then:
+     - The local update of D9 is tried. When it works (the element is still well-formed),
+       tree and grid follow at once: 0.7 ms on 10 MiB, 15 ms on 100 MiB.
+     - When it does not, the whole document is **not** read again on that key. The old nodes
+       stay, their offsets after the edit shifted (D9's "keep the old nodes with shifted
+       offsets", about 13 ms on 100 MiB), and the edited element is marked stale. Tree and grid
+       show the last good state (TEXT-10).
+     - After half a second without typing, the whole document is read again: on the UI thread
+       up to about 20 MiB (30 ms on 10 MiB), on a worker thread above that, with a copy of the
+       source; the result is used only if no key was typed meanwhile. This is the worker thread
+       D9 deferred; typing in a broken element is what now needs it.
+  6. **Views follow by position, not on every key.** The selection, expansion, sort and hidden
+     columns are kept by element position, as `Open::edit` does today (FMT-8). The grid is
+     rebuilt when the change lies inside the element it shows, and at most once per frame.
+- **Must come with it or first:**
+  - **Long lines (TEXT-5).** Lines are cut at 4,000 bytes for display; the cursor cannot be
+    put where nothing is drawn. Until lines are paged sideways, the cursor stops at the cut and
+    the status bar says why. Minified files, which are one line, need the paging.
+  - **Integer scrolling (D16).** D16 is due with the first custom text widget. Ctrl+End and
+    Page Down must reach every line of a 300 MiB file, which float offsets do not guarantee.
+- **Order of pull requests:**
+  1. Engine: cursor movement, the editing commands and undo grouping, with tests. No GUI.
+  2. Text view: cursor, keys, mouse selection, typing, Backspace, Delete, Enter, Tab; the index
+     as in 5, on the UI thread.
+  3. Clipboard and Select All; Replace's *In selection* uses the text selection (TEXT-14).
+  4. Input methods (TEXT-19).
+  5. The broken state: stale marks in tree and grid (TEXT-10), and the worker thread.
+  6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
+- **Not chosen:**
+  - `egui::TextEdit` per visible line: the cursor and the selection must cross lines, and
+    input method state lives in one widget.
+  - Reading the whole document again on every key, as XML Marker does (XM-44): 300 ms per key
+    at 100 MiB.
+  - A rope or piece table now: D10 stands; a typed letter costs 0.7 ms on 10 MiB.
+- **Risks:**
+  - A key costs 15 ms on 100 MiB, nearly a frame; nearly all of it is shifting the nodes after
+    the change. D9's "revisit when" (offsets relative to the parent) is the answer if it shows.
+  - Input methods depend on the platform; egui's support on Linux under X11 and Wayland needs
+    checking on screen with a real input method.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in

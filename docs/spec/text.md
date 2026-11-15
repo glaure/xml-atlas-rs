@@ -23,9 +23,49 @@ of it.
   lost: one in six near the end of the 300 MiB fixture (`docs/decisions.md`, D16). Every line
   can still be reached with Find, a click or the keyboard.
 - **TEXT-9** `[planned]` The text can be edited: cursor, selection, clipboard, undo. Tree and
-  grid follow shortly after each change.
+  grid follow shortly after each change. TEXT-16 to TEXT-22 say what that means; the design
+  is `docs/decisions.md`, D19.
 - **TEXT-10** `[planned]` While the text is not well-formed, tree and grid keep showing the
-  last good state for the broken part, and mark it.
+  last good state for the broken part, and mark it: the broken element's tree row and its
+  grid row are drawn in the error colour, and the problems list (OPEN-13) says where the
+  error is. Structured edits stay refused until the text is well-formed again (EDIT-5 to
+  EDIT-10). Typing on in the broken part works as anywhere else.
+- **TEXT-16** `[planned]` Cursor and keys. A click puts the cursor where it was clicked, and
+  still selects the element there (TEXT-7, TREE-12). Left and Right move by one character,
+  Ctrl+Left and Ctrl+Right by one word; Up and Down by one line, keeping the column they
+  started from; Home goes to the first non-blank character of the line, again to the start;
+  End to the end of the line; Ctrl+Home and Ctrl+End to the start and end of the document;
+  Page Up and Page Down by what fits on screen. Shift with any of them extends the selection.
+  The view scrolls to keep the cursor visible. Moving the cursor with the keys does not move
+  tree or grid (TREE-12).
+- **TEXT-17** `[planned]` Selection and typing. Dragging selects; Shift+click extends;
+  double-click selects a word, triple-click the line; Ctrl+A selects all. Typing replaces the
+  selection, or inserts at the cursor. Backspace and Delete remove the selection, or one
+  character; Ctrl+Backspace and Ctrl+Delete one word. Enter inserts the file's line ending
+  (CRLF in a CRLF file, as EDIT-5), followed by the indentation of the line it was pressed on.
+  Tab inserts one indent as the Format options (FMT-10, FMT-15) give it: a tab, or spaces.
+- **TEXT-18** `[planned]` Clipboard: Edit > Cut, Copy and Paste, also Ctrl+X, Ctrl+C and
+  Ctrl+V. Copy takes the selected text as UTF-8, with the file's line endings. Paste inserts
+  the clipboard text with each line break written as the file's line ending. Cut and Paste
+  are one undo step each.
+- **TEXT-19** `[planned]` Input methods: dead keys, compose sequences and input method
+  editors (Chinese, Japanese, Korean) work. While composing, the text being composed is shown
+  underlined at the cursor; only what is committed goes into the document, as one change.
+- **TEXT-20** `[planned]` Undo while typing: a run of typing is one undo step (EDIT-1). The
+  step ends when the cursor is moved by a click or a key, when typing turns into deleting or
+  back, after a pause of one second, and before any other command (Format, Replace, a
+  structured edit). Undo and redo put the cursor where the change was.
+- **TEXT-21** `[planned]` Bytes are kept. Only the bytes typed, deleted or pasted change
+  (`AGENTS.md`, rule 7). The cursor is never inside a UTF-8 character, never between the CR
+  and LF of a CRLF line ending, and never before a byte order mark. A byte that is not valid
+  UTF-8 is shown as `�`, counts as one character, and stays as it was unless it is deleted.
+- **TEXT-22** `[planned]` Speed while typing. Each key shows its change in the text at once,
+  on the owner's file sizes (about 10 MiB) within one frame. Tree and grid catch up at once
+  when the change stays inside one well-formed element; when it breaks one, they keep the
+  last good state (TEXT-10) and the whole document is read again after a pause in typing of
+  half a second, off the UI thread for large files. Measured before building (D19): a typed
+  letter 0.7 ms on 10 MiB and 15 ms on 100 MiB; a typed `<`, which breaks the element, 16 ms
+  and 167 ms if it were read again at once.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).
@@ -67,6 +107,16 @@ of it.
 - In the 100 MiB fixture, find `Customer 49857`: the bar says 4 matches. Enter goes to line 6
   and selects that `name`; Shift+F3 then continues from the bottom to line 2,060,923.
 - Find `söhne` in `crates/engine/tests/corpus/utf8_bom_crlf.xml`: one match, `Söhne`.
+- In `utf8_bom_crlf.xml`, put the cursor after `Söhne`, press Backspace twice and type `ne`:
+  the text reads `Söhne` again, the file saves byte for byte as before, and one Ctrl+Z undoes
+  the typing, a second the deleting.
+- In the same file, Ctrl+Home, then Left: the cursor stays before the first `<`, after the
+  byte order mark. End on a line, then Right: the cursor goes to the start of the next line in
+  one step, over CR and LF.
+- In the 100 MiB fixture, type `<` inside a customer's name: the letter appears at once, that
+  order's tree row turns to the error colour, and the problems list names the line. Delete
+  the `<`: within about a second tree and grid are as before, with the same row selected.
+- Type `ü` with a dead key and `日本` with an input method: both arrive as typed.
 
 ## Seen in the reference programs
 
@@ -105,3 +155,10 @@ Details and limits in `reference.md`.
 1. The roadmap puts the editable text view in 0.3. Does "cut, copy and paste in 0.2" mean
    cutting, copying and pasting whole elements from the tree and grid, or should the text view
    become editable in 0.2?
+2. Enter keeps the indentation of its line, and Tab inserts one indent from the Format options
+   (TEXT-17). Is that what you want, or should Tab always insert a tab character?
+3. Should the text be editable as soon as a file opens, as in XML Marker, or only after
+   switching editing on (a read-only mode protects large files from a stray key)? The draft
+   assumes editable, with Ctrl+Z as the safety net.
+4. A run of typing is one undo step, ended by a pause of one second (TEXT-20). Would you rather
+   undo word by word?
