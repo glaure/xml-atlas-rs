@@ -82,7 +82,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 ## Distribution and automation
 
 - [x] Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL, Fedora): `cargo xtask package`, built
-      against glibc 2.34 (D22). Still to do: install tests on fresh systems
+      against glibc 2.34 (D22), installed and started on Ubuntu 22.04/24.04, Debian 12,
+      Rocky Linux 9 and Fedora 43 by `packaging/linux/install-test.sh`
 - [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): the Linux
       packages above, Windows MSI and zip with a manual signing step
 - [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
