@@ -57,7 +57,13 @@ enum Header<'a> {
 pub fn show(ui: &mut Ui, open: &mut Open) {
     let Some(grid) = &open.grid else { return };
     ui.horizontal(|ui| {
-        ui.label(RichText::new(&grid.path).strong());
+        let path = RichText::new(&grid.path).strong();
+        if open.doc.stale() == Some(grid.parent) {
+            ui.label(path.color(ui.visuals().error_fg_color))
+                .on_hover_text("The text of this element is being edited and is not well-formed; the grid shows it as it last was.");
+        } else {
+            ui.label(path);
+        }
         ui.label(RichText::new(format!("{} rows", grid.rows.len())).weak());
         let hidden = grid.view().hidden.len();
         if hidden > 0 {
@@ -297,7 +303,14 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     }
                 });
                 row.col(|ui| {
-                    ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
+                    let name = String::from_utf8_lossy(doc.index.name(&doc.src, id));
+                    // Typing broke this element's text: its last good state (TEXT-10).
+                    if doc.stale() == Some(id) {
+                        ui.label(RichText::new(name).color(ui.visuals().error_fg_color))
+                            .on_hover_text("The text of this element is being edited and is not well-formed; this row shows it as it last was.");
+                    } else {
+                        ui.label(name);
+                    }
                 });
                 let mut cell_action = None;
                 for &ci in &shown {

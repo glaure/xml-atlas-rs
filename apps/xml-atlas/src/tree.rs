@@ -239,6 +239,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let mut chosen = None;
     let mut renamed = None;
     let mut rename_shown = false;
+    let stale = open.doc.stale().unwrap_or(NONE);
     area.show_rows(ui, row_h, open.tree.rows.len(), |ui, range| {
         open.tree.visible = range.clone();
         for i in range {
@@ -263,7 +264,10 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                     visuals.weak_text_color(),
                 );
             }
-            let strong = if selected {
+            // An element whose text typing broke shows its last good state (TEXT-10).
+            let strong = if row == Row::Node(stale) {
+                visuals.error_fg_color
+            } else if selected {
                 visuals.selection.stroke.color
             } else {
                 visuals.text_color()

@@ -441,6 +441,23 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      layout): a dead key shows its preedit and commits `é`; a click mid-composition drops
      it. Not checked: a CJK input method (none installed), Wayland, Windows, macOS.
   5. The broken state: stale marks in tree and grid (TEXT-10), and the worker thread.
+     **Built (2026-11-15):** `Document::apply_typed` (what is typed, cut or pasted) tries
+     D9's local update; when it fails, `Index::keep_stale` keeps the nodes instead of
+     reading the file. One change from item 5 above: nodes whose own bytes the change
+     touched are dropped, not shifted, because the accessors slice by stored lengths and a
+     node over changed bytes could make them panic; every node kept reads its own bytes
+     (checked on random edits of the corpus). The stale element is the innermost one whose
+     `<` and end tag the change left alone; its start tag is measured again when the change
+     was there. After `REPARSE_PAUSE` (0.5 s) the whole document is read: on the UI thread
+     up to `REPARSE_INLINE_BYTES` (20 MiB), else as a `ReparseJob` on a worker thread whose
+     result is dropped if the text changed meanwhile. A well-formed result replaces the
+     index; a broken one only brings its error. Every other change, undo and redo, and every
+     command that works from the index (structured edits, Format, Compact) reads the
+     document first, so none of them sees a stale index. Measured in the app: a key that
+     breaks or mends an element 2 ms on 10 MiB (31 ms before), 34 ms on 100 MiB (317 ms),
+     of which 7 ms is the index and the rest the views (step 6). Open: copying 100 MiB for
+     the worker takes 54 ms on the UI thread, mostly fresh pages; reusing the buffer, or a
+     shared source, would remove it.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
 - **Not chosen:**
   - `egui::TextEdit` per visible line: the cursor and the selection must cross lines, and

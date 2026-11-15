@@ -29,6 +29,40 @@ pub mod problems;
 pub mod text;
 pub mod tree;
 
+/// How long typing pauses before a document whose index lags behind its text is read again
+/// (`docs/spec/text.md`, TEXT-22).
+pub const REPARSE_PAUSE: Duration = Duration::from_millis(500);
+
+/// Documents up to this size are read again on the UI thread; larger ones on a worker
+/// thread with [`Document::reparse_job`] (`docs/decisions.md`, D19).
+pub const REPARSE_INLINE_BYTES: usize = 20 << 20;
+
+/// A document read again off the UI thread: run it anywhere, then hand the result to
+/// [`Document::finish_reparse`].
+pub struct ReparseJob {
+    revision: u64,
+    src: Vec<u8>,
+}
+
+/// What a [`ReparseJob`] found.
+pub struct Reparsed {
+    revision: u64,
+    index: Index,
+    took: Duration,
+}
+
+/// The node index lags behind the text: a typed change broke it (TEXT-10, D19).
+#[derive(Clone, Copy, Debug)]
+struct Stale {
+    /// The innermost element around everything typed since the index was last whole.
+    element: NodeId,
+    /// The nodes kept are the last well-formed state; `false` when the document was not
+    /// well-formed when they were read.
+    good: bool,
+    /// When the last key was typed; `None` once the document was read again since.
+    typed: Option<Instant>,
+}
+
 /// An open XML document: the source bytes, its node index and a line index.
 pub struct Document {
     pub path: Option<PathBuf>,
@@ -47,6 +81,8 @@ pub struct Document {
     last_change: Option<Splice>,
     /// The file's line ending, kept while an edit leaves no line break to tell it by.
     newline: &'static [u8],
+    /// Set while typing has broken the text and the index lags behind it.
+    stale: Option<Stale>,
 }
 
 /// How long each stage of opening took.
@@ -55,6 +91,19 @@ pub struct Timings {
     pub read: Duration,
     pub index: Duration,
     pub lines: Duration,
+}
+
+impl ReparseJob {
+    /// Indexes the copied source; the slow part, safe on any thread.
+    pub fn run(self) -> Reparsed {
+        let t = Instant::now();
+        let index = xml_atlas_xml::index(&self.src);
+        Reparsed {
+            revision: self.revision,
+            index,
+            took: t.elapsed(),
+        }
+    }
 }
 
 impl Timings {
@@ -104,6 +153,7 @@ impl Document {
             disk: None,
             last_change: None,
             newline,
+            stale: None,
         }
     }
 
@@ -111,21 +161,92 @@ impl Document {
     /// changes.
     pub fn apply(&mut self, edit: Edit) -> Result<(), EditError> {
         let splice = self.history.apply(&mut self.src, edit)?;
-        self.reindex(splice);
+        self.reindex(splice, false);
         Ok(())
+    }
+
+    /// [`Document::apply`] for what is typed, cut or pasted in the text view (D19): when the
+    /// element around the change is no longer well-formed, the whole document is not read
+    /// again. The nodes are kept (`Index::keep_stale`), the element is marked stale
+    /// ([`Document::stale`]), and the document is read again after a pause in typing
+    /// ([`Document::reparse_wait`]).
+    pub fn apply_typed(&mut self, edit: Edit) -> Result<(), EditError> {
+        let splice = self.history.apply(&mut self.src, edit)?;
+        self.reindex(splice, true);
+        Ok(())
+    }
+
+    /// The element whose nodes are kept from before the text around it was broken by typing,
+    /// so that tree and grid can mark it (TEXT-10). `None` when the index is up to date.
+    pub fn stale(&self) -> Option<NodeId> {
+        self.stale.map(|s| s.element)
+    }
+
+    /// How long until the document is to be read again: zero when it is due, `None` when
+    /// nothing waits.
+    pub fn reparse_wait(&self, now: Instant) -> Option<Duration> {
+        let typed = self.stale?.typed?;
+        Some(REPARSE_PAUSE.saturating_sub(now.saturating_duration_since(typed)))
+    }
+
+    /// Reads the document again now if it waits for it (see [`Document::reparse_wait`]).
+    /// Returns whether the index changed. Commands that work from the index call this
+    /// first, so they never see a stale one.
+    pub fn reparse(&mut self) -> bool {
+        match self.reparse_job() {
+            Some(job) => {
+                let done = job.run();
+                self.finish_reparse(done)
+            }
+            None => false,
+        }
+    }
+
+    /// A copy of the source to read again on another thread, if the document waits for it.
+    pub fn reparse_job(&self) -> Option<ReparseJob> {
+        self.stale?.typed?;
+        Some(ReparseJob {
+            revision: self.revision,
+            src: self.src.clone(),
+        })
+    }
+
+    /// Takes in what a [`ReparseJob`] found, unless the text changed since it started or the
+    /// document was read again meanwhile. A well-formed result replaces the index. A result
+    /// with an error keeps the last well-formed nodes and only takes the error, for the
+    /// problems list (TEXT-10). Returns whether the index changed.
+    pub fn finish_reparse(&mut self, done: Reparsed) -> bool {
+        let Some(stale) = self.stale.filter(|s| s.typed.is_some()) else {
+            return false;
+        };
+        if done.revision != self.revision {
+            return false;
+        }
+        if done.index.error.is_none() || !stale.good {
+            self.index = done.index;
+            self.stale = None;
+        } else {
+            self.index.error = done.index.error;
+            self.stale = Some(Stale {
+                typed: None,
+                ..stale
+            });
+        }
+        self.timings.index = done.took;
+        true
     }
 
     /// Undoes the last edit; returns its label.
     pub fn undo(&mut self) -> Option<String> {
         let (label, splice) = self.history.undo(&mut self.src)?;
-        self.reindex(splice);
+        self.reindex(splice, false);
         Some(label)
     }
 
     /// Redoes the last undone edit; returns its label.
     pub fn redo(&mut self) -> Option<String> {
         let (label, splice) = self.history.redo(&mut self.src)?;
-        self.reindex(splice);
+        self.reindex(splice, false);
         Some(label)
     }
 
@@ -152,16 +273,34 @@ impl Document {
     }
 
     /// Brings the node and line index up to date after the source changed. A single change
-    /// re-indexes only the element around it when it can (D9); anything else indexes the
-    /// whole document.
-    fn reindex(&mut self, splice: Option<Splice>) {
+    /// re-indexes only the element around it when it can (D9). Otherwise a `typed` change
+    /// keeps the nodes and marks them stale (D19), and anything else indexes the whole
+    /// document, as does any change while the index is stale.
+    fn reindex(&mut self, splice: Option<Splice>, typed: bool) {
         self.revision += 1;
         self.last_change = splice;
         let t = Instant::now();
-        let updated =
-            splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
-        if !updated {
-            self.index = xml_atlas_xml::index(&self.src);
+        let stale = if typed { self.stale } else { self.stale.take() };
+        let updated = stale.is_none()
+            && splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
+        match splice {
+            _ if updated => {}
+            Some(s) if typed => {
+                let good = stale.map_or(self.index.error.is_none(), |st| st.good);
+                let before = stale.map(|st| st.element);
+                let element = self
+                    .index
+                    .keep_stale(&self.src, s.at, s.removed, s.inserted, before);
+                self.stale = Some(Stale {
+                    element,
+                    good,
+                    typed: Some(Instant::now()),
+                });
+            }
+            _ => {
+                self.index = xml_atlas_xml::index(&self.src);
+                self.stale = None;
+            }
         }
         self.timings.index = t.elapsed();
         let t = Instant::now();
@@ -545,5 +684,142 @@ mod tests {
         assert_eq!(doc.disk_change(), None);
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(Document::from_bytes(b"<a/>".to_vec()).disk_change(), None);
+    }
+
+    /// Types `text` at the first `at` (after it with `after`), as the text view does.
+    fn type_at(doc: &mut Document, at: &str, text: &str) {
+        let i = doc
+            .src
+            .windows(at.len())
+            .position(|w| w == at.as_bytes())
+            .unwrap();
+        let change = text::insert(doc, text::Selection::cursor(i), text).unwrap();
+        doc.apply_typed(change.edit).unwrap();
+    }
+
+    /// Deletes the first `len` bytes of the first `at`, as Backspace on a selection does.
+    fn delete_typed(doc: &mut Document, at: &str, len: usize) {
+        let i = doc
+            .src
+            .windows(at.len())
+            .position(|w| w == at.as_bytes())
+            .unwrap();
+        let sel = text::Selection {
+            anchor: i,
+            head: i + len,
+        };
+        let change = text::backspace(doc, sel, false).unwrap();
+        doc.apply_typed(change.edit).unwrap();
+    }
+
+    /// The grid of every element, built as the views build it: nothing panics.
+    fn build_views(doc: &Document) {
+        for id in 0..doc.index.len() as NodeId {
+            if doc.index.node(id).kind == xml::NodeKind::Element {
+                let _ = grid::Grid::build(doc, id);
+                let _ = doc.index.path(&doc.src, id);
+            }
+        }
+    }
+
+    /// Typing that breaks an element keeps the nodes and marks the element (TEXT-10); the
+    /// document is read again after a pause and takes only the error; mending it brings
+    /// back an exact index (D19).
+    #[test]
+    fn typing_that_breaks_the_text_keeps_the_last_good_nodes() {
+        let src = "\u{FEFF}<r>\r\n  <a>Grüße</a>\r\n  <b n=\"1\"/>\r\n</r>\r\n";
+        let mut doc = Document::from_bytes(src.as_bytes().to_vec());
+        let elements = doc.index.element_count;
+        let nodes = doc.index.len();
+
+        // A letter: the local update, nothing stale.
+        type_at(&mut doc, "üße", "x");
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "a letter");
+
+        // `<`: `a` is stale, every node stays, nothing waits for a full read yet.
+        type_at(&mut doc, "üße", "<");
+        let a = doc.stale().expect("stale");
+        assert_eq!(doc.index.name(&doc.src, a), b"a");
+        assert_eq!(
+            (doc.index.element_count, doc.index.len()),
+            (elements, nodes)
+        );
+        assert!(doc.index.error.is_none(), "not read yet");
+        let now = Instant::now();
+        let wait = doc.reparse_wait(now).expect("waits");
+        assert!(wait > Duration::ZERO && wait <= REPARSE_PAUSE);
+        assert_eq!(doc.reparse_wait(now + REPARSE_PAUSE), Some(Duration::ZERO));
+        build_views(&doc);
+
+        // Read again: still broken, so the nodes stay and the error is taken.
+        assert!(doc.reparse());
+        assert_eq!(doc.stale(), Some(a));
+        assert_eq!(doc.index.len(), nodes);
+        assert_eq!(doc.reparse_wait(now), None, "nothing waits after the read");
+        assert!(!doc.reparse(), "nothing to do twice");
+        let problems = doc.problems();
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].severity, problems::Severity::Error);
+
+        // More typing in the broken part works as anywhere else; deleting the `<` mends it.
+        type_at(&mut doc, "üße", "y");
+        assert!(doc.reparse_wait(now).is_some());
+        delete_typed(&mut doc, "<yü", 1);
+        assert!(doc.stale().is_some(), "known only after the read");
+        assert!(doc.reparse());
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "mended");
+        assert!(String::from_utf8_lossy(&doc.src).contains("Grxyüße"));
+    }
+
+    /// Anything but typing reads the whole document while it is stale; so do undo and redo.
+    #[test]
+    fn other_changes_read_a_stale_document_whole() {
+        let src = "<r><a>t</a><b/></r>";
+        let mut doc = Document::from_bytes(src.as_bytes().to_vec());
+        type_at(&mut doc, "t<", "<");
+        assert!(doc.stale().is_some());
+        doc.undo();
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "undo");
+        doc.redo();
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "redo");
+        type_at(&mut doc, "/r>", "x");
+        assert!(doc.stale().is_some());
+        doc.apply(Edit::new("Replace").replace(0..0, b" ".to_vec()))
+            .unwrap();
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "a command");
+    }
+
+    /// A read that started before the last key is not taken (D19).
+    #[test]
+    fn a_reparse_from_before_the_last_key_is_dropped() {
+        let mut doc = Document::from_bytes(b"<r><a>t</a></r>".to_vec());
+        type_at(&mut doc, "t<", "<");
+        let job = doc.reparse_job().expect("a job");
+        type_at(&mut doc, "t<", "u");
+        let done = std::thread::spawn(move || job.run()).join().unwrap();
+        assert!(!doc.finish_reparse(done));
+        assert!(doc.index.error.is_none());
+        let done = doc.reparse_job().expect("still waits").run();
+        assert!(doc.finish_reparse(done));
+        assert!(doc.index.error.is_some());
+    }
+
+    /// A file that was not well-formed when opened has no good state to keep: after the
+    /// pause it shows what a fresh read shows.
+    #[test]
+    fn a_document_opened_broken_is_read_again_as_is() {
+        let mut doc = Document::from_bytes(b"<r><a>t</a><b>".to_vec());
+        assert!(doc.index.error.is_some());
+        type_at(&mut doc, "t<", "x");
+        assert!(doc.stale().is_some());
+        build_views(&doc);
+        assert!(doc.reparse());
+        assert_eq!(doc.stale(), None);
+        assert_fresh(&doc, "opened broken");
     }
 }

@@ -25,11 +25,15 @@ of it.
 - **TEXT-9** `[planned]` The text can be edited: cursor, selection, clipboard, undo. Tree and
   grid follow shortly after each change. TEXT-16 to TEXT-22 say what that means; the design
   is `docs/decisions.md`, D19.
-- **TEXT-10** `[planned]` While the text is not well-formed, tree and grid keep showing the
+- **TEXT-10** `[done]` While the text is not well-formed, tree and grid keep showing the
   last good state for the broken part, and mark it: the broken element's tree row and its
   grid row are drawn in the error colour, and the problems list (OPEN-13) says where the
   error is. Structured edits stay refused until the text is well-formed again (EDIT-5 to
-  EDIT-10). Typing on in the broken part works as anywhere else.
+  EDIT-10). Typing on in the broken part works as anywhere else. The broken element is the
+  innermost one whose `<` and end tag the typing left alone. It keeps its children, except
+  those whose own bytes were changed (a child whose `<` was deleted goes until the text is
+  read again); its own text shows as it is now. A file that was not well-formed when opened
+  has no good state to keep: after the pause it shows what opening it would show.
 - **TEXT-16** `[done]` Cursor and keys. A click puts the cursor where it was clicked, and
   still selects the element there (TEXT-7, TREE-12). Left and Right move by one character,
   Ctrl+Left and Ctrl+Right by one word; Up and Down by one line, keeping the column they
@@ -71,12 +75,14 @@ of it.
   on the owner's file sizes (about 10 MiB) within one frame. Tree and grid catch up at once
   when the change stays inside one well-formed element; when it breaks one, they keep the
   last good state (TEXT-10) and the whole document is read again after a pause in typing of
-  half a second, off the UI thread for large files. Measured before building (D19): a typed
-  letter 0.7 ms on 10 MiB and 15 ms on 100 MiB; a typed `<`, which breaks the element, 16 ms
-  and 167 ms if it were read again at once. Today, in the app, a typed letter takes 2 ms on
-  10 MiB and 35 ms on 100 MiB, because tree, grid and the problems list are rebuilt on every
-  key, and a key that breaks or mends an element reads the whole file at once (31 ms and
-  317 ms); D19 steps 5 and 6 remove both.
+  half a second, off the UI thread above 20 MiB. Measured in the app (release build, a key
+  near the start of the file, the worst case): a typed letter 2 ms on 10 MiB and 34 ms on
+  100 MiB; a key that breaks or mends an element now the same, 2 ms and 34 ms (31 ms and
+  317 ms before D19 step 5, when it read the whole file at once). The read after the pause
+  takes 39 ms on 10 MiB, on the UI thread; on 100 MiB it runs on a worker thread, but
+  copying the text for it costs 54 ms on the UI thread. Of the 34 ms per key on 100 MiB,
+  7 ms are the index; the rest is tree, grid and problems list being rebuilt on every key,
+  which D19 step 6 removes.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).
