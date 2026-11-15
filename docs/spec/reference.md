@@ -192,6 +192,12 @@ Seen with the default options on a one-line file.
 - **QT-11** Save writes the editor text to the file directly, not atomically. No prompt for
   unsaved changes.
 - **QT-12** Light and dark theme, editor font choice, line numbers in the editor.
+- **QT-13** Packaging (read from `CMakeLists.txt` and the CI workflow): a Windows MSI built
+  with CPack and WiX, with the minimal installer UI, a license page, a product icon, a Start
+  menu shortcut "XMLAtlas" and a fixed upgrade code, so a newer MSI replaces an older one.
+  Qt's libraries are copied next to the program (`windeployqt`). A Flatpak section exists
+  with placeholder values (`com.example.XMLAtlas`) and is not used. CI builds on Ubuntu and
+  Windows; no Linux or macOS package is produced. Version 0.2.0.
 
 ## Not observed yet
 
