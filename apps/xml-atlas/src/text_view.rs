@@ -456,7 +456,7 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
     open.text_goal = None;
     let label = change.edit.label().to_string();
     let t = std::time::Instant::now();
-    let result = open.edit(|doc| doc.apply_typed(change.edit).map(|()| true));
+    let result = open.type_edit(change.edit);
     log::debug!(
         "typed: {:?}, index {:?}{}",
         t.elapsed(),

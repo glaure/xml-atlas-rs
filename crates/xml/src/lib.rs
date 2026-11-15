@@ -107,6 +107,36 @@ pub struct ParseError {
     pub message: String,
 }
 
+/// Which node ids the last local change replaced (`Index::update`, `Index::keep_stale`):
+/// the `removed` ids from `at` on, whole subtrees under `parent`, became `inserted` new ones.
+/// Ids before `at` stay; ids after the replaced ones move by `inserted - removed`. Views use
+/// it to follow a change without building their state again (D19).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodeSplice {
+    pub parent: NodeId,
+    pub at: NodeId,
+    pub removed: u32,
+    pub inserted: u32,
+}
+
+impl NodeSplice {
+    /// Where node `id` of before the change is now; `None` when it was replaced.
+    pub fn map(&self, id: NodeId) -> Option<NodeId> {
+        if id < self.at {
+            Some(id)
+        } else if id - self.at < self.removed {
+            None
+        } else {
+            Some(id - self.removed + self.inserted)
+        }
+    }
+
+    /// The ids the replaced ones became.
+    pub fn new_ids(&self) -> Range<NodeId> {
+        self.at..self.at + self.inserted
+    }
+}
+
 /// Result of [`index`].
 #[derive(Clone, Debug)]
 pub struct Index {
@@ -116,6 +146,10 @@ pub struct Index {
     /// Deepest element nesting; the root element is 1. After [`Index::update`] it can be
     /// higher than the document now has (an upper bound), until the next full index.
     pub max_depth: u16,
+    /// What the last local change ([`Index::update`], [`Index::keep_stale`]) replaced;
+    /// `None` for a fresh index. Callers clear it before a change to tell whether that
+    /// change was local.
+    pub last_splice: Option<NodeSplice>,
 }
 
 /// Builds the index for `src`. Never fails; see [`Index::error`].
@@ -461,6 +495,12 @@ impl Index {
                 first + n.parent - 1
             },
             ..*n
+        });
+        self.last_splice = Some(NodeSplice {
+            parent,
+            at: first,
+            removed: old.len() as u32,
+            inserted: new_count as u32,
         });
         self.nodes.splice(old, spliced);
         self.element_count = self.element_count - old_elements + frag.element_count;
@@ -947,6 +987,7 @@ impl<'s> Builder<'s> {
             error,
             element_count: self.element_count,
             max_depth: self.max_depth,
+            last_splice: None,
         }
     }
 
@@ -1367,6 +1408,41 @@ mod tests {
         "q",
     ];
 
+    /// Every node [`NodeSplice::map`] keeps is the same node: same kind, its start moved
+    /// with the change when it lay after it.
+    fn check_splice(before: &[Node], idx: &Index, at: usize, removed: usize, inserted: usize) {
+        let ns = idx.last_splice.expect("a local change records its splice");
+        assert_eq!(
+            before.len() - ns.removed as usize + ns.inserted as usize,
+            idx.len(),
+            "{ns:?}"
+        );
+        let delta = inserted as i64 - removed as i64;
+        // The parent and its ancestors hold the change: their starts stay.
+        let mut around = vec![false; idx.len()];
+        let mut a = ns.parent;
+        while a != NONE {
+            around[a as usize] = true;
+            a = idx.node(a).parent;
+        }
+        for (old, n) in before.iter().enumerate() {
+            let Some(new) = ns.map(old as NodeId) else {
+                continue;
+            };
+            let m = idx.node(new);
+            let start = if !around[new as usize] && n.start >= (at + removed) as u64 {
+                n.start.wrapping_add_signed(delta)
+            } else {
+                n.start
+            };
+            assert_eq!(
+                (m.start, m.kind),
+                (start, n.kind),
+                "node {old} -> {new}, {ns:?}"
+            );
+        }
+    }
+
     /// Applies random single changes to `src` and checks that whenever [`Index::update`]
     /// accepts one, the result equals a full index of the new source. Returns how many it
     /// accepted.
@@ -1386,8 +1462,10 @@ mod tests {
                 .splice(at..at + removed, inserted.iter().copied())
                 .collect();
             let full = index(&src);
+            let before = idx.nodes.clone();
             if idx.update(&src, at, removed, inserted.len()) {
                 accepted += 1;
+                check_splice(&before, &idx, at, removed, inserted.len());
                 assert_eq!(
                     idx.nodes, full.nodes,
                     "seed {seed}: at {at} -{removed} +{inserted:?}"
@@ -1522,7 +1600,9 @@ mod tests {
                 SNIPPETS[rng.below(SNIPPETS.len())].as_bytes()
             };
             src.splice(at..at + removed, inserted.iter().copied());
+            let before = idx.nodes.clone();
             let s = idx.keep_stale(&src, at, removed, inserted.len(), stale);
+            check_splice(&before, &idx, at, removed, inserted.len());
             let what = format!("seed {seed}: at {at} -{removed} +{inserted:?}");
             check_structure(&idx, &src);
             // The nodes the change lies in, outermost first: elements whose `<` it left alone.

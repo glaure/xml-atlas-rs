@@ -5,7 +5,7 @@
 //! nodes in the index, so a row is either a node or "attribute `index` of `element`"; nothing
 //! is stored for an attribute until its element is expanded.
 
-use xml_atlas_xml::{Folded, NodeId, NodeKind, ROOT};
+use xml_atlas_xml::{Folded, NodeId, NodeKind, NodeSplice, ROOT};
 
 use crate::{Document, truncate};
 
@@ -74,6 +74,25 @@ impl Row {
         }
     }
 
+    /// The node a row is filed under. Rows in tree order never go down in it: an element's
+    /// attribute and text rows follow its own, and its children have higher ids.
+    pub fn id(self) -> NodeId {
+        match self {
+            Row::Node(id) | Row::FoldedText(id) | Row::Attribute { element: id, .. } => id,
+        }
+    }
+
+    /// The same row after a change replaced nodes ([`NodeSplice`]); `None` when its node
+    /// was replaced.
+    pub fn follow(self, ns: &NodeSplice) -> Option<Row> {
+        let id = ns.map(self.id())?;
+        Some(match self {
+            Row::Node(_) => Row::Node(id),
+            Row::FoldedText(_) => Row::FoldedText(id),
+            Row::Attribute { index, .. } => Row::Attribute { element: id, index },
+        })
+    }
+
     /// Nesting level: 0 for the root element.
     pub fn depth(self, doc: &Document) -> u16 {
         match self {
@@ -86,14 +105,7 @@ impl Row {
 /// Rows directly under `id`: attributes first (when shown), then text and child elements.
 pub fn children(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
     let idx = &doc.index;
-    let mut rows = Vec::new();
-    if options.attributes && id != ROOT {
-        let count = idx.attributes(&doc.src, id).len() as u32;
-        rows.extend((0..count).map(|index| Row::Attribute { element: id, index }));
-    }
-    if id != ROOT && idx.node(id).folded != Folded::No {
-        rows.push(Row::FoldedText(id));
-    }
+    let mut rows = own_rows(doc, id, options);
     rows.extend(
         idx.children(id)
             .filter(|&c| is_row(doc, c, id))
@@ -118,8 +130,95 @@ pub fn has_children(doc: &Document, row: Row, options: TreeOptions) -> bool {
 /// `expanded` has one entry per node of the index.
 pub fn visible_rows(doc: &Document, expanded: &[bool], options: TreeOptions, out: &mut Vec<Row>) {
     out.clear();
-    let mut stack = children(doc, ROOT, options);
-    stack.reverse();
+    push_rows(doc, children(doc, ROOT, options), expanded, options, out);
+}
+
+/// Follows a change that replaced nodes ([`NodeSplice`], D19) in the tree's state, instead
+/// of building it again: `expanded` (one entry per node) and `rows` (as [`visible_rows`]
+/// made them before the change) become what they are for the changed document. Only the
+/// rows of the replaced nodes are made again, and the parent's own attribute and text rows
+/// (its start tag may have changed); the rows after them only change their ids. So the cost
+/// follows what changed, not how many rows the parent has. A replaced node keeps its
+/// expansion when as many nodes came back as went, else only the first of them keeps it.
+pub fn follow(
+    doc: &Document,
+    ns: &NodeSplice,
+    expanded: &mut Vec<bool>,
+    options: TreeOptions,
+    rows: &mut Vec<Row>,
+) {
+    let at = ns.at as usize;
+    if ns.removed != ns.inserted {
+        let first = ns.removed > 0 && expanded[at];
+        expanded.splice(
+            at..at + ns.removed as usize,
+            std::iter::repeat_n(false, ns.inserted as usize),
+        );
+        if ns.inserted > 0 {
+            expanded[at] = first;
+        }
+    }
+    debug_assert_eq!(expanded.len(), doc.index.len());
+    let parent = ns.parent;
+    // The rows of the replaced nodes: ids from `at` up to the first id after them.
+    let lo = rows.partition_point(|r| r.id() < ns.at);
+    let hi = rows.partition_point(|r| r.id() < ns.at + ns.removed);
+    for r in &mut rows[hi..] {
+        *r = r.follow(ns).expect("rows after the replaced nodes stay");
+    }
+    // Shown when the parent is shown and expanded (the document node always is).
+    let own = rows.partition_point(|r| r.id() < parent);
+    let shown = parent == ROOT || rows.get(own) == Some(&Row::Node(parent));
+    if !shown || (parent != ROOT && !expanded[parent as usize]) {
+        debug_assert_eq!(lo, hi, "nothing under a hidden parent is shown");
+        return;
+    }
+    let top: Vec<Row> = ns
+        .new_ids()
+        .filter(|&id| doc.index.node(id).parent == parent && is_row(doc, id, parent))
+        .map(Row::Node)
+        .collect();
+    let mut made = Vec::new();
+    push_rows(doc, top, expanded, options, &mut made);
+    rows.splice(lo..hi, made);
+    if parent != ROOT {
+        let first = own + 1;
+        let old = rows[first..]
+            .iter()
+            .take_while(|r| r.id() == parent)
+            .count();
+        rows.splice(first..first + old, own_rows(doc, parent, options));
+    }
+}
+
+/// The rows an element has of its own, before its children: its attributes (when shown) and
+/// its folded text.
+fn own_rows(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
+    let idx = &doc.index;
+    let mut rows = Vec::new();
+    if id == ROOT {
+        return rows;
+    }
+    if options.attributes {
+        let count = idx.attributes(&doc.src, id).len() as u32;
+        rows.extend((0..count).map(|index| Row::Attribute { element: id, index }));
+    }
+    if idx.node(id).folded != Folded::No {
+        rows.push(Row::FoldedText(id));
+    }
+    rows
+}
+
+/// Appends `top` and, depth first, the rows under every expanded element among them.
+fn push_rows(
+    doc: &Document,
+    mut top: Vec<Row>,
+    expanded: &[bool],
+    options: TreeOptions,
+    out: &mut Vec<Row>,
+) {
+    top.reverse();
+    let mut stack = top;
     while let Some(row) = stack.pop() {
         out.push(row);
         if let Row::Node(id) = row
@@ -393,5 +492,90 @@ mod tests {
         // Mixed content keeps its text nodes.
         let mixed = children(&d, element(&d, "mixed"), TreeOptions::default());
         assert!(matches!(mixed[0], Row::Node(_)));
+    }
+
+    /// Small generator for edits; no dependency needed.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n.max(1)
+        }
+    }
+
+    const TYPED: &[&str] = &[
+        "x", "ü", "<", ">", "\"", "<a/>", "</", " b=\"1\"", "\r\n", "&amp;",
+    ];
+
+    /// Random typed changes, kept local by the index (D9) or stale (D19): following them
+    /// gives the rows a full rebuild gives, and every node that stays keeps its expansion.
+    fn check_follow(src: Vec<u8>, seed: u64, rounds: usize) {
+        let mut rng = Lcg(seed);
+        let mut doc = Document::from_bytes(src);
+        for _ in 0..rounds {
+            let options = TreeOptions {
+                attributes: rng.below(4) != 0,
+            };
+            let mut expanded = vec![false; doc.index.len()];
+            for e in expanded.iter_mut() {
+                *e = rng.below(3) != 0;
+            }
+            let mut rows = Vec::new();
+            visible_rows(&doc, &expanded, options, &mut rows);
+            let before = expanded.clone();
+
+            let len = doc.src.len();
+            let at = crate::text::snap(&doc.src, rng.below(len + 1));
+            let sel = if rng.below(3) == 0 {
+                let to = crate::text::snap(&doc.src, (at + rng.below(8)).min(len));
+                crate::text::Selection {
+                    anchor: at,
+                    head: to,
+                }
+            } else {
+                crate::text::Selection::cursor(at)
+            };
+            let typed = TYPED[rng.below(TYPED.len())];
+            let change = if rng.below(4) == 0 {
+                crate::text::backspace(&doc, sel, false)
+            } else {
+                crate::text::insert(&doc, sel, typed)
+            };
+            let Some(change) = change else { continue };
+            doc.apply_typed(change.edit).unwrap();
+            let Some(ns) = doc.node_splice() else {
+                panic!("seed {seed}: a typed change is always local");
+            };
+            follow(&doc, &ns, &mut expanded, options, &mut rows);
+            let mut fresh = Vec::new();
+            visible_rows(&doc, &expanded, options, &mut fresh);
+            assert_eq!(rows, fresh, "seed {seed}: {ns:?}");
+            for (old, &e) in before.iter().enumerate() {
+                if let Some(new) = ns.map(old as NodeId) {
+                    assert_eq!(expanded[new as usize], e, "seed {seed}: node {old}");
+                }
+            }
+            // Read again now and then, as the editor does after a pause.
+            if rng.below(5) == 0 {
+                doc.reparse();
+            }
+        }
+    }
+
+    #[test]
+    fn following_a_change_equals_a_rebuild() {
+        let sample = "\u{FEFF}<?xml version=\"1.0\"?>\r\n<r a=\"1\">\r\n  <b c=\"2\">Grüße</b>\r\n  <!--x-->\r\n  <d><e/><e f=\"3\">t</e>text<![CDATA[<]]></d>\r\n</r>\r\n";
+        for seed in 0..40 {
+            check_follow(sample.as_bytes().to_vec(), seed, 60);
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/corpus");
+        for (i, entry) in std::fs::read_dir(dir).expect("corpus").enumerate() {
+            let src = std::fs::read(entry.expect("entry").path()).expect("read");
+            check_follow(src, 1000 + i as u64, 40);
+        }
     }
 }

@@ -6,7 +6,7 @@ use egui::{Align2, Color32, FontId, Key, Rect, Sense, Shape, Ui, pos2, vec2};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::command::{self, Direction};
 use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
-use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, ROOT};
+use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
 use crate::app::{Note, Open, Shift};
 use crate::highlight::Palette;
@@ -103,6 +103,25 @@ impl TreeState {
             *e = true;
             self.dirty = true;
         }
+    }
+
+    /// Follows a change that replaced nodes (D19) instead of building the rows again: only
+    /// the rows under the changed element are made again. The scroll stays.
+    pub fn follow(&mut self, doc: &Document, ns: &NodeSplice) {
+        tree::follow(doc, ns, &mut self.expanded, self.options, &mut self.rows);
+        self.selected = self.selected.and_then(|r| r.follow(ns));
+        if let Some(rename) = &mut self.rename {
+            match ns.map(rename.id) {
+                Some(id) => rename.id = id,
+                None => self.rename = None,
+            }
+        }
+        self.scroll_to = None;
+    }
+
+    /// Marks `row` as selected, without expanding or scrolling.
+    pub fn mark(&mut self, row: Row) {
+        self.selected = Some(row);
     }
 
     /// Expands every ancestor of `id`, marks it selected and scrolls to it.

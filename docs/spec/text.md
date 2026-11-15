@@ -71,18 +71,18 @@ of it.
   (`AGENTS.md`, rule 7). The cursor is never inside a UTF-8 character, never between the CR
   and LF of a CRLF line ending, and never before a byte order mark. A byte that is not valid
   UTF-8 is shown as `�`, counts as one character, and stays as it was unless it is deleted.
-- **TEXT-22** `[planned]` Speed while typing. Each key shows its change in the text at once,
+- **TEXT-22** `[done]` Speed while typing. Each key shows its change in the text at once,
   on the owner's file sizes (about 10 MiB) within one frame. Tree and grid catch up at once
   when the change stays inside one well-formed element; when it breaks one, they keep the
   last good state (TEXT-10) and the whole document is read again after a pause in typing of
-  half a second, off the UI thread above 20 MiB. Measured in the app (release build, a key
-  near the start of the file, the worst case): a typed letter 2 ms on 10 MiB and 34 ms on
-  100 MiB; a key that breaks or mends an element now the same, 2 ms and 34 ms (31 ms and
-  317 ms before D19 step 5, when it read the whole file at once). The read after the pause
-  takes 39 ms on 10 MiB, on the UI thread; on 100 MiB it runs on a worker thread, but
-  copying the text for it costs 54 ms on the UI thread. Of the 34 ms per key on 100 MiB,
-  7 ms are the index; the rest is tree, grid and problems list being rebuilt on every key,
-  which D19 step 6 removes.
+  half a second, off the UI thread above 20 MiB. Tree and grid follow a key by the nodes it
+  replaced, without being built again, so a key costs what it changes, not the size of the
+  file. Measured in the app (release build, keys near the start of the file, the worst
+  case): 1.4 to 2.3 ms on 10 MiB and 17 to 25 ms on 100 MiB, whether the key breaks an
+  element or not. On 100 MiB that is moving the text after the key in memory (D10) and the
+  index (7 to 13 ms); tree and grid add nothing measurable. A sorted grid is not sorted
+  again while typing, so a row does not jump away under the cursor. Still open: copying
+  the text for the worker thread costs 54 ms on 100 MiB, once per pause, on the UI thread.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).

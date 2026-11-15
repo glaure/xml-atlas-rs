@@ -459,6 +459,19 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      the worker takes 54 ms on the UI thread, mostly fresh pages; reusing the buffer, or a
      shared source, would remove it.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
+     **Done first, as item 6 of "What" (2026-11-15): views follow by the replaced nodes.**
+     The index records which ids a local change replaced (`NodeSplice`, from
+     `splice_nodes`); `Open::type_edit` follows it in tree and grid instead of building them
+     again. `tree::follow` makes only the rows of the replaced nodes again, and the parent's
+     own attribute and text rows; `Grid::follow` moves ids, puts new child elements in place
+     of replaced ones, and samples the columns again only when the change lies in the
+     sampled rows. Both are checked against a full rebuild on random typed changes. Before,
+     every key rebuilt the tree's 211,000 rows under `orders` (17 ms on 100 MiB). Measured
+     in the app: 1.4 to 2.3 ms per key on 10 MiB, 17 to 25 ms on 100 MiB, all of it the
+     edit (moving the text, D10) and the index. A grid that is sorted, or shows only its
+     element (GRID-5), is still built again when its rows change. Not changed: after the
+     read that follows a pause, the views are built again (60 ms on 10 MiB, 25 to 42 ms
+     taking a worker result on 100 MiB), once per pause.
 - **Not chosen:**
   - `egui::TextEdit` per visible line: the cursor and the selection must cross lines, and
     input method state lives in one widget.

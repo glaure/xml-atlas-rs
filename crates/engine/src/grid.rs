@@ -6,7 +6,7 @@
 
 use std::cmp::Ordering;
 
-use xml_atlas_xml::{Folded, NodeId, NodeKind};
+use xml_atlas_xml::{Folded, NodeId, NodeKind, NodeSplice};
 
 use crate::command::{as_parsed, holds_only_text};
 use crate::{Document, truncate};
@@ -145,24 +145,7 @@ impl Grid {
         attributes: Vec<(String, String)>,
         rows: Vec<NodeId>,
     ) -> Self {
-        let idx = &doc.index;
-        let src = &doc.src;
-        let mut columns = Vec::new();
-        for &row in rows.iter().take(COLUMN_SAMPLE) {
-            for (name, _) in idx.attributes(src, row) {
-                push_unique(&mut columns, Column::Attribute(name));
-            }
-            for c in idx.children(row) {
-                match idx.node(c).kind {
-                    NodeKind::Element => push_unique(&mut columns, Column::Child(name(doc, c))),
-                    NodeKind::Text | NodeKind::CData => push_unique(&mut columns, Column::Text),
-                    _ => {}
-                }
-            }
-            if idx.node(row).folded != Folded::No {
-                push_unique(&mut columns, Column::Text);
-            }
-        }
+        let columns = columns_of(doc, rows.iter().copied().take(COLUMN_SAMPLE));
         Self {
             parent,
             path,
@@ -172,6 +155,77 @@ impl Grid {
             view: View::default(),
             positions: Vec::new(),
         }
+    }
+
+    /// Follows a change that replaced nodes ([`NodeSplice`], D19) instead of building the
+    /// grid again: ids move, and the columns are sampled again when the change lies in the
+    /// rows they are sampled from. Rows are not sorted again, so a row does not jump away
+    /// while it is typed in. Returns `false` when the grid must be built again: the element
+    /// it shows was replaced, or rows were added or removed while it is sorted or shows only
+    /// its element (GRID-5).
+    pub fn follow(&mut self, doc: &Document, ns: &NodeSplice) -> bool {
+        let Some(parent) = ns.map(self.parent) else {
+            return false;
+        };
+        let idx = &doc.index;
+        if ns.parent == parent && ns.removed != ns.inserted {
+            // Rows were replaced, added or removed. In document order the rows are the child
+            // elements by id: put the new ones in place of the replaced ones. A sorted grid,
+            // or one that shows its element itself (GRID-5), is built again.
+            if !self.positions.is_empty() || self.rows == [self.parent] {
+                return false;
+            }
+            let lo = self.rows.partition_point(|&r| r < ns.at);
+            let hi = self.rows.partition_point(|&r| r < ns.at + ns.removed);
+            for r in &mut self.rows[hi..] {
+                *r = ns.map(*r).expect("rows after the replaced nodes stay");
+            }
+            let new: Vec<NodeId> = ns
+                .new_ids()
+                .filter(|&id| {
+                    let n = idx.node(id);
+                    n.parent == parent && n.kind == NodeKind::Element
+                })
+                .collect();
+            self.rows.splice(lo..hi, new);
+            if self.rows.is_empty() {
+                return false;
+            }
+        } else {
+            // A replaced row came back as the same number of nodes: it has the same id.
+            for r in &mut self.rows {
+                *r = ns.map(*r).unwrap_or(*r);
+            }
+        }
+        self.parent = parent;
+        self.attributes = idx.attributes(&doc.src, parent);
+        let sample: Vec<NodeId> = if self.rows == [parent] {
+            vec![parent]
+        } else {
+            idx.children(parent)
+                .filter(|&c| idx.node(c).kind == NodeKind::Element)
+                .take(COLUMN_SAMPLE)
+                .collect()
+        };
+        let sampled = sample
+            .last()
+            .map_or(parent, |&l| l + idx.node(l).descendants);
+        // The change lies under `ns.parent`: re-sample when that is the shown element or in
+        // a sampled row, its start tag included.
+        if (parent..=sampled).contains(&ns.parent) {
+            self.columns = columns_of(doc, sample.into_iter());
+            let columns = &self.columns;
+            self.view.hidden.retain(|c| columns.contains(c));
+            if let Some(Sort {
+                by: SortBy::Column(c),
+                ..
+            }) = &self.view.sort
+                && !columns.contains(c)
+            {
+                self.view.sort = None;
+            }
+        }
+        true
     }
 
     /// The sort and hidden columns.
@@ -490,6 +544,30 @@ fn has_structure(doc: &Document, id: NodeId) -> bool {
 /// The text and CDATA children of an element, decoded, joined and cut at [`CELL_CHARS`].
 fn text(doc: &Document, id: NodeId) -> String {
     truncate(&doc.index.element_text(&doc.src, id), CELL_CHARS)
+}
+
+/// The columns for rows `sample`: their attributes, child element names and text, in the
+/// order first met (GRID-3).
+fn columns_of(doc: &Document, sample: impl Iterator<Item = NodeId>) -> Vec<Column> {
+    let idx = &doc.index;
+    let src = &doc.src;
+    let mut columns = Vec::new();
+    for row in sample {
+        for (name, _) in idx.attributes(src, row) {
+            push_unique(&mut columns, Column::Attribute(name));
+        }
+        for c in idx.children(row) {
+            match idx.node(c).kind {
+                NodeKind::Element => push_unique(&mut columns, Column::Child(name(doc, c))),
+                NodeKind::Text | NodeKind::CData => push_unique(&mut columns, Column::Text),
+                _ => {}
+            }
+        }
+        if idx.node(row).folded != Folded::No {
+            push_unique(&mut columns, Column::Text);
+        }
+    }
+    columns
 }
 
 #[cfg(test)]
@@ -888,5 +966,61 @@ mod tests {
             notes.detail(&d, notes.rows[0], Some(&Column::Text)).value(),
             Some("a\nb")
         );
+    }
+
+    /// Random typed changes in a grid's rows: when the grid follows, it equals a grid built
+    /// afresh, cell for cell; it follows most of them (D19).
+    #[test]
+    fn following_a_change_equals_a_rebuild() {
+        let mut state = 7u64;
+        let mut below = |n: usize| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 33) as usize) % n.max(1)
+        };
+        let typed = ["x", "ü", "<", "\"", "<total/>", " a=\"1\"", "\r\n", "</"];
+        let (mut followed, mut total) = (0, 0);
+        for _ in 0..40 {
+            let mut doc = Document::from_bytes(ORDERS.replace('\n', "\r\n").into_bytes());
+            for _ in 0..30 {
+                let elements: Vec<NodeId> = (0..doc.index.len() as NodeId)
+                    .filter(|&id| doc.index.node(id).kind == NodeKind::Element)
+                    .collect();
+                if elements.is_empty() {
+                    break;
+                }
+                let shown = elements[below(elements.len())];
+                let mut grid = Grid::build(&doc, shown);
+                let at = crate::text::snap(&doc.src, below(doc.src.len() + 1));
+                let sel = crate::text::Selection::cursor(at);
+                let change = if below(4) == 0 {
+                    crate::text::backspace(&doc, sel, false)
+                } else {
+                    crate::text::insert(&doc, sel, typed[below(typed.len())])
+                };
+                let Some(change) = change else { continue };
+                doc.apply_typed(change.edit).unwrap();
+                let ns = doc.node_splice().expect("local");
+                total += 1;
+                if !grid.follow(&doc, &ns) {
+                    continue;
+                }
+                followed += 1;
+                let fresh = Grid::build(&doc, grid.parent);
+                assert_eq!(grid.rows, fresh.rows, "{ns:?}");
+                assert_eq!(grid.columns, fresh.columns, "{ns:?}");
+                assert_eq!(grid.attributes, fresh.attributes);
+                for &r in &grid.rows {
+                    for c in &grid.columns {
+                        assert_eq!(grid.cell(&doc, r, c), fresh.cell(&doc, r, c));
+                    }
+                }
+                if below(4) == 0 {
+                    doc.reparse();
+                }
+            }
+        }
+        assert!(followed * 2 > total, "followed only {followed} of {total}");
     }
 }

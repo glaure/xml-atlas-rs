@@ -176,6 +176,13 @@ impl Document {
         Ok(())
     }
 
+    /// Which node ids the last edit, undo or redo replaced, when only the nodes around it
+    /// were indexed again; `None` when the whole document was. Views follow such a change
+    /// without building their state again (D19).
+    pub fn node_splice(&self) -> Option<xml::NodeSplice> {
+        self.index.last_splice
+    }
+
     /// The element whose nodes are kept from before the text around it was broken by typing,
     /// so that tree and grid can mark it (TEXT-10). `None` when the index is up to date.
     pub fn stale(&self) -> Option<NodeId> {
@@ -227,6 +234,7 @@ impl Document {
             self.stale = None;
         } else {
             self.index.error = done.index.error;
+            self.index.last_splice = None;
             self.stale = Some(Stale {
                 typed: None,
                 ..stale
@@ -281,6 +289,7 @@ impl Document {
         self.last_change = splice;
         let t = Instant::now();
         let stale = if typed { self.stale } else { self.stale.take() };
+        self.index.last_splice = None;
         let updated = stale.is_none()
             && splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
         match splice {
