@@ -31,3 +31,11 @@ Guidance for people and coding agents working on XML Atlas.
 - `unsafe` is forbidden workspace-wide. Lifting that for a SIMD tokenizer needs a decision
   recorded in `docs/decisions.md`.
 - Files read top to bottom: constants, types, public functions, private helpers.
+
+## Working as an agent
+
+- Screenshots are expensive. Take at most one or two per on-screen check, cropped to what
+  matters, and none when a test, a log line or the saved bytes already show the result.
+- Hand simple work to a smaller model where the tool allows it: searching, reading and
+  summarising files, mechanical edits. Keep design, debugging and changes to the index,
+  the edit path or the views on the main model.
