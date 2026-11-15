@@ -71,7 +71,9 @@ The order follows `docs/decisions.md`, D15.
 ## Distribution and automation
 
 - [ ] Packages, built by CI from a version tag (`docs/spec/install.md`, PKG-1 to PKG-34):
-      Windows MSI and zip, macOS DMG (universal, Homebrew cask), Linux `.deb` (Ubuntu,
-      Debian), `.rpm` (RHEL, Fedora) and Flatpak; signing on Windows and macOS
+      Windows MSI and zip with a manual signing step, macOS DMG (universal, signed and
+      notarized, Homebrew cask), Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL, Fedora),
+      then Flatpak
+- [ ] Notice when a newer version is released (PKG-7)
 - [ ] JSON control channel and MCP server over the engine commands
 - [ ] Web build (WebAssembly)
