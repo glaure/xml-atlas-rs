@@ -1,6 +1,7 @@
 # Roadmap
 
-The order follows `docs/decisions.md`, D15.
+The order follows `docs/decisions.md`, D15. Version 1.0 is everything here except the items
+marked *after 1.0* (D20); two items of 0.4 are not decided yet.
 
 ## 0.1: Viewer you can trust on real files (current)
 
@@ -21,7 +22,7 @@ The order follows `docs/decisions.md`, D15.
 - [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
 - [x] Tree: icons per kind of row (TREE-11)
-- [ ] Grid: attribute table of the selected element (GRID-11), nested children by name and
+- [x] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
@@ -68,10 +69,11 @@ The order follows `docs/decisions.md`, D15.
 
 ## 0.4: Power features
 
-- [ ] XPath query panel
-- [ ] Schema (XSD) validation
-- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`)
-- [ ] Memory-mapped open for files larger than RAM (D11)
+- [ ] XPath query panel (*after 1.0*, D20)
+- [ ] Schema (XSD) validation (*after 1.0*, D20)
+- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`; in 1.0 or
+      not is not decided, D20)
+- [ ] Memory-mapped open for files larger than RAM (D11; in 1.0 or not is not decided, D20)
 
 ## Distribution and automation
 

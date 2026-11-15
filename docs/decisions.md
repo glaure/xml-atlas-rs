@@ -472,6 +472,15 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     checking on screen with a real input method. X11 with ibus is checked (step 4); a CJK
     input method, Wayland, Windows and macOS are not.
 
+## D20: What 1.0 holds
+
+- **What (owner, 2026-11-15):** the XPath query panel and schema (XSD) validation are not
+  part of the first version; they come after 1.0. Everything else on the roadmap up to and
+  including 0.3, and the packages (`docs/spec/install.md`), is the target for 1.0.
+- **Not decided yet:** whether the other two items of 0.4 belong to 1.0: importing other XML
+  files (its meaning is still open, `docs/spec/open.md`) and memory-mapped open for files
+  larger than RAM (D11); and which platforms the first packages cover.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
