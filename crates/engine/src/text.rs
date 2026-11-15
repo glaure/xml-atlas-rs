@@ -542,7 +542,7 @@ fn remove(range: Range<usize>) -> Option<TextEdit> {
 }
 
 /// The end of line `line`, before its LF or CRLF.
-fn line_end_of(doc: &Document, line: usize) -> usize {
+pub(crate) fn line_end_of(doc: &Document, line: usize) -> usize {
     let src = &doc.src;
     let Some(&next) = doc.line_starts.get(line + 1) else {
         return src.len();

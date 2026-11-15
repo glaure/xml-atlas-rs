@@ -13,12 +13,13 @@ use egui::{
 };
 use xml_atlas_engine::problems::Problem;
 use xml_atlas_engine::text::{self, Selection, TextEdit};
+use xml_atlas_engine::wrap::{RowPos, Wrap};
 use xml_atlas_engine::{Document, FormatOptions};
 
 use crate::app::{Note, Open};
-use crate::highlight::{self, Palette, line_job};
+use crate::highlight::{self, Palette, after_line_break, line_job};
 use crate::problems_panel;
-use crate::scroll::{self, BAR, RowScroll};
+use crate::scroll::{self, BAR, BarMove, RowScroll};
 
 /// Lines up to this long are laid out whole. Of a longer one only the columns on screen are,
 /// with [`MARGIN_COLUMNS`] on each side, so a minified file of one huge line stays as quick
@@ -35,8 +36,11 @@ const BACK_TO_TAG_BYTES: usize = 512;
 /// A tab is shown as this many spaces (TEXT-4).
 const TAB_WIDTH: usize = text::TAB_WIDTH;
 
-/// Lines kept above or below the cursor when the view scrolls to it.
+/// Lines kept above or below the cursor when the view scrolls to it; rows with word wrap.
 const CONTEXT_LINES: usize = 3;
+
+/// Word wrap makes rows at least this many columns wide, however narrow the view (TEXT-13).
+const MIN_WRAP_COLUMNS: usize = 20;
 
 /// Text an input method is composing (TEXT-19): shown at the cursor, underlined, and not in
 /// the document until it is committed.
@@ -56,6 +60,19 @@ pub struct LongLines {
     columns: Vec<(usize, text::LineColumns)>,
 }
 
+/// A row the text view draws: a whole line, or with word wrap one row of it.
+#[derive(Clone, Debug, PartialEq)]
+struct Row {
+    line: usize,
+    /// The row's bytes in the source when the line wraps; `None` for the whole line.
+    bytes: Option<Range<usize>>,
+    /// Where its top is on screen.
+    y: f32,
+    /// Whether it is the first row of its line, which shows the line number, and the last.
+    first: bool,
+    last: bool,
+}
+
 /// A preedit shown in a line: before byte `at` of the line as drawn, `chars` columns wide.
 /// What lies at or after `at` is drawn that much further right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,7 +86,8 @@ pub fn focus_id(id: egui::Id) -> egui::Id {
     id.with("text-edit")
 }
 
-pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
+/// The text view of `open`; with `wrap`, long lines wrap at the view's width (TEXT-13).
+pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool) {
     ui.spacing_mut().item_spacing.y = 0.0;
     let font = FontId::monospace(13.0);
     let row_h = ui.fonts_mut(|f| f.row_height(&font)).ceil() + 1.0;
@@ -92,7 +110,15 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     // horizontal one below. The view scrolls by whole lines (D16).
     let area_rect = ui.available_rect_before_wrap();
     ui.allocate_rect(area_rect, Sense::hover());
-    let wide = open.text_width > (area_rect.width() - BAR) as f64;
+    if open.text_wrapped != wrap {
+        // Wrap turned on or off: the top line stays at the top.
+        open.text_wrapped = wrap;
+        open.text_scroll.px = 0.0;
+        open.text_left = 0.0;
+        open.text_goal = None;
+        open.text_reveal = true;
+    }
+    let wide = !wrap && open.text_width > (area_rect.width() - BAR) as f64;
     let text_rect = Rect::from_min_max(
         area_rect.min,
         pos2(
@@ -100,6 +126,12 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             area_rect.bottom() - if wide { BAR } else { 0.0 },
         ),
     );
+    if wrap {
+        // Rows as wide as the view, less a column for the cursor at a row's end.
+        let columns = ((text_rect.width() - gutter) / char_w).floor() as usize;
+        open.text_wrap
+            .set_width(columns.saturating_sub(1).max(MIN_WRAP_COLUMNS));
+    }
     let resp = ui.interact(text_rect, id, Sense::click_and_drag());
     if std::mem::take(&mut open.text_focus) {
         // After `interact`: egui drops the focus there when the frame has a click elsewhere,
@@ -120,7 +152,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 },
             )
         });
-        keys(ui, open, format);
+        keys(ui, open, format, wrap);
     } else {
         // Losing the keyboard ends the composition; the input method is told by `ime` below.
         open.text_preedit = None;
@@ -146,48 +178,17 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
 
     let total = open.doc.line_count();
     let visible = ((text_rect.height() / row_h).floor() as usize).max(1);
-    let max_top = RowScroll::max_top(total, visible);
-    let cursor_line = open.text_sel.map(|s| open.doc.line_of(s.head as u64));
-    // The document may have become shorter than where the view was.
-    if open.text_scroll.top > max_top {
-        open.text_scroll.to(max_top, max_top);
-    }
     let jumped = open.scroll_text_to.is_some();
-    if let Some(line) = open.scroll_text_to.take() {
-        open.text_scroll
-            .to(line.saturating_sub(CONTEXT_LINES), max_top);
-    } else if open.text_reveal
-        && let Some(line) = cursor_line
-    {
-        // Only when the cursor's line is off screen; the line itself scrolls sideways below.
-        let top = open.text_scroll.top;
-        if line < top + 1 || line + 2 > top + visible {
-            let to = if line < top + 1 {
-                line.saturating_sub(CONTEXT_LINES)
-            } else {
-                (line + CONTEXT_LINES + 1).saturating_sub(visible)
-            };
-            open.text_scroll.to(to, max_top);
-        }
-    }
-    // The mouse wheel, by whole lines and the pixels left over, however far down (TEXT-8);
-    // Shift turns it sideways.
-    if ui.rect_contains_pointer(area_rect) {
-        let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
-        open.text_scroll.by(-delta.y, row_h, max_top);
-        open.text_left -= delta.x as f64;
-    }
-    scroll::vertical_bar(
-        ui,
-        Rect::from_min_max(
-            pos2(text_rect.right(), area_rect.top()),
-            pos2(area_rect.right(), text_rect.bottom()),
-        ),
-        id.with("v-bar"),
-        total,
-        visible,
-        &mut open.text_scroll,
+    let v_bar = Rect::from_min_max(
+        pos2(text_rect.right(), area_rect.top()),
+        pos2(area_rect.right(), text_rect.bottom()),
     );
+    let cursor_line = open.text_sel.map(|s| open.doc.line_of(s.head as u64));
+    if wrap {
+        wrap_scroll(ui, open, area_rect, v_bar, row_h, visible);
+    } else {
+        line_scroll(ui, open, area_rect, v_bar, row_h, visible);
+    }
     let text_view_w = text_rect.width() - gutter;
     if wide {
         scroll::horizontal_bar(
@@ -203,7 +204,11 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
         );
     }
     let room = (open.text_width - (gutter + text_view_w) as f64).max(0.0);
-    open.text_left = open.text_left.clamp(0.0, room);
+    open.text_left = if wrap {
+        0.0
+    } else {
+        open.text_left.clamp(0.0, room)
+    };
 
     let reveal = std::mem::take(&mut open.text_reveal);
     let sel = open.text_sel;
@@ -215,8 +220,6 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
         .input(|i| i.pointer.interact_pos())
         .filter(|p| text_rect.contains(*p) || resp.dragged());
     let RowScroll { top, px } = open.text_scroll;
-    let range = top..(top + visible + 2).min(total);
-    open.text_rows = top..(top + visible).min(total);
     // Line numbers stay; the text scrolls sideways under its own clip.
     let numbers = ui.painter_at(Rect::from_min_max(
         text_rect.min,
@@ -235,17 +238,35 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
         let doc = &open.doc;
         let long_cache = &mut open.text_long;
         long_cache.follow(doc);
-        // The state the next line starts in, when the line above was laid out whole (TEXT-3);
+        let rows = if wrap {
+            wrapped_rows(&mut open.text_wrap, doc, open.text_scroll, row_h, text_rect)
+        } else {
+            (top..(top + visible + 2).min(total))
+                .enumerate()
+                .map(|(i, line)| Row {
+                    line,
+                    bytes: None,
+                    y: text_rect.top() - px + i as f32 * row_h,
+                    first: true,
+                    last: true,
+                })
+                .collect()
+        };
+        // The state the next row starts in, when the row above was laid out whole (TEXT-3);
         // else it comes from the index.
         let mut carry = None;
-        for (i, n) in range.enumerate() {
+        for row in rows {
+            let n = row.line;
             let line_start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
             let len = doc.line(n).len() - (line_start - doc.line_starts[n] as usize);
             let full = &doc.src[line_start..line_start + len];
-            // What of the line is laid out: all of a short one; of a long one the columns on
-            // screen and a margin, from a `<` so that the colours start right (TEXT-5).
+            // What of the line is laid out: a wrapped row; all of a short line; of a long one
+            // the columns on screen and a margin, from a `<` so that the colours start right
+            // (TEXT-5).
             let mut long = None;
-            let (from, to, from_col) = if len <= WHOLE_LINE_BYTES {
+            let (from, to, from_col) = if let Some(r) = &row.bytes {
+                (r.start - line_start, r.end - line_start, 0)
+            } else if len <= WHOLE_LINE_BYTES {
                 (0, len, 0)
             } else {
                 let cols = long_cache.get(n, full);
@@ -265,7 +286,9 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             let raw = &full[from..to];
             let head_here = sel
                 .map(|s| s.head)
-                .filter(|&h| cursor_line == Some(n) && h >= start && h - start <= raw.len());
+                .filter(|&h| cursor_line == Some(n) && h >= start && h - start <= raw.len())
+                // Where a line wraps, the cursor is on the row the break starts.
+                .filter(|&h| row.last || h < start + raw.len());
             // The preedit, on the cursor's line where the cursor is laid out.
             let pre = match (&preedit, head_here) {
                 (Some(p), Some(h)) => Some((p, h - start)),
@@ -287,6 +310,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
             let state = carry.unwrap_or_else(|| highlight::state_at(&doc.index, &doc.src, start));
             let (job, end) = line_job(&line, &font, &palette, state);
+            let end = if row.last { after_line_break(end) } else { end };
             carry = (long.is_none() && pre.is_none()).then_some(end);
             let galley = painter.layout_job(job);
             let line_w = match long {
@@ -294,7 +318,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 None => galley.size().x as f64,
             };
             widest = widest.max(gutter as f64 + line_w + 8.0);
-            let y = text_rect.top() - px + i as f32 * row_h;
+            let y = row.y;
             let rect =
                 Rect::from_min_size(pos2(text_rect.left(), y), vec2(text_rect.width(), row_h));
             // Where the laid-out part starts, from the view's left edge: small even when the
@@ -351,13 +375,15 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     painter.rect_filled(r, 0.0, text_fill);
                 }
             }
-            numbers.text(
-                pos2(rect.left() + gutter - 8.0, rect.center().y),
-                Align2::RIGHT_CENTER,
-                (n + 1).to_string(),
-                font.clone(),
-                visuals.weak_text_color(),
-            );
+            if row.first {
+                numbers.text(
+                    pos2(rect.left() + gutter - 8.0, rect.center().y),
+                    Align2::RIGHT_CENTER,
+                    (n + 1).to_string(),
+                    font.clone(),
+                    visuals.weak_text_color(),
+                );
+            }
             // Problems are in document order: find the line's by binary search.
             let first = open
                 .problems
@@ -368,13 +394,22 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 .collect();
             for p in &here {
                 let color = problems_panel::color(&visuals, p.severity);
-                numbers.text(
-                    pos2(rect.left() + 2.0, rect.center().y),
-                    Align2::LEFT_CENTER,
-                    problems_panel::symbol(p.severity),
-                    font.clone(),
-                    color,
-                );
+                if row.first {
+                    numbers.text(
+                        pos2(rect.left() + 2.0, rect.center().y),
+                        Align2::LEFT_CENTER,
+                        problems_panel::symbol(p.severity),
+                        font.clone(),
+                        color,
+                    );
+                }
+                // A wrapped line's problem is underlined on its row only.
+                let off_row = p.offset < line_bytes.start
+                    || p.offset >= line_bytes.end && !row.last
+                    || p.offset > line_bytes.end;
+                if row.bytes.is_some() && off_row {
+                    continue;
+                }
                 let at = (p.offset.saturating_sub(line_bytes.start) as usize).min(raw.len());
                 let x = origin.x + col_x(&galley, shown_column(raw, at, shift));
                 let end = galley.size().x.max(x - origin.x + 8.0) + origin.x;
@@ -401,7 +436,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 let text: Vec<&str> = here.iter().map(|p| p.message.as_str()).collect();
                 ui.interact(
                     rect.intersect(text_rect),
-                    id.with(("problem", n)),
+                    id.with(("problem", n, start)),
                     Sense::hover(),
                 )
                 .on_hover_text(text.join("\n"));
@@ -428,14 +463,18 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     let margin = char_w as f64 * 4.0;
     let view_w = text_view_w as f64;
     let mut to = left;
-    if let Some(x) = caret_x.filter(|_| reveal) {
+    // A wrapped view does not scroll sideways.
+    if let Some(x) = caret_x.filter(|_| reveal && !wrap) {
         if x - margin < left {
             to = (x - margin).max(0.0);
         } else if x + margin > left + view_w {
             to = x + margin - view_w;
         }
     }
-    if jumped && let Some(m) = &open.mark {
+    if jumped
+        && !wrap
+        && let Some(m) = &open.mark
+    {
         // A jump shows the whole match, its start a third into the view when it was not.
         let doc = &open.doc;
         let at = m.start as usize;
@@ -503,6 +542,206 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             })
         });
     }
+}
+
+/// Scrolling without word wrap: by whole lines and the pixels of the top one out of sight
+/// (TEXT-8). Jumps, the cursor, the wheel and the bar move the view; Shift+wheel moves it
+/// sideways.
+fn line_scroll(ui: &Ui, open: &mut Open, area_rect: Rect, v_bar: Rect, row_h: f32, visible: usize) {
+    let total = open.doc.line_count();
+    let max_top = RowScroll::max_top(total, visible);
+    // The document may have become shorter than where the view was.
+    if open.text_scroll.top > max_top {
+        open.text_scroll.to(max_top, max_top);
+    }
+    let cursor_line = open.text_sel.map(|s| open.doc.line_of(s.head as u64));
+    if let Some(line) = open.scroll_text_to.take() {
+        open.text_scroll
+            .to(line.saturating_sub(CONTEXT_LINES), max_top);
+    } else if open.text_reveal
+        && let Some(line) = cursor_line
+    {
+        // Only when the cursor's line is off screen; the line itself scrolls sideways later.
+        let top = open.text_scroll.top;
+        if line < top + 1 || line + 2 > top + visible {
+            let to = if line < top + 1 {
+                line.saturating_sub(CONTEXT_LINES)
+            } else {
+                (line + CONTEXT_LINES + 1).saturating_sub(visible)
+            };
+            open.text_scroll.to(to, max_top);
+        }
+    }
+    // The mouse wheel, by whole lines and the pixels left over, however far down.
+    if ui.rect_contains_pointer(area_rect) {
+        let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
+        open.text_scroll.by(-delta.y, row_h, max_top);
+        open.text_left -= delta.x as f64;
+    }
+    let id = focus_id(open.id).with("v-bar");
+    scroll::vertical_bar(ui, v_bar, id, total, visible, &mut open.text_scroll);
+    open.text_rows = open.text_scroll.top..(open.text_scroll.top + visible).min(total);
+}
+
+/// Scrolling with word wrap (TEXT-13): the top is a line and the pixels of its rows above
+/// the view, so a line of many rows, such as a minified file's only one, scrolls row by row.
+/// Each frame works out the rows of the lines on screen and of those at the end, never of
+/// the whole file. The bar counts lines, and rows within the line at the top.
+fn wrap_scroll(ui: &Ui, open: &mut Open, area_rect: Rect, v_bar: Rect, row_h: f32, visible: usize) {
+    let doc = &open.doc;
+    let w = &mut open.text_wrap;
+    let s = &mut open.text_scroll;
+    let total = doc.line_count();
+    // The last row at the bottom of the view is as far as it goes.
+    let last = RowPos {
+        line: total - 1,
+        row: w.rows(doc, total - 1) - 1,
+    };
+    let (max, _) = w.moved(doc, last, 1 - visible as isize);
+    let max_s = at_row(max, row_h);
+    let clamp = |s: &mut RowScroll| {
+        if s.top > max_s.top || s.top == max_s.top && s.px > max_s.px {
+            *s = max_s;
+        }
+    };
+    clamp(s);
+    if let Some(line) = open.scroll_text_to.take() {
+        let (to, _) = w.moved(doc, RowPos { line, row: 0 }, -(CONTEXT_LINES as isize));
+        *s = at_row(to, row_h);
+    } else if open.text_reveal
+        && let Some(sel) = open.text_sel
+    {
+        // Only when the cursor's row is at the edge or off screen.
+        let cursor = w.row_of(doc, sel.head);
+        let top = top_row(*s, row_h);
+        let (first, _) = w.moved(doc, top, 1);
+        let (last, _) = w.moved(doc, top, visible as isize - 2);
+        if cursor < first || cursor > last {
+            let back = if cursor < first {
+                CONTEXT_LINES
+            } else {
+                visible.saturating_sub(CONTEXT_LINES + 1)
+            };
+            let (to, _) = w.moved(doc, cursor, -(back as isize));
+            *s = at_row(to, row_h);
+        }
+    }
+    clamp(s);
+    if ui.rect_contains_pointer(area_rect) {
+        let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
+        scroll_rows(w, doc, s, -delta.y, row_h);
+        clamp(s);
+    }
+    // The bar: the top line and how far down its rows the view is, out of where the end is;
+    // the thumb as long as the rows on screen are of all rows, guessed from the lines on
+    // screen.
+    let line_px = |w: &mut Wrap, line: usize| w.rows(doc, line) as f64 * row_h as f64;
+    let at = s.top as f64 + s.px as f64 / line_px(w, s.top);
+    let end = max.line as f64 + max_s.px as f64 / line_px(w, max.line);
+    let (mut lines, mut rows) = (0usize, 0usize);
+    while s.top + lines < total && rows < visible {
+        rows += w.rows(doc, s.top + lines);
+        lines += 1;
+    }
+    let per_line = rows as f64 / lines.max(1) as f64;
+    let id = focus_id(open.id).with("v-bar");
+    let fraction = if end > 0.0 { at / end } else { 0.0 };
+    let shown = visible as f64;
+    match scroll::vertical_bar_at(ui, v_bar, id, shown, shown + end * per_line, fraction) {
+        Some(BarMove::To(f)) => {
+            let to = f * end;
+            let line = (to.floor() as usize).min(total - 1);
+            let px = (to - line as f64) * line_px(w, line);
+            // On whole rows, as the wheel leaves them when it stops.
+            let row = (px / row_h as f64).round() as usize;
+            *s = at_row(RowPos { line, row }, row_h);
+            clamp(s);
+        }
+        Some(BarMove::Page(dir)) => {
+            let page = visible.saturating_sub(1).max(1) as f32 * row_h;
+            scroll_rows(w, doc, s, dir as f32 * page, row_h);
+            clamp(s);
+        }
+        None => {}
+    }
+    open.text_rows = s.top..s.top + visible;
+}
+
+/// The scroll position that shows row `pos` at the top.
+fn at_row(pos: RowPos, row_h: f32) -> RowScroll {
+    RowScroll {
+        top: pos.line,
+        px: pos.row as f32 * row_h,
+    }
+}
+
+/// The row at the top of the view with word wrap.
+fn top_row(s: RowScroll, row_h: f32) -> RowPos {
+    RowPos {
+        line: s.top,
+        row: (s.px / row_h).floor() as usize,
+    }
+}
+
+/// Moves a wrapped view down by `dy` pixels (up when negative), row by row; it stops at
+/// the start, and the caller keeps it from going past the end.
+fn scroll_rows(w: &mut Wrap, doc: &Document, s: &mut RowScroll, dy: f32, row_h: f32) {
+    if dy == 0.0 {
+        return;
+    }
+    let y = s.px + dy;
+    let rows = (y / row_h).floor();
+    let rest = y - rows * row_h;
+    let (to, exact) = w.moved(
+        doc,
+        RowPos {
+            line: s.top,
+            row: 0,
+        },
+        rows as isize,
+    );
+    *s = match (exact, rows < 0.0) {
+        (true, _) => RowScroll {
+            top: to.line,
+            px: to.row as f32 * row_h + rest,
+        },
+        (false, true) => RowScroll::default(),
+        (false, false) => at_row(to, row_h),
+    };
+}
+
+/// The rows on screen with word wrap, from the scroll position `s` down to the bottom of
+/// `text_rect`.
+fn wrapped_rows(
+    w: &mut Wrap,
+    doc: &Document,
+    s: RowScroll,
+    row_h: f32,
+    text_rect: Rect,
+) -> Vec<Row> {
+    let top = top_row(s, row_h);
+    let mut y = text_rect.top() - (s.px - top.row as f32 * row_h);
+    let mut rows = Vec::new();
+    let mut pos = top;
+    while y < text_rect.bottom() && pos.line < doc.line_count() {
+        let count = w.rows(doc, pos.line);
+        while pos.row < count && y < text_rect.bottom() {
+            rows.push(Row {
+                line: pos.line,
+                bytes: Some(w.row_range(doc, pos)),
+                y,
+                first: pos.row == 0,
+                last: pos.row + 1 == count,
+            });
+            y += row_h;
+            pos.row += 1;
+        }
+        pos = RowPos {
+            line: pos.line + 1,
+            row: 0,
+        };
+    }
+    rows
 }
 
 impl LongLines {
@@ -576,7 +815,8 @@ fn mouse(ui: &Ui, open: &mut Open, resp: &egui::Response, at: usize) {
 }
 
 /// The keys of TEXT-16 to TEXT-19, while the text view has the keyboard.
-fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
+/// With `wrap`, Up and Down go by rows (TEXT-13).
+fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions, wrap: bool) {
     let events = ui.input(|i| i.events.clone());
     let page = open.text_rows.len().saturating_sub(1).max(1) as isize;
     let options = open.doc.format_options(*format).options;
@@ -620,10 +860,6 @@ fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
             } => {
                 let word = modifiers.command || modifiers.alt;
                 let shift = modifiers.shift;
-                let goal = || {
-                    open.text_goal
-                        .unwrap_or_else(|| text::column(doc, sel.head))
-                };
                 let to = match key {
                     Key::ArrowLeft if !shift && !word && !sel.is_empty() => Some(sel.range().start),
                     Key::ArrowRight if !shift && !word && !sel.is_empty() => Some(sel.range().end),
@@ -648,8 +884,17 @@ fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
                     open.text_goal = None;
                     move_to(open, sel.moved(at, shift));
                 } else if let Some(lines) = vertical {
-                    let col = goal();
-                    let at = text::vertical(doc, sel.head, lines, col);
+                    // The column it started from: in the row with word wrap.
+                    let w = &mut open.text_wrap;
+                    let (col, at) = if wrap {
+                        let col = open.text_goal.unwrap_or_else(|| w.column(doc, sel.head));
+                        (col, w.vertical(doc, sel.head, lines, col))
+                    } else {
+                        let col = open
+                            .text_goal
+                            .unwrap_or_else(|| text::column(doc, sel.head));
+                        (col, text::vertical(doc, sel.head, lines, col))
+                    };
                     open.text_goal = Some(col);
                     move_to(open, sel.moved(at, shift));
                 } else {
@@ -1030,5 +1275,58 @@ mod tests {
         assert_eq!(unshift(raw, 10, shift), 8);
         assert_eq!(byte_at(raw, unshift(raw, 10, shift)), at + 2);
         assert_eq!(unshift(raw, 8, None), 8);
+    }
+
+    /// A minified file: one line of about 22 kB, wrapped at 40 columns into some 600 rows.
+    fn minified() -> Document {
+        let line = "<a x=\"1\">Grüße</a> ".repeat(1100);
+        Document::from_bytes(format!("\u{feff}<r>{line}</r>").into_bytes())
+    }
+
+    /// With word wrap, the wheel moves a one-line file row by row, every pixel counts, and
+    /// it stops at the start.
+    #[test]
+    fn wrapped_line_scrolls_by_rows() {
+        let doc = minified();
+        let mut w = Wrap::new(40);
+        let rows = w.rows(&doc, 0);
+        assert!(rows > 500, "{rows} rows");
+        let row_h = 17.0;
+        let mut s = RowScroll::default();
+        // 50 notches of 80 px down, as egui hands them out, and back.
+        for _ in 0..50 {
+            for step in [13.0, 13.0, 13.0, 13.0, 13.0, 15.0] {
+                scroll_rows(&mut w, &doc, &mut s, step, row_h);
+            }
+        }
+        assert_eq!(s.top, 0);
+        assert!((s.px - 4000.0).abs() < 0.01, "{s:?}");
+        assert_eq!(top_row(s, row_h).row, 235);
+        for _ in 0..50 {
+            scroll_rows(&mut w, &doc, &mut s, -80.0, row_h);
+        }
+        assert!(s.px.abs() < 0.01, "{s:?}");
+        scroll_rows(&mut w, &doc, &mut s, -100.0, row_h);
+        assert_eq!(s, RowScroll::default());
+        // The rows on screen are the line's, one after the other, the first with its number.
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 10.0 * row_h));
+        let shown = wrapped_rows(
+            &mut w,
+            &doc,
+            at_row(RowPos { line: 0, row: 3 }, row_h),
+            row_h,
+            screen,
+        );
+        assert_eq!(shown.len(), 10);
+        assert!(!shown[0].first);
+        assert_eq!(
+            shown[0].bytes,
+            Some(w.row_range(&doc, RowPos { line: 0, row: 3 }))
+        );
+        assert!(
+            shown
+                .windows(2)
+                .all(|p| p[0].bytes.as_ref().unwrap().end == p[1].bytes.as_ref().unwrap().start)
+        );
     }
 }

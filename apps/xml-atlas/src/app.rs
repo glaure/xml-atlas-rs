@@ -131,7 +131,7 @@ pub struct Open {
     pub text_preedit: Option<crate::text_view::Preedit>,
     /// The document being read again on a worker thread after typing broke it (D19).
     reparse: Option<Receiver<Reparsed>>,
-    /// Lines the text view showed last frame.
+    /// Lines the text view showed last frame; rows with word wrap, for Page Up and Down.
     pub text_rows: std::ops::Range<usize>,
     /// How far the text view is scrolled down, by whole lines (D16, TEXT-8).
     pub text_scroll: crate::scroll::RowScroll,
@@ -142,6 +142,10 @@ pub struct Open {
     pub text_width: f64,
     /// Columns of the long lines the text view shows (TEXT-5).
     pub text_long: crate::text_view::LongLines,
+    /// Where the lines break into rows with word wrap (TEXT-13).
+    pub text_wrap: xml_atlas_engine::wrap::Wrap,
+    /// Whether the text view wrapped lines last frame.
+    pub text_wrapped: bool,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -422,6 +426,8 @@ impl App {
             text_left: 0.0,
             text_width: 0.0,
             text_long: Default::default(),
+            text_wrap: Default::default(),
+            text_wrapped: false,
             text_preedit: None,
             reparse: None,
             text_rows: 0..0,
@@ -1135,6 +1141,7 @@ impl App {
                     &mut self.settings.cell_pane,
                     "Cell pane beside the grid (experiment)",
                 );
+                ui.checkbox(&mut self.settings.word_wrap, "Word wrap    Alt+Z");
                 ui.separator();
                 ui.label("Theme");
                 ui.radio_value(
@@ -1288,6 +1295,18 @@ impl eframe::App for App {
         {
             self.pick_file(&ctx);
         }
+        if ctx.input_mut(|i| {
+            let pressed = i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::Z));
+            if pressed {
+                // On Linux the key also comes as the letter, which would be typed.
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t.eq_ignore_ascii_case("z")));
+            }
+            pressed
+        }) {
+            // View > Word wrap (TEXT-13).
+            self.settings.word_wrap = !self.settings.word_wrap;
+        }
         // The window's close button: hold the close until the user has answered.
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
@@ -1376,6 +1395,7 @@ impl eframe::App for App {
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
+        let wrap = self.settings.word_wrap;
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
             // Each layout has its own panel, so each remembers its own height.
@@ -1410,7 +1430,9 @@ impl eframe::App for App {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }
             egui::CentralPanel::default().show(ui, |ui| {
-                ui.push_id(open.id, |ui| crate::text_view::show(ui, open, &format));
+                ui.push_id(open.id, |ui| {
+                    crate::text_view::show(ui, open, &format, wrap)
+                });
             });
         });
         if let Some(note) = open.note.take() {

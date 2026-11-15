@@ -28,6 +28,7 @@ pub mod grid;
 pub mod problems;
 pub mod text;
 pub mod tree;
+pub mod wrap;
 
 /// How long typing pauses before a document whose index lags behind its text is read again
 /// (`docs/spec/text.md`, TEXT-22).

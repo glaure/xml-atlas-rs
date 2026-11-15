@@ -116,7 +116,22 @@ of it.
   CLI has it too: `xml-atlas-cli replace FILE TEXT WITH [--match-case] [--whole-word]
   [--within PATH] [-o OUT]`, which refuses a result that is not well-formed.
 - **TEXT-15** `[planned]` Regular expressions, and search by element name or attribute value.
-- **TEXT-13** `[planned]` Word wrap can be turned on.
+- **TEXT-13** `[done]` Word wrap: View > Word wrap, or Alt+Z, turns it on and off for every
+  tab, remembered with the other settings; off at first. Lines wrap at the view's width,
+  after a blank or before a `<`, at the last such place that fits; a word wider than the view
+  is cut where the row is full. Blanks at a break stay at the end of the row, so each row
+  starts with something visible. Rows count characters as the view does (TEXT-4, TEXT-21);
+  wide characters such as CJK can reach a little past the edge. The line number is on a
+  line's first row. Up and Down move by rows, keeping the column in the row; Page Up and Page
+  Down by the rows on screen; Home and End stay on the whole line. The wheel moves row by
+  row, also through a minified file's single line, and stops at the last row. The scroll bar
+  counts lines, and rows within the line at the top, so it also scrolls a one-line file.
+  A wrapped view does not scroll sideways. Only the lines on screen are wrapped each frame;
+  a line longer than 4,000 bytes keeps its rows, and typing in it works out a few rows again,
+  not the line. Measured on a 13 MiB file of one line (release build): wrapping it 22 to
+  25 ms once (again when the view's width changes), then a typed letter about 0.1 ms and
+  the text view's frame 0.19 ms median and 2.6 ms at most while scrolling; on the 100 MiB
+  fixture 0.12 ms median, against 0.10 ms without wrap.
 
 ## Acceptance tests
 
@@ -143,6 +158,9 @@ of it.
   order's tree row turns to the error colour, and the problems list names the line. Delete
   the `<`: within about a second tree and grid are as before, with the same row selected.
 - Type `ü` with a dead key and `日本` with an input method: both arrive as typed.
+- Open a minified file of one long line and press Alt+Z: it wraps at the view's width,
+  coloured as without wrap. Ctrl+End shows its last row at the bottom; Up moves one row and
+  keeps the column; typing a letter shows at once. Alt+Z again types no `z`.
 
 ## Seen in the reference programs
 
