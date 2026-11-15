@@ -69,6 +69,9 @@ this file needs the most observation.
   marked row, as a double-click does (GRID-7), when no cell is marked (GRID-10). Backspace
   goes back to the parent (Drill Up, TREE-10).
 - **GRID-18** `[done]` The row-number column is as wide as the largest row number.
+- **GRID-20** `[done]` Columns that do not fit scroll sideways, with the header; so do those
+  of the cell pane (GRID-16). Left and Right scroll the marked cell into view, and back to
+  the start of the row when the whole row is marked again.
 
 ## Known gaps
 
