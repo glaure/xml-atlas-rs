@@ -158,6 +158,22 @@ Still open, found by the same review:
 - **Revisit when:** background updates lag visibly at 1 GiB. Then store offsets and parents
   relative to the parent, so an edit touches only the ancestors and their following
   siblings.
+- **Built (2026-11-15), on the UI thread for now:** `Index::update` re-indexes the innermost
+  element that contains the change with a byte to spare on each side, and splices its nodes
+  in when its new bytes are one well-formed element on their own. Otherwise (a broken
+  element, a change in the prolog, a document that already has an error, an edit with
+  several changes such as Format) the whole document is indexed, so the error is reported
+  as on opening. The parent is not tried: when an element no longer parses on its own, the
+  document is not well-formed either, and only the full pass finds where. The line index is
+  updated in place. `max_depth` becomes an upper bound until the next full index.
+  - Measured on the 100 MiB fixture: changing one character of a price 10 ms (238 ms
+    before), its undo and redo 11 ms, inserting an element 17 ms; on 10 MiB 0.2 to 0.5 ms.
+    Nearly all of it is shifting the nodes after the change.
+  - Why not a worker thread yet: at these times it would add snapshots and a stale index to
+    every view for no visible gain. It comes when 1 GiB files are edited (about 150 ms).
+  - Checked: 6,200 random edits on the corpus, of which 1,349 took the fast path, each equal
+    to a full index of the new source; random edits, all undone and all redone, each leave
+    the node and line index equal to opening the new source.
 
 ## D10: One contiguous buffer, edited in place
 

@@ -33,6 +33,15 @@ pub enum EditError {
     Empty,
 }
 
+/// Where a step with one change landed: `removed` bytes at `at` became `inserted` bytes. Lets
+/// the index update only around the change (D9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Splice {
+    pub at: usize,
+    pub removed: usize,
+    pub inserted: usize,
+}
+
 /// Undo and redo steps, and which one matches the file on disk.
 #[derive(Debug)]
 pub struct History {
@@ -110,8 +119,9 @@ impl History {
         }
     }
 
-    /// Applies `edit` to `src` and records how to undo it.
-    pub fn apply(&mut self, src: &mut Vec<u8>, edit: Edit) -> Result<(), EditError> {
+    /// Applies `edit` to `src` and records how to undo it. Returns where the change landed
+    /// when the edit made exactly one.
+    pub fn apply(&mut self, src: &mut Vec<u8>, edit: Edit) -> Result<Option<Splice>, EditError> {
         let Edit { label, mut changes } = edit;
         changes.sort_by_key(|(r, _)| (r.start, r.end));
         let mut end = 0;
@@ -133,6 +143,7 @@ impl History {
             return Err(EditError::Empty);
         }
         let step = replace(src, changes, label);
+        let splice = step.splice();
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             // The saved state was among the undone steps, which are now gone.
             self.saved = None;
@@ -140,23 +151,28 @@ impl History {
         self.redo.clear();
         self.undo.push(step);
         self.trim();
-        Ok(())
+        Ok(splice)
     }
 
-    /// Undoes the last edit. Returns its label, or `None` when there is nothing to undo.
-    pub fn undo(&mut self, src: &mut Vec<u8>) -> Option<String> {
+    /// Undoes the last edit. Returns its label and, for a step with one change, where it
+    /// landed; `None` when there is nothing to undo.
+    pub fn undo(&mut self, src: &mut Vec<u8>) -> Option<(String, Option<Splice>)> {
         let step = self.undo.pop()?;
         let label = step.label.clone();
-        self.redo.push(run(src, step));
-        Some(label)
+        let reverse = run(src, step);
+        let splice = reverse.splice();
+        self.redo.push(reverse);
+        Some((label, splice))
     }
 
-    /// Redoes the last undone edit. Returns its label.
-    pub fn redo(&mut self, src: &mut Vec<u8>) -> Option<String> {
+    /// Redoes the last undone edit. Returns what [`History::undo`] returns.
+    pub fn redo(&mut self, src: &mut Vec<u8>) -> Option<(String, Option<Splice>)> {
         let step = self.redo.pop()?;
         let label = step.label.clone();
-        self.undo.push(run(src, step));
-        Some(label)
+        let reverse = run(src, step);
+        let splice = reverse.splice();
+        self.undo.push(reverse);
+        Some((label, splice))
     }
 
     /// What Edit > Undo would undo.
@@ -200,6 +216,18 @@ impl History {
 }
 
 impl Step {
+    /// For the step that reverses a one-change step: where that change landed.
+    fn splice(&self) -> Option<Splice> {
+        match &self.changes[..] {
+            [c] => Some(Splice {
+                at: c.at,
+                removed: c.inserted.len(),
+                inserted: c.len,
+            }),
+            _ => None,
+        }
+    }
+
     fn bytes(&self) -> usize {
         self.changes.iter().map(|c| c.inserted.len()).sum()
     }
@@ -289,11 +317,21 @@ mod tests {
             .unwrap();
         assert!(src.windows(5).any(|w| w == b"<item"));
         assert_eq!(h.undo_label(), Some("Rename"));
-        assert_eq!(h.undo(&mut src).as_deref(), Some("Rename"));
+        // The undo reports where its one change landed, for the index (D9).
+        let (label, splice) = h.undo(&mut src).unwrap();
+        assert_eq!(label, "Rename");
+        assert_eq!(
+            splice,
+            Some(Splice {
+                at: at(b"<a").start,
+                removed: 5,
+                inserted: 2
+            })
+        );
         assert_eq!(src, SRC);
         assert_eq!(h.redo_label(), Some("Rename"));
         h.redo(&mut src);
-        assert_eq!(h.undo(&mut src).as_deref(), Some("Rename"));
+        assert_eq!(h.undo(&mut src).map(|(l, _)| l).as_deref(), Some("Rename"));
         assert_eq!(src, SRC);
         assert_eq!(h.undo(&mut src), None);
     }
@@ -394,7 +432,7 @@ mod tests {
             .unwrap();
         }
         assert_eq!(h.bytes(), 100);
-        assert_eq!(h.undo(&mut src).as_deref(), Some("2"));
+        assert_eq!(h.undo(&mut src).map(|(l, _)| l).as_deref(), Some("2"));
         assert_eq!(h.undo(&mut src), None);
         assert!(h.is_modified(), "the saved state was dropped");
         // A step larger than the limit is still kept.
