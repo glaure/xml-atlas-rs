@@ -38,6 +38,23 @@
     <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
     <ui:WixUI Id="WixUI_Advanced" />
 
+    <!--
+      The install folder for each choice. WixUI_Advanced takes the all-users folder from
+      ProgramFilesFolder before the choice is made, while the install is still per user, so
+      Windows Installer has already redirected it to %LocalAppData%\Programs (and it would be
+      the 32-bit folder). ProgramW6432 is the 64-bit Program Files whatever the scope.
+      Without the dialog (msiexec /qn) the package installs per user unless ALLUSERS=1 is
+      given; WixUI_Advanced would then pick the all-users folder for an administrator, so the
+      per-user folder is set first.
+    -->
+    <SetProperty Id="WixPerMachineFolder" Value="[%ProgramW6432]\[ApplicationFolderName]\"
+                 After="WixSetDefaultPerMachineFolder" Sequence="both" />
+    <SetProperty Id="WixPerUserFolder" Value="[LocalAppDataFolder]Programs\[ApplicationFolderName]\"
+                 After="WixSetDefaultPerUserFolder" Sequence="both" />
+    <SetProperty Id="APPLICATIONFOLDER" Value="[WixPerUserFolder]"
+                 After="SetWixPerMachineFolder" Sequence="both"
+                 Condition="ACTION=&quot;INSTALL&quot; AND APPLICATIONFOLDER=&quot;&quot; AND ALLUSERS=2 AND MSIINSTALLPERUSER=1" />
+
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="APPLICATIONFOLDER" Name="XML Atlas" />
     </StandardDirectory>

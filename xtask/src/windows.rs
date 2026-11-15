@@ -294,6 +294,27 @@ mod tests {
         assert_eq!(icons, 1);
     }
 
+    /// WixUI_Advanced's own all-users folder comes from ProgramFilesFolder while the install
+    /// is still per user, which Windows Installer redirects to %LocalAppData%\Programs.
+    #[test]
+    fn all_users_install_goes_to_program_files() {
+        let wxs = include_str!("../../packaging/windows/xml-atlas.wxs");
+        let set = |id: &str| {
+            let start = wxs
+                .find(&format!("<SetProperty Id=\"{id}\""))
+                .unwrap_or_else(|| panic!("{id} is not set"));
+            let end = start + wxs[start..].find("/>").unwrap();
+            &wxs[start..end]
+        };
+        let machine = set("WixPerMachineFolder");
+        assert!(machine.contains("Value=\"[%ProgramW6432]\\[ApplicationFolderName]\\\""));
+        assert!(machine.contains("After=\"WixSetDefaultPerMachineFolder\""));
+        let user = set("WixPerUserFolder");
+        assert!(user.contains("Value=\"[LocalAppDataFolder]Programs\\[ApplicationFolderName]\\\""));
+        assert!(user.contains("After=\"WixSetDefaultPerUserFolder\""));
+        assert!(set("APPLICATIONFOLDER").contains("MSIINSTALLPERUSER=1"));
+    }
+
     #[test]
     fn crlf_once() {
         assert_eq!(crlf("a\nb\r\nc"), "a\r\nb\r\nc");
