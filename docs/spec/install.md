@@ -87,9 +87,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 ### Linux
 
-- **PKG-30** `[built]` A `.deb` package for Ubuntu 22.04 and 24.04 LTS and Debian 12 and
+- **PKG-30** `[done]` A `.deb` package for Ubuntu 22.04 and 24.04 LTS and Debian 12 and
   later, installable with `apt install ./xml-atlas_….deb`.
-- **PKG-31** `[built]` An `.rpm` package for RHEL 9 and its rebuilds (Rocky Linux,
+- **PKG-31** `[done]` An `.rpm` package for RHEL 9 and its rebuilds (Rocky Linux,
   AlmaLinux), and for current Fedora, installable with `dnf install ./xml-atlas-….rpm`.
 - **PKG-32** `[planned]` After the `.deb` and `.rpm`: a Flatpak on Flathub, with the id
   `io.github.glaure.XmlAtlas`, for every other distribution and for users without
@@ -103,7 +103,12 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   entry and icon use the id `io.github.glaure.XmlAtlas`. There is no AppImage or Snap
   unless someone asks for one. `cargo xtask package` builds both into `target/dist`, against
   glibc 2.34 (`docs/decisions.md`, D22); the window sets the same id, so the desktop shows
-  it with the entry's icon. Built and inspected; not yet installed on fresh systems.
+  it with the entry's icon. `packaging/linux/install-test.sh` installs each package in a
+  fresh container of Ubuntu 22.04 and 24.04, Debian 12, Rocky Linux 9 and Fedora 43: the
+  package manager finds every dependency, both programs run (also on Rocky's glibc 2.34),
+  the window opens and draws with OpenGL (on a nested X server), and removing the package
+  removes its files. Not yet tried on a desktop: the menu entry, *Open with*, Wayland, and
+  an upgrade over an older version. dnf notes that the package is not signed (OpenPGP).
 - **PKG-34** `[planned]` The window works under both Wayland and X11, and follows the
   desktop's light or dark setting (WIN-2), in every package.
 

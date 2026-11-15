@@ -51,6 +51,7 @@ cargo run --release -p xml-atlas-cli -- stats fixtures/orders.xml --repeat 5
 ```sh
 cargo install cargo-zigbuild    # also needs zig, and dpkg-deb
 cargo xtask package             # writes target/dist/*.deb and *.rpm
+packaging/linux/install-test.sh # installs them in fresh containers (needs Docker)
 ```
 
 The executables are built against glibc 2.34, so one package runs on RHEL 9, Ubuntu 22.04,
