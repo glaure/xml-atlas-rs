@@ -8,6 +8,7 @@
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::find::{self, Direction, FindOptions, Finder};
+use xml_atlas_engine::text::Selection;
 use xml_atlas_engine::{Edit, EditError};
 
 use crate::app::{Note, Open};
@@ -202,10 +203,13 @@ impl FindBar {
                     action = Some(true);
                 }
                 ui.add_enabled(
-                    open.selected.is_some(),
-                    egui::Checkbox::new(&mut self.in_selection, "In selected element"),
+                    scope(open).is_some(),
+                    egui::Checkbox::new(&mut self.in_selection, "In selection"),
                 )
-                .on_hover_text("Replace All only inside the element selected in tree or grid");
+                .on_hover_text(
+                    "Replace All only inside the text selected in the text view or, when none \
+                     is, the element selected in tree or grid",
+                );
             });
         }
         if let Some(d) = direction {
@@ -240,22 +244,30 @@ impl FindBar {
 
     /// Replaces every match, in the selected element or the whole document, as one step.
     fn replace_all(&mut self, open: &mut Open) {
-        let within = match open.selected.filter(|_| self.in_selection) {
-            Some(id) => open.doc.index.node(id).span(),
-            None => 0..open.doc.src.len(),
-        };
+        let within = scope(open)
+            .filter(|_| self.in_selection)
+            .unwrap_or(0..open.doc.src.len());
         let with = self.with.clone();
         let Some(finder) = self.finder() else {
             return;
         };
-        match find::replace_all(finder, &open.doc.src, within, &with) {
+        match find::replace_all(finder, &open.doc.src, within.clone(), &with) {
             Some((edit, count)) => {
                 let done = match count {
                     1 => "Replaced 1 match".to_string(),
                     n => format!("Replaced {n} matches"),
                 };
+                let before = open.doc.src.len();
                 apply(open, edit, done);
                 self.note.clear();
+                // A text selection still covers what it covered, now replaced.
+                if open.text_sel.is_some_and(|s| s.range() == within) {
+                    let end = (within.end + open.doc.src.len()).saturating_sub(before);
+                    open.text_sel = Some(Selection {
+                        anchor: within.start,
+                        head: end,
+                    });
+                }
             }
             None => self.note = "Not found".into(),
         }
@@ -365,4 +377,13 @@ fn apply(open: &mut Open, edit: Edit, done: String) {
         Err(EditError::Empty) => Note::info(format!("{done}: already as given, nothing changed")),
         Err(e) => Note::refused(format!("Cannot replace: {e}")),
     });
+}
+
+/// What *In selection* limits Replace All to (TEXT-14): the text selected in the text view,
+/// or when none is, the element selected in tree or grid, its tags included.
+fn scope(open: &Open) -> Option<std::ops::Range<usize>> {
+    match open.text_sel.filter(|s| !s.is_empty()) {
+        Some(s) => Some(s.range()),
+        None => open.selected.map(|id| open.doc.index.node(id).span()),
+    }
 }

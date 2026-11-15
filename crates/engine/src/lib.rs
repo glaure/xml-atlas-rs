@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
+use crate::format::newline_style;
+
 pub use disk::{DiskChange, FileStamp};
 pub use edit::{Edit, EditError, History, Splice, Typing};
 pub use format::{
@@ -43,6 +45,8 @@ pub struct Document {
     disk: Option<FileStamp>,
     /// Where the last edit, undo or redo landed, so the text cursor can go there (TEXT-20).
     last_change: Option<Splice>,
+    /// The file's line ending, kept while an edit leaves no line break to tell it by.
+    newline: &'static [u8],
 }
 
 /// How long each stage of opening took.
@@ -84,6 +88,7 @@ impl Document {
         let t = Instant::now();
         let line_starts = line_starts(&src);
         let lines_time = t.elapsed();
+        let newline = newline_style(&src);
         Self {
             path: None,
             src,
@@ -98,6 +103,7 @@ impl Document {
             revision: 0,
             disk: None,
             last_change: None,
+            newline,
         }
     }
 
@@ -133,6 +139,13 @@ impl Document {
         self.last_change
     }
 
+    /// The file's line ending, `\r\n` or `\n`, for line breaks that edits insert (EDIT-5,
+    /// TEXT-17, TEXT-18): the one of the first line, or when no line break is left, the one
+    /// the document had last. LF for a file that never had one.
+    pub fn newline(&self) -> &'static [u8] {
+        self.newline
+    }
+
     /// Goes up with every change to the source: an edit, an undo, a redo.
     pub fn revision(&self) -> u64 {
         self.revision
@@ -158,6 +171,9 @@ impl Document {
         }
         self.timings.lines = t.elapsed();
         self.timings.read = Duration::ZERO;
+        if self.line_starts.len() > 1 {
+            self.newline = newline_style(&self.src);
+        }
     }
 
     /// Re-indented copy of the source. See [`format`] for what is and is not changed.

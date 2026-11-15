@@ -39,17 +39,18 @@ of it.
   The view scrolls to keep the cursor visible. Moving the cursor with the keys does not move
   tree or grid (TREE-12).
 - **TEXT-17** `[done]` Selection and typing. Dragging selects; Shift+click extends;
-  double-click selects a word, triple-click the line; Ctrl+A selects all (with the clipboard,
-  TEXT-18). Typing replaces the
-  selection, or inserts at the cursor. Backspace and Delete remove the selection, or one
+  double-click selects a word, triple-click the line; Ctrl+A, or Edit > Select All, selects
+  all. Typing replaces the selection, or inserts at the cursor. Backspace and Delete remove the selection, or one
   character; Ctrl+Backspace and Ctrl+Delete one word. Enter inserts the file's line ending
   (CRLF in a CRLF file, as EDIT-5), followed by the indentation of the line it was pressed on.
   Tab inserts one indent as the Format options (FMT-10, FMT-15) give it: spaces, or a tab
   only when the options say to indent with tabs.
-- **TEXT-18** `[planned]` Clipboard: Edit > Cut, Copy and Paste, also Ctrl+X, Ctrl+C and
-  Ctrl+V. Copy takes the selected text as UTF-8, with the file's line endings. Paste inserts
-  the clipboard text with each line break written as the file's line ending. Cut and Paste
-  are one undo step each.
+- **TEXT-18** `[done]` Clipboard: Edit > Cut, Copy and Paste, also Ctrl+X, Ctrl+C and
+  Ctrl+V. Copy takes the selected text as UTF-8, with the file's line endings; a byte that is
+  not valid UTF-8 goes to the clipboard as `�`, as the view shows it. Paste inserts the
+  clipboard text with each line break written as the file's line ending, the one the file
+  had last even when the text holds no line break any more (Select All, Cut, Paste gives the
+  file back). Cut and Paste are one undo step each, never joined with typing (TEXT-20).
 - **TEXT-19** `[planned]` Input methods: dead keys, compose sequences and input method
   editors (Chinese, Japanese, Korean) work. While composing, the text being composed is shown
   underlined at the cursor; only what is committed goes into the document, as one change.
@@ -88,9 +89,10 @@ of it.
   Find bar with a Replace row; the same options as Find. Replace replaces the outlined match
   and finds the next; when nothing is outlined, or the outlined text is no longer a match, it
   only finds, so the first press shows what the next replaces. Enter in the replacement field
-  is Replace. Replace All replaces every match in the whole document, or with *In selected
-  element* only inside the element selected in tree or grid (its tags included; a text
-  selection takes its place when the text view can be edited, TEXT-9). Like Find, Replace
+  is Replace. Replace All replaces every match in the whole document, or with *In
+  selection* only inside the text selected in the text view or, when none is, inside the
+  element selected in tree or grid (its tags included); the text selection then covers the
+  replaced text. Like Find, Replace
   works on the whole source, tags and attribute names too, and inserts the replacement as
   typed (the owner's choice, 2026-11-15). When that leaves the document not well-formed, the
   status bar says so, and the problems list shows where. Replace All is one undo step. The
