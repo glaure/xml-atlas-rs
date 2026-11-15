@@ -7,8 +7,9 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
-use xml_atlas_engine::{Document, Edit, EditError, FormatError, FormatOptions};
+use xml_atlas_engine::{DiskChange, Document, Edit, EditError, FormatError, FormatOptions};
 
+use crate::disk_watch::DiskWatch;
 use crate::settings::{Layout, Settings, ThemeChoice};
 use crate::tabs::Tabs;
 use crate::{problems_panel, tree};
@@ -42,6 +43,8 @@ pub struct App {
     notice: Option<Note>,
     /// The Format options dialog, with the values being edited.
     format_dialog: Option<FormatOptions>,
+    /// Wakes the window when the file of an open document changes on disk (OPEN-14).
+    disk_watch: DiskWatch,
 }
 
 /// The answers of the "save changes?" dialog.
@@ -62,6 +65,8 @@ enum Action {
 struct Loading {
     path: PathBuf,
     rx: Receiver<std::io::Result<Document>>,
+    /// The document with this [`Open::id`] is read again (OPEN-14), rather than a new tab.
+    reload: Option<egui::Id>,
 }
 
 /// A document plus everything the views remember about it.
@@ -72,6 +77,8 @@ pub struct Open {
     pub id: egui::Id,
     /// While quitting: Don't save was answered for this document.
     discard: bool,
+    /// The file changed on disk and the notice about it waits for an answer (OPEN-14).
+    pub disk: Option<DiskChange>,
     /// Element shown in the grid and selected in the tree.
     pub selected: Option<NodeId>,
     /// Node the grid and tree mark: a grid row, or the selection.
@@ -206,6 +213,7 @@ impl App {
             message: None,
             notice: None,
             format_dialog: None,
+            disk_watch: DiskWatch::start(cc.egui_ctx.clone()),
         };
         for path in paths {
             app.open_file(&cc.egui_ctx, path);
@@ -229,10 +237,10 @@ impl App {
         if self.loading.iter().any(|l| same(&l.path)) {
             return;
         }
-        self.start_loading(ctx, path);
+        self.start_loading(ctx, path, None);
     }
 
-    fn start_loading(&mut self, ctx: &egui::Context, path: PathBuf) {
+    fn start_loading(&mut self, ctx: &egui::Context, path: PathBuf, reload: Option<egui::Id>) {
         let (tx, rx) = channel();
         let ctx = ctx.clone();
         let p = path.clone();
@@ -240,7 +248,7 @@ impl App {
             let _ = tx.send(Document::open(&p));
             ctx.request_repaint();
         });
-        self.loading.push(Loading { path, rx });
+        self.loading.push(Loading { path, rx, reload });
         self.message = None;
         self.notice = None;
     }
@@ -258,8 +266,68 @@ impl App {
                 }
                 Err(TryRecvError::Disconnected) => Err(std::io::Error::other("loading stopped")),
             };
-            let path = self.loading.remove(i).path;
-            self.loaded(path, result);
+            let loading = self.loading.remove(i);
+            match loading.reload {
+                Some(id) => self.reloaded(id, &loading.path, result),
+                None => self.loaded(loading.path, result),
+            }
+        }
+    }
+
+    /// Notes which documents' files changed on disk since they were read or saved (OPEN-14):
+    /// when the watch saw a change, and when a tab came or went. A file being read again is
+    /// not looked at.
+    fn check_disk(&mut self) {
+        let paths = self
+            .docs
+            .iter()
+            .filter_map(|o| o.doc.path.clone())
+            .collect();
+        let new_list = self.disk_watch.watch(paths);
+        if !(self.disk_watch.take_changed() || new_list) {
+            return;
+        }
+        for open in self.docs.iter_mut() {
+            if !self.loading.iter().any(|l| l.reload == Some(open.id)) {
+                open.disk = open.doc.disk_change();
+            }
+        }
+    }
+
+    /// Reads the file of the tab shown again, in the background (OPEN-14).
+    fn reload(&mut self, ctx: &egui::Context) {
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
+        let Some(path) = open.doc.path.clone() else {
+            return;
+        };
+        open.disk = None;
+        let id = open.id;
+        self.start_loading(ctx, path, Some(id));
+    }
+
+    /// The document with `id` takes the contents its file has now. The selection and the
+    /// expanded rows stay where they were, as far as the elements are still there.
+    fn reloaded(&mut self, id: egui::Id, path: &Path, result: std::io::Result<Document>) {
+        let Some(i) = self.docs.position(|o| o.id == id) else {
+            return;
+        };
+        match result {
+            Ok(fresh) => {
+                if let Some(open) = self.docs.get_mut(i) {
+                    let _ = open.edit(|doc| {
+                        doc.reload_from(fresh);
+                        Ok(true)
+                    });
+                    // It may have changed again while it was being read.
+                    open.disk = open.doc.disk_change();
+                }
+                self.notice = Some(Note::info(format!("Reloaded {}", file_name(path))));
+            }
+            Err(e) => {
+                self.message = Some(format!("Could not reload {}: {e}", path.display()));
+            }
         }
     }
 
@@ -292,6 +360,7 @@ impl App {
             doc,
             id: egui::Id::unique(("document", self.next_id)),
             discard: false,
+            disk: None,
             selected: None,
             focus: None,
             mark: None,
@@ -465,9 +534,15 @@ impl App {
                             name.push_str(" *");
                         }
                         let active = i == self.docs.active_index();
-                        let tab = ui.selectable_label(active, name).on_hover_text(
-                            path.map(|p| p.display().to_string()).unwrap_or_default(),
-                        );
+                        let mut hover = path.map(|p| p.display().to_string()).unwrap_or_default();
+                        let name = match open.disk {
+                            Some(change) => {
+                                hover.push_str(&format!("\n{}", disk_text(change)));
+                                RichText::new(name).color(ui.visuals().warn_fg_color)
+                            }
+                            None => RichText::new(name),
+                        };
+                        let tab = ui.selectable_label(active, name).on_hover_text(hover);
                         if tab.clicked() {
                             show = Some(i);
                         }
@@ -741,9 +816,39 @@ impl App {
                 None => return false,
             },
         };
+        self.save_to(path)
+    }
+
+    /// File > Save As: the document under a name chosen now, which it keeps.
+    fn save_as(&mut self) -> bool {
+        let Some(open) = self.docs.active() else {
+            return false;
+        };
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(p) = open.doc.path.as_deref() {
+            if let Some(dir) = p.parent() {
+                dialog = dialog.set_directory(dir);
+            }
+            if let Some(name) = p.file_name() {
+                dialog = dialog.set_file_name(name.to_string_lossy());
+            }
+        }
+        match dialog.save_file() {
+            Some(path) => self.save_to(path),
+            None => false,
+        }
+    }
+
+    /// Writes the tab shown to `path`. False if writing failed.
+    fn save_to(&mut self, path: PathBuf) -> bool {
+        let Some(open) = self.docs.active_mut() else {
+            return false;
+        };
         match open.doc.save(&path) {
             Ok(()) => {
+                open.disk = None;
                 self.settings.add_recent(&path);
+                self.message = None;
                 true
             }
             Err(e) => {
@@ -751,6 +856,59 @@ impl App {
                 false
             }
         }
+    }
+
+    /// The notice above the views when the file of the tab shown changed on disk (OPEN-14):
+    /// read it again, write the open document over it or under another name, or keep the
+    /// open document without saving.
+    fn disk_bar(&mut self, ui: &mut Ui) {
+        let Some(open) = self.docs.active() else {
+            return;
+        };
+        let Some(change) = open.disk else {
+            return;
+        };
+        let modified = open.doc.is_modified();
+        let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
+        let ctx = ui.ctx().clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!("⚠ {name} {}.", disk_text(change)),
+            );
+            if change == DiskChange::Changed {
+                let (label, tip) = if modified {
+                    (
+                        "Reload, discarding changes",
+                        "Show the file as it is now; your unsaved changes are lost",
+                    )
+                } else {
+                    ("Reload", "Show the file as it is now")
+                };
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    self.reload(&ctx);
+                }
+            }
+            if ui
+                .button("Save")
+                .on_hover_text("Write the document as it is open here to the file")
+                .clicked()
+            {
+                self.save();
+            }
+            if ui.button("Save as…").clicked() {
+                self.save_as();
+            }
+            if ui
+                .button("Keep")
+                .on_hover_text("Keep the document as it is open here, without saving")
+                .clicked()
+                && let Some(open) = self.docs.active_mut()
+            {
+                open.doc.keep_over_disk();
+                open.disk = None;
+            }
+        });
     }
 
     /// File > Open Recent (OPEN-12): newest first, the file name with its folder beside it.
@@ -808,6 +966,16 @@ impl App {
                 {
                     ui.close();
                     self.save();
+                }
+                if ui
+                    .add_enabled(
+                        !self.docs.is_empty(),
+                        egui::Button::new("Save As…    Ctrl+Shift+S"),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.save_as();
                 }
                 if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Close    Ctrl+W"))
@@ -927,7 +1095,12 @@ impl App {
         ui.horizontal(|ui| {
             if let Some(l) = self.loading.first() {
                 ui.spinner();
-                ui.label(format!("Opening {}…", l.path.display()));
+                let doing = if l.reload.is_some() {
+                    "Reloading"
+                } else {
+                    "Opening"
+                };
+                ui.label(format!("{doing} {}…", l.path.display()));
                 return;
             }
             if let Some(m) = &self.message {
@@ -981,6 +1154,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_loading();
+        self.check_disk();
         self.apply_theme(&ctx);
         self.save_settings();
 
@@ -1015,7 +1189,16 @@ impl eframe::App for App {
         }
         self.confirm_dialog(ui);
         self.format_dialog(&ctx);
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
+        // Ctrl+Shift+S first: Ctrl+S would match it too.
+        if ctx.input_mut(|i| {
+            i.consume_shortcut(&KeyboardShortcut::new(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::S,
+            ))
+        }) {
+            self.save_as();
+        } else if ctx
+            .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
         {
             self.save();
         }
@@ -1046,6 +1229,9 @@ impl eframe::App for App {
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
         if !self.docs.is_empty() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(ui));
+        }
+        if self.docs.active().is_some_and(|o| o.disk.is_some()) {
+            egui::Panel::top("disk").show(ui, |ui| self.disk_bar(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         self.update_title(&ctx);
@@ -1342,6 +1528,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
             .ok()
             .zip(std::fs::canonicalize(b).ok())
             .is_some_and(|(a, b)| a == b)
+}
+
+/// What happened to the file, after its name.
+fn disk_text(change: DiskChange) -> &'static str {
+    match change {
+        DiskChange::Changed => "changed on disk",
+        DiskChange::Removed => "was deleted or moved on disk",
+    }
 }
 
 fn file_name(path: &Path) -> String {

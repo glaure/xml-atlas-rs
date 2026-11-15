@@ -1,6 +1,7 @@
 //! XML Atlas desktop app.
 
 mod app;
+mod disk_watch;
 mod find_bar;
 mod grid;
 mod highlight;

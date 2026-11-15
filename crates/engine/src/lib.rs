@@ -4,12 +4,13 @@
 //! server share one implementation and one set of tests.
 
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
+pub use disk::{DiskChange, FileStamp};
 pub use edit::{Edit, EditError, History, Splice};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
@@ -17,6 +18,7 @@ pub use format::{
 pub use xml_atlas_xml as xml;
 
 pub mod command;
+pub mod disk;
 pub mod edit;
 pub mod find;
 pub mod format;
@@ -36,6 +38,8 @@ pub struct Document {
     pub history: History,
     /// Counts changes to the source, so views can tell that what they computed is stale.
     revision: u64,
+    /// The file as it was when last read or written; `None` when there was none (OPEN-14).
+    disk: Option<FileStamp>,
 }
 
 /// How long each stage of opening took.
@@ -56,11 +60,16 @@ impl Document {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
         let t = Instant::now();
-        let src = std::fs::read(path)?;
+        // The stamp is taken before reading, so a write during the read shows as a change.
+        let mut file = File::open(path)?;
+        let meta = file.metadata()?;
+        let mut src = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+        file.read_to_end(&mut src)?;
         let read = t.elapsed();
         let mut doc = Self::from_bytes(src);
         doc.timings.read = read;
         doc.path = Some(path.to_path_buf());
+        doc.disk = Some(FileStamp::from_metadata(&meta));
         log::info!("opened {} in {:?}", path.display(), doc.timings.total());
         Ok(doc)
     }
@@ -84,6 +93,7 @@ impl Document {
             },
             history: History::new(),
             revision: 0,
+            disk: None,
         }
     }
 
@@ -162,7 +172,37 @@ impl Document {
         save_atomic(path, &self.src)?;
         self.path = Some(path.to_path_buf());
         self.history.mark_saved();
+        self.disk = FileStamp::of(path).unwrap_or(None);
         Ok(())
+    }
+
+    /// Whether the file was changed or removed on disk since the document last read or wrote
+    /// it (OPEN-14). `None` also when there is no file to compare with, or it cannot be
+    /// looked at.
+    pub fn disk_change(&self) -> Option<DiskChange> {
+        let path = self.path.as_deref()?;
+        let now = FileStamp::of(path).ok()?;
+        disk::compare(self.disk, now)
+    }
+
+    /// Keeps the document as it is although its file changed on disk: the change is not
+    /// reported again, and the document counts as modified, so that Save writes it and
+    /// closing asks first.
+    pub fn keep_over_disk(&mut self) {
+        if let Some(path) = self.path.as_deref()
+            && let Ok(now) = FileStamp::of(path)
+        {
+            self.disk = now;
+        }
+        self.history.mark_unsaved();
+    }
+
+    /// Takes the contents of `fresh`, the same file read again: the edits and their undo
+    /// history are gone. Views see a new [`revision`](Self::revision).
+    pub fn reload_from(&mut self, fresh: Document) {
+        let revision = self.revision + 1;
+        *self = fresh;
+        self.revision = revision;
     }
 
     pub fn line_count(&self) -> usize {
@@ -416,5 +456,68 @@ mod tests {
         names.sort();
         assert_eq!(names, ["doc.xml", "fresh.xml"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A changed or removed file is reported until the document reloads, saves or keeps its
+    /// own version (OPEN-14).
+    #[test]
+    fn disk_changes_are_seen() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-disk-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bestellungen-ä.xml");
+        fs::write(&path, "\u{feff}<a>\r\n  <b>Grüße</b>\r\n</a>").unwrap();
+        let mut doc = Document::open(&path).unwrap();
+        assert_eq!(doc.disk_change(), None);
+
+        // The same length and only a later time is a change too.
+        let len = fs::metadata(&path).unwrap().len() as usize;
+        let later = fs::metadata(&path).unwrap().modified().unwrap() + Duration::from_secs(2);
+        fs::write(&path, "\u{feff}<a>\r\n  <b>Grüßa</b>\r\n</a>").unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len() as usize, len);
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert_eq!(doc.disk_change(), Some(DiskChange::Changed));
+
+        // Reloading takes the new contents and forgets the old.
+        doc.apply(Edit::new("Edit").replace(3..3, "\n")).unwrap();
+        assert!(doc.is_modified());
+        let revision = doc.revision();
+        doc.reload_from(Document::open(&path).unwrap());
+        assert!(doc.revision() > revision);
+        assert!(!doc.is_modified());
+        assert!(doc.history.undo_label().is_none());
+        assert!(String::from_utf8_lossy(&doc.src).contains("Grüßa"));
+        assert_eq!(doc.disk_change(), None);
+
+        // Keeping the open version: not reported again, and Save is offered.
+        fs::write(&path, "<a/>").unwrap();
+        assert_eq!(doc.disk_change(), Some(DiskChange::Changed));
+        doc.keep_over_disk();
+        assert_eq!(doc.disk_change(), None);
+        assert!(doc.is_modified());
+        doc.save(&path).unwrap();
+        assert_eq!(doc.disk_change(), None, "our own save is no change");
+        assert!(!doc.is_modified());
+
+        fs::remove_file(&path).unwrap();
+        assert_eq!(doc.disk_change(), Some(DiskChange::Removed));
+        doc.keep_over_disk();
+        assert_eq!(doc.disk_change(), None);
+        assert!(doc.is_modified());
+        // A file that appears again where it was is a change.
+        fs::write(&path, "<a/>").unwrap();
+        assert_eq!(doc.disk_change(), Some(DiskChange::Changed));
+
+        // Saving under another name compares with that file from then on.
+        let other = dir.join("kopie.xml");
+        doc.save(&other).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert_eq!(doc.disk_change(), None);
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(Document::from_bytes(b"<a/>".to_vec()).disk_change(), None);
     }
 }

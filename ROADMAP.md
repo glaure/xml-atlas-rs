@@ -49,7 +49,7 @@ The order follows `docs/decisions.md`, D15.
 - [x] Remember settings between sessions: layout, attribute rows, Format options, Find options
       (WIN-3)
 - [x] Several documents at once, as tabs (OPEN-5)
-- [ ] Notice when the file changes on disk (OPEN-14)
+- [x] Notice when the file changes on disk (OPEN-14)
 - [x] Format settings: indent size, tabs or spaces, attributes per tag line (FMT-10, FMT-11);
       settings read from the document's own settings comment (FMT-15)
 - [x] Format: remove comments, trim text (FMT-12, FMT-13); compact (FMT-14)

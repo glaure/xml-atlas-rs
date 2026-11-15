@@ -24,6 +24,10 @@ impl<T> Tabs<T> {
         self.items.get(i)
     }
 
+    pub fn get_mut(&mut self, i: usize) -> Option<&mut T> {
+        self.items.get_mut(i)
+    }
+
     /// Index of the tab shown; meaningless when there are none.
     pub fn active_index(&self) -> usize {
         self.active
