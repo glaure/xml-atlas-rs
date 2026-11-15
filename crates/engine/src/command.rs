@@ -10,7 +10,6 @@ use std::ops::Range;
 
 use xml_atlas_xml::{Folded, NodeId, NodeKind, ROOT};
 
-use crate::format::newline_style;
 use crate::grid::CellTarget;
 use crate::{Document, Edit};
 
@@ -65,14 +64,14 @@ pub fn set_text(doc: &Document, id: NodeId, text: &str) -> Result<Edit, CommandE
         }
         let name = idx.name(&doc.src, id);
         let mut bytes = b">".to_vec();
-        bytes.extend_from_slice(escape_text(text, newline_style(&doc.src)).as_bytes());
+        bytes.extend_from_slice(escape_text(text, doc.newline()).as_bytes());
         bytes.extend_from_slice(b"</");
         bytes.extend_from_slice(name);
         bytes.push(b'>');
         return Ok(Edit::new(label).replace(n.end as usize - 2..n.end as usize, bytes));
     }
     let content = head_end..end_tag_start(doc, id);
-    let newline = newline_style(&doc.src);
+    let newline = doc.newline();
     let new = if n.folded == Folded::CData && !text.contains("]]>") && !text.contains('\r') {
         let text = text.replace('\n', std::str::from_utf8(newline).expect("ASCII"));
         format!("<![CDATA[{text}]]>")
@@ -203,7 +202,7 @@ pub fn duplicate(doc: &Document, id: NodeId) -> Result<Edit, CommandError> {
         }
         Some(l) => {
             // The last line of the file, with no line ending after it.
-            let mut copy = newline_style(src).to_vec();
+            let mut copy = doc.newline().to_vec();
             copy.extend_from_slice(&src[l.lines.start..n.end as usize]);
             Edit::new(label).replace(n.end as usize..n.end as usize, copy)
         }

@@ -113,6 +113,8 @@ pub struct Open {
     pub text_goal: Option<usize>,
     /// Scroll the cursor into view on the next frame.
     pub text_reveal: bool,
+    /// Give the text view the keyboard on the next frame: an Edit menu command acts there.
+    pub text_focus: bool,
     /// Lines the text view showed last frame.
     pub text_rows: std::ops::Range<usize>,
 }
@@ -390,6 +392,7 @@ impl App {
             text_sel: None,
             text_goal: None,
             text_reveal: false,
+            text_focus: false,
             text_rows: 0..0,
         };
         open.problems = open.doc.problems();
@@ -1040,6 +1043,8 @@ impl App {
                     self.redo();
                 }
                 ui.separator();
+                self.clipboard_menu(ui);
+                ui.separator();
                 if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Find…    Ctrl+F"))
                     .clicked()
@@ -1114,6 +1119,51 @@ impl App {
                 );
             });
         });
+    }
+
+    /// Edit > Cut, Copy, Paste and Select All (TEXT-17, TEXT-18). They act in the text view:
+    /// it gets the keyboard back, and egui hands it the same events the keys make, on the
+    /// next frame.
+    fn clipboard_menu(&mut self, ui: &mut Ui) {
+        let sel = self.docs.active().and_then(|o| o.text_sel);
+        let selected = sel.is_some_and(|s| !s.is_empty());
+        let open = !self.docs.is_empty();
+        let items = [
+            (
+                "Cut    Ctrl+X",
+                selected,
+                Some(egui::ViewportCommand::RequestCut),
+            ),
+            (
+                "Copy    Ctrl+C",
+                selected,
+                Some(egui::ViewportCommand::RequestCopy),
+            ),
+            (
+                "Paste    Ctrl+V",
+                open,
+                Some(egui::ViewportCommand::RequestPaste),
+            ),
+            ("Select All    Ctrl+A", open, None),
+        ];
+        for (label, enabled, command) in items {
+            if !ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                continue;
+            }
+            ui.close();
+            let Some(open) = self.docs.active_mut() else {
+                return;
+            };
+            open.text_focus = true;
+            match command {
+                Some(command) => ui.ctx().send_viewport_cmd(command),
+                None => {
+                    open.text_sel = Some(xml_atlas_engine::text::select_all(&open.doc));
+                    open.text_goal = None;
+                    open.doc.history.seal();
+                }
+            }
+        }
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {

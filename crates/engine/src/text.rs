@@ -9,7 +9,7 @@
 use std::ops::Range;
 
 use crate::edit::Typing;
-use crate::format::{FormatOptions, newline_style};
+use crate::format::FormatOptions;
 use crate::{Document, Edit};
 
 /// A tab is shown as this many columns (TEXT-4).
@@ -272,20 +272,52 @@ pub fn decode(bytes: &[u8]) -> String {
     out
 }
 
-/// The selected text, for the clipboard (TEXT-18), with the file's line endings.
+/// Select All (TEXT-17): the whole text, after the byte order mark.
+pub fn select_all(doc: &Document) -> Selection {
+    Selection {
+        anchor: text_start(&doc.src),
+        head: doc.src.len(),
+    }
+}
+
+/// The selected text, for Copy (TEXT-18), with the file's line endings. A byte that is not
+/// valid UTF-8 becomes `\u{FFFD}`, as the view shows it: the clipboard holds UTF-8 only.
 pub fn selected_text(doc: &Document, sel: Selection) -> String {
     decode(&doc.src[sel.range()])
 }
 
-/// Typing or pasting `text` (TEXT-17, TEXT-18): it replaces the selection, each line break
-/// written as the file's line ending. `None` when nothing would change.
+/// Typing `text` (TEXT-17): it replaces the selection, each line break written as the file's
+/// line ending. Joins the undo step of the typing before it (TEXT-20). `None` when nothing
+/// would change.
 pub fn insert(doc: &Document, sel: Selection, text: &str) -> Option<TextEdit> {
-    let newline = std::str::from_utf8(newline_style(&doc.src)).expect("ASCII");
-    let text = text
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .replace('\n', newline);
-    replace(doc, sel, text.into_bytes(), Typing::Insert)
+    replace(
+        doc,
+        sel,
+        line_endings(doc, text),
+        "Typing",
+        Some(Typing::Insert),
+    )
+}
+
+/// Paste (TEXT-18): as typing, but one undo step of its own.
+pub fn paste(doc: &Document, sel: Selection, text: &str) -> Option<TextEdit> {
+    replace(doc, sel, line_endings(doc, text), "Paste", None)
+}
+
+/// Cut (TEXT-18): the selected text for the clipboard, as [`selected_text`], and the edit
+/// that removes it, one undo step of its own. `None` when nothing is selected.
+pub fn cut(doc: &Document, sel: Selection) -> Option<(String, TextEdit)> {
+    if sel.is_empty() {
+        return None;
+    }
+    let range = sel.range();
+    let at = range.start;
+    let edit = Edit::new("Cut").replace(range, Vec::new());
+    let change = TextEdit {
+        edit,
+        selection: Selection::cursor(at),
+    };
+    Some((selected_text(doc, sel), change))
 }
 
 /// Enter (TEXT-17): the file's line ending, then the indentation of the line it was pressed
@@ -297,9 +329,9 @@ pub fn newline(doc: &Document, sel: Selection) -> Option<TextEdit> {
         .iter()
         .take_while(|b| matches!(b, b' ' | b'\t'))
         .count();
-    let mut bytes = newline_style(&doc.src).to_vec();
+    let mut bytes = doc.newline().to_vec();
     bytes.extend_from_slice(&doc.src[start..start + indent]);
-    replace(doc, sel, bytes, Typing::Insert)
+    replace(doc, sel, bytes, "Typing", Some(Typing::Insert))
 }
 
 /// Tab (TEXT-17): one indent as the Format options give it, a tab or spaces.
@@ -309,7 +341,7 @@ pub fn tab(doc: &Document, sel: Selection, options: &FormatOptions) -> Option<Te
     } else {
         vec![b' '; options.indent_size.max(1)]
     };
-    replace(doc, sel, bytes, Typing::Insert)
+    replace(doc, sel, bytes, "Typing", Some(Typing::Insert))
 }
 
 /// Backspace (TEXT-17): the selection, or the character before the cursor; with `word`
@@ -346,14 +378,33 @@ pub fn delete(doc: &Document, sel: Selection, word: bool) -> Option<TextEdit> {
     remove(range)
 }
 
-/// Replaces the selection with `bytes`; the cursor goes after them.
-fn replace(doc: &Document, sel: Selection, bytes: Vec<u8>, kind: Typing) -> Option<TextEdit> {
+/// `text` with each line break, LF, CRLF or CR, written as the file's line ending.
+fn line_endings(doc: &Document, text: &str) -> Vec<u8> {
+    let newline = std::str::from_utf8(doc.newline()).expect("ASCII");
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\n', newline)
+        .into_bytes()
+}
+
+/// Replaces the selection with `bytes`; the cursor goes after them. With `typing` the edit
+/// may join the undo step before it.
+fn replace(
+    doc: &Document,
+    sel: Selection,
+    bytes: Vec<u8>,
+    label: &str,
+    typing: Option<Typing>,
+) -> Option<TextEdit> {
     let range = sel.range();
     if doc.src[range.clone()] == bytes[..] {
         return None;
     }
     let after = range.start + bytes.len();
-    let edit = Edit::new("Typing").replace(range, bytes).typing(kind);
+    let mut edit = Edit::new(label).replace(range, bytes);
+    if let Some(kind) = typing {
+        edit = edit.typing(kind);
+    }
     Some(TextEdit {
         edit,
         selection: Selection::cursor(after),
@@ -726,6 +777,83 @@ mod tests {
         let line1 = find(&d, "\t<a");
         assert_eq!(line_at(&d, gr), line1..find(&d, "</r>"));
         assert_eq!(line_at(&d, 4), 3..line1);
+    }
+
+    /// Cut, Copy, Paste and Select All (TEXT-17, TEXT-18).
+    #[test]
+    fn clipboard() {
+        let mut d = doc();
+        // Select All leaves the byte order mark out.
+        let all = select_all(&d);
+        assert_eq!(all.range(), 3..SRC.len());
+        let copied = selected_text(&d, all);
+        assert!(copied.starts_with("<r>\r\n"), "the file's line endings");
+        assert!(
+            copied.contains("x=\"\u{FFFD}\""),
+            "a stray byte as the view shows it"
+        );
+
+        // Typing, then a paste, then typing again: three undo steps, the paste one of them
+        // although it comes right after a typed letter.
+        let gr = find(&d, "Gr");
+        let mut sel = apply(&mut d, |d| insert(d, Selection::cursor(gr), "a"));
+        sel = apply(&mut d, |d| paste(d, sel, "Hallo\nWelt"));
+        assert_eq!(
+            &d.src[gr + 1..sel.head],
+            b"Hallo\r\nWelt",
+            "pasted with CRLF"
+        );
+        apply(&mut d, |d| insert(d, sel, "b"));
+        assert_eq!(d.history.undo_label(), Some("Typing"));
+        d.undo();
+        assert_eq!(d.history.undo_label(), Some("Paste"));
+        d.undo();
+        assert_eq!(&d.src[gr..gr + 3], b"aGr");
+        d.undo();
+        assert_eq!(d.src, SRC);
+
+        // Cut takes `Grüße` to the clipboard and out of the text in one step; Paste puts it
+        // back byte for byte.
+        let word = word_at(&d.src, gr);
+        let sel = Selection {
+            anchor: word.end,
+            head: word.start,
+        };
+        let (text, change) = cut(&d, sel).unwrap();
+        assert_eq!(text, "Grüße");
+        assert_eq!(change.selection, Selection::cursor(gr));
+        d.apply(change.edit).unwrap();
+        assert_eq!(d.history.undo_label(), Some("Cut"));
+        apply(&mut d, |d| paste(d, Selection::cursor(gr), &text));
+        assert_eq!(d.src, SRC);
+        d.undo();
+        d.undo();
+        assert_eq!(d.src, SRC);
+        assert!(!d.is_modified());
+
+        // Nothing selected: nothing to cut. Pasting what is there already changes nothing.
+        assert_eq!(cut(&d, Selection::cursor(gr)), None);
+        assert_eq!(paste(&d, sel, "Grüße"), None);
+        // Select All, Cut, Paste gives back the file byte for byte, though no line break was
+        // left in between to tell CRLF by; the clipboard comes back with LF, as egui hands it.
+        let (text, change) = cut(&d, select_all(&d)).unwrap();
+        d.apply(change.edit).unwrap();
+        assert_eq!(d.src, b"\xEF\xBB\xBF");
+        let lf_text = text.replace("\r\n", "\n");
+        let all = select_all(&d);
+        let pasted = paste(&d, all, &lf_text).unwrap();
+        d.apply(pasted.edit).unwrap();
+        // Byte for byte, but for the stray byte, which went to the clipboard as `\u{FFFD}`.
+        let expected = [&SRC[..15], "\u{FFFD}".as_bytes(), &SRC[16..]].concat();
+        assert_eq!(SRC[15], 0xE4);
+        assert_eq!(d.src, expected);
+
+        // An LF file gets LF, whatever the clipboard holds.
+        let lf = Document::from_bytes(b"<r>\n</r>".to_vec());
+        let mut lf = lf;
+        let after = apply(&mut lf, |d| paste(d, Selection::cursor(3), "\r\n<a/>\r"));
+        assert_eq!(lf.src, b"<r>\n<a/>\n\n</r>");
+        assert_eq!(after.head, 9);
     }
 
     #[test]

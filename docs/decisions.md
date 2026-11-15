@@ -427,6 +427,11 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      element 31 ms and 317 ms. The text view is one egui widget for the whole area (egui keeps
      the keyboard focus only on an id a widget uses each frame); its lines only paint.
   3. Clipboard and Select All; Replace's *In selection* uses the text selection (TEXT-14).
+     **Built (2026-11-15):** `text::cut`, `text::paste`, `text::select_all`; the view reads
+     egui's `Event::Cut`, `Event::Copy` and `Event::Paste`, and Edit > Cut, Copy and Paste
+     send `ViewportCommand::RequestCut`, `RequestCopy` and `RequestPaste`, so menu and keys
+     take one path. The document keeps its line ending (`Document::newline`) for when no
+     line break is left to tell it by.
   4. Input methods (TEXT-19).
   5. The broken state: stale marks in tree and grid (TEXT-10), and the worker thread.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).

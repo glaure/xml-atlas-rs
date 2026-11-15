@@ -55,6 +55,11 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     // keeps the focus only on an id a widget uses, and surrenders it on a click elsewhere.
     let area_rect = ui.available_rect_before_wrap();
     let resp = ui.interact(area_rect, id, Sense::click_and_drag());
+    if std::mem::take(&mut open.text_focus) {
+        // After `interact`: egui drops the focus there when the frame has a click elsewhere,
+        // such as the one on the Edit menu that asked for it.
+        resp.request_focus();
+    }
     let focused = ui.memory(|m| m.has_focus(id));
     if focused {
         // Tab and the arrow keys stay here instead of moving the focus.
@@ -273,7 +278,7 @@ fn mouse(ui: &Ui, open: &mut Open, resp: &egui::Response, at: usize) {
     resp.request_focus();
 }
 
-/// The keys of TEXT-16 and TEXT-17, while the text view has the keyboard.
+/// The keys of TEXT-16 to TEXT-18, while the text view has the keyboard.
 fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
     let events = ui.input(|i| i.events.clone());
     let page = open.text_rows.len().saturating_sub(1).max(1) as isize;
@@ -286,6 +291,24 @@ fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
         let src = &doc.src;
         match event {
             Event::Text(t) if !t.is_empty() => apply(open, text::insert(doc, sel, &t)),
+            // Ctrl+C, Ctrl+X, Ctrl+V and the Edit menu (TEXT-18).
+            Event::Copy if !sel.is_empty() => ui.ctx().copy_text(text::selected_text(doc, sel)),
+            Event::Cut => {
+                if let Some((copied, change)) = text::cut(doc, sel) {
+                    ui.ctx().copy_text(copied);
+                    apply(open, Some(change));
+                }
+            }
+            Event::Paste(t) => apply(open, text::paste(doc, sel, &t)),
+            Event::Key {
+                key: Key::A,
+                pressed: true,
+                modifiers,
+                ..
+            } if modifiers.command_only() => {
+                open.text_goal = None;
+                move_to(open, text::select_all(doc));
+            }
             Event::Key {
                 key,
                 pressed: true,
