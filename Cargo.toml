@@ -27,7 +27,20 @@ clap = { version = "4.6", features = ["derive"] }
 
 # ui
 egui = "0.37"
-eframe = "0.37"
+# Both renderers: OpenGL (`glow`) by default, as wgpu starts every Vulkan driver it finds and
+# made start-up slow and heavy; wgpu where OpenGL fails (D21, OPEN-21). Otherwise eframe's
+# defaults, without the web-only screen reader.
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "system_fonts",
+    "wayland",
+    "wgpu",
+    "x11",
+] }
 rfd = "0.18"
 
 [workspace.lints.rust]

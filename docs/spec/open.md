@@ -67,8 +67,10 @@
 Measured from starting the program until the file is loaded (`docs/benchmarks.md`).
 
 - **OPEN-20** `[done]` 100 MiB in about 1 s; 300 MiB in about 2 s.
-- **OPEN-21** `[gap]` A small file is on screen no later than XML Marker shows it. Today
-  start-up takes 0.59 s against XML Marker's 0.49 s under wine.
+- **OPEN-21** `[done]` A small file is on screen no later than XML Marker shows it. A tiny file
+  is ready in 0.30 to 0.33 s with 132 MiB, against XML Marker's 0.49 s and 59 MiB under wine
+  (`docs/benchmarks.md`); it took 0.55 to 0.60 s and 195 MiB before the OpenGL renderer
+  (`docs/decisions.md`, D21).
 
 ## Acceptance tests
 

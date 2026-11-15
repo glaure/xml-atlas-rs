@@ -35,6 +35,20 @@ What this does not say:
 - The Qt XML Atlas is not in the table. It has no command-line file argument, so the harness
   cannot drive it.
 
+## Start-up with OpenGL (2026-11-15)
+
+Since D21 the window draws with OpenGL instead of wgpu. Same harness and machine, median of
+two runs, two alternating rounds against the wgpu build:
+
+| File     | XML Atlas, wgpu       | XML Atlas, OpenGL     | XML Marker 1.1 (wine) |
+|----------|-----------------------|-----------------------|-----------------------|
+| tiny     | 0.55-0.60 s, 195 MiB  | 0.31-0.33 s, 132 MiB  | 0.49 s, 59 MiB        |
+| 10 MiB   | 0.59-0.61 s, 216 MiB  | 0.35-0.38 s, 176 MiB  | 1.11 s, 102 MiB       |
+| 100 MiB  | 0.93-0.96 s, 390 MiB  | 0.73 s, 349 MiB       | 10.7 s, 490 MiB       |
+
+XML Atlas now shows a small file sooner than XML Marker; XML Marker still uses less memory
+with small files.
+
 ## Method
 
 `tools/bench_open.py` starts the program with the file as its argument and samples the CPU

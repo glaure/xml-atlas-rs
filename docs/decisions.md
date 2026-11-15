@@ -512,6 +512,32 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   the `.rpm` (PKG-30, PKG-31, PKG-33, PKG-34). The Flatpak stays after them, as PKG-32 says.
   Until there is a macOS package, a release waits only for the Windows signing (PKG-14).
 
+## D21: Draw with OpenGL, fall back to wgpu
+
+- **What:** eframe draws with OpenGL (`glow`) instead of its default wgpu. Both are compiled
+  in. If OpenGL fails before the window is up, the app starts itself again with wgpu (a second
+  event loop is not allowed in one process). `XML_ATLAS_RENDERER=wgpu` chooses wgpu by hand,
+  for a driver that crashes instead of reporting an error.
+- **Why (measured 2026-11-15, Ubuntu, GNOME on Wayland):** wgpu loads every Vulkan driver
+  installed, here NVIDIA's and Mesa's, before the first frame (`strace`).
+  `tools/bench_open.py`, two alternating rounds against `main`:
+
+  | File | wgpu | OpenGL |
+  |---|---|---|
+  | tiny | 0.55-0.60 s, 195 MiB | 0.31-0.33 s, 132 MiB |
+  | 10 MiB | 0.59-0.61 s, 216 MiB | 0.35-0.38 s, 176 MiB |
+  | 100 MiB | 0.93-0.96 s, 390 MiB | 0.73 s, 349 MiB |
+
+  The binary grows by 0.15 MB (26.60 to 26.75 MB) with OpenGL added to wgpu.
+- **Checked:** drawing looks the same under X11 with Mesa's software OpenGL (Xephyr); a clean
+  OpenGL failure (an impossible pixel format, forced for the test) logs the error and comes
+  up with wgpu. A driver made to load nothing crashed inside Mesa instead; that is what the
+  variable is for.
+- **Not checked:** Windows and macOS, where OpenGL is older or missing (Remote Desktop,
+  some virtual machines); the fallback is meant for them, CI only compiles there.
+- **Not chosen:** wgpu with only one backend or adapter (start-up still pays for loading
+  Vulkan); keeping wgpu and hiding the window until ready (the time stays).
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
