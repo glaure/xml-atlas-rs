@@ -34,7 +34,7 @@ The order follows `docs/decisions.md`, D15.
 ## 0.2: Structured editing
 
 - [x] Smaller index: 32-byte nodes (D11)
-- [ ] Smaller index: fold single text children (D11)
+- [x] Smaller index: fold single text children (D11)
 - [ ] Edits on the one buffer, with undo and redo (D10)
 - [ ] Index update on a worker thread, with ids remapped for selection and expansion (D9)
 - [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree

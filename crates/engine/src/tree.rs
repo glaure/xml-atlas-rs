@@ -5,7 +5,7 @@
 //! nodes in the index, so a row is either a node or "attribute `index` of `element`"; nothing
 //! is stored for an attribute until its element is expanded.
 
-use xml_atlas_xml::{NodeId, NodeKind, ROOT};
+use xml_atlas_xml::{Folded, NodeId, NodeKind, ROOT};
 
 use crate::{Document, truncate};
 
@@ -33,6 +33,8 @@ impl Default for TreeOptions {
 pub enum Row {
     /// An element, or a text or CDATA node.
     Node(NodeId),
+    /// The text or CDATA that the index keeps inside `element` (D11). Shown like a text node.
+    FoldedText(NodeId),
     /// The `index`th attribute of `element`, counted from zero.
     Attribute { element: NodeId, index: u32 },
 }
@@ -66,7 +68,7 @@ impl Row {
     /// The element a row belongs to: itself, the attribute's element, or the text's parent.
     pub fn element(self, doc: &Document) -> NodeId {
         match self {
-            Row::Attribute { element, .. } => element,
+            Row::Attribute { element, .. } | Row::FoldedText(element) => element,
             Row::Node(id) if doc.index.node(id).kind == NodeKind::Element => id,
             Row::Node(id) => doc.index.node(id).parent,
         }
@@ -76,7 +78,7 @@ impl Row {
     pub fn depth(self, doc: &Document) -> u16 {
         match self {
             Row::Node(id) => doc.index.depth(id).saturating_sub(1),
-            Row::Attribute { element, .. } => doc.index.depth(element),
+            Row::Attribute { element, .. } | Row::FoldedText(element) => doc.index.depth(element),
         }
     }
 }
@@ -88,6 +90,9 @@ pub fn children(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
     if options.attributes && id != ROOT {
         let count = idx.attributes(&doc.src, id).len() as u32;
         rows.extend((0..count).map(|index| Row::Attribute { element: id, index }));
+    }
+    if id != ROOT && idx.node(id).folded != Folded::No {
+        rows.push(Row::FoldedText(id));
     }
     rows.extend(
         idx.children(id)
@@ -104,7 +109,8 @@ pub fn has_children(doc: &Document, row: Row, options: TreeOptions) -> bool {
     if idx.node(id).kind != NodeKind::Element {
         return false;
     }
-    idx.children(id).any(|c| is_row(doc, c, id))
+    idx.node(id).folded != Folded::No
+        || idx.children(id).any(|c| is_row(doc, c, id))
         || (options.attributes && !idx.attributes(&doc.src, id).is_empty())
 }
 
@@ -129,22 +135,22 @@ pub fn visible_rows(doc: &Document, expanded: &[bool], options: TreeOptions, out
 
 /// The kind of `row`.
 pub fn kind(doc: &Document, row: Row) -> RowKind {
-    let Row::Node(id) = row else {
-        return RowKind::Attribute;
+    let id = match row {
+        Row::Attribute { .. } => return RowKind::Attribute,
+        Row::FoldedText(_) => return RowKind::Text,
+        Row::Node(id) => id,
     };
     let idx = &doc.index;
     if idx.node(id).kind != NodeKind::Element {
         return RowKind::Text;
     }
-    let mut text = false;
-    for c in idx.children(id) {
-        match idx.node(c).kind {
-            NodeKind::Element => return RowKind::Parent,
-            NodeKind::Text | NodeKind::CData => text = true,
-            _ => {}
-        }
+    if idx
+        .children(id)
+        .any(|c| idx.node(c).kind == NodeKind::Element)
+    {
+        return RowKind::Parent;
     }
-    if text {
+    if idx.has_text(id) {
         RowKind::TextElement
     } else {
         RowKind::Empty
@@ -171,7 +177,9 @@ pub fn label(doc: &Document, row: Row) -> Label {
             name: String::from_utf8_lossy(idx.name(src, id)).into_owned(),
             hint: hint(doc, id),
         },
-        Row::Node(id) => Label::Text(truncate(&idx.text(src, id), VALUE_CHARS)),
+        Row::Node(id) | Row::FoldedText(id) => {
+            Label::Text(truncate(&idx.text(src, id), VALUE_CHARS))
+        }
     }
 }
 
@@ -189,11 +197,8 @@ fn is_row(doc: &Document, id: NodeId, parent: NodeId) -> bool {
 /// its first attribute (TREE-2).
 fn hint(doc: &Document, id: NodeId) -> Option<String> {
     let idx = &doc.index;
-    let mut kids = idx.children(id);
-    if let (Some(only), None) = (kids.next(), kids.next())
-        && matches!(idx.node(only).kind, NodeKind::Text | NodeKind::CData)
-    {
-        return Some(truncate(&idx.text(&doc.src, only), VALUE_CHARS));
+    if idx.is_text_only(id) {
+        return Some(truncate(&idx.element_text(&doc.src, id), VALUE_CHARS));
     }
     idx.attributes(&doc.src, id)
         .into_iter()
@@ -378,5 +383,15 @@ mod tests {
         let rows = children(&d, owner, TreeOptions::default());
         assert!(rows.iter().all(|r| r.element(&d) == owner));
         assert_eq!(Row::Node(owner).element(&d), owner);
+        // The text of a text-only element is kept in the element (D11); its row says so.
+        assert_eq!(rows[1], Row::FoldedText(owner));
+        let script = element(&d, "script");
+        assert_eq!(
+            children(&d, script, TreeOptions::default()),
+            [Row::FoldedText(script)]
+        );
+        // Mixed content keeps its text nodes.
+        let mixed = children(&d, element(&d, "mixed"), TreeOptions::default());
+        assert!(matches!(mixed[0], Row::Node(_)));
     }
 }
