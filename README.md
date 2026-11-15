@@ -46,6 +46,16 @@ cargo xtask gen-fixture --mib 100          # writes fixtures/orders.xml
 cargo run --release -p xml-atlas-cli -- stats fixtures/orders.xml --repeat 5
 ```
 
+## Linux packages
+
+```sh
+cargo install cargo-zigbuild    # also needs zig, and dpkg-deb
+cargo xtask package             # writes target/dist/*.deb and *.rpm
+```
+
+The executables are built against glibc 2.34, so one package runs on RHEL 9, Ubuntu 22.04,
+Debian 12 and later (`docs/decisions.md`, D22).
+
 ## Layout
 
 | Path                | Purpose                                                        |
@@ -54,8 +64,9 @@ cargo run --release -p xml-atlas-cli -- stats fixtures/orders.xml --repeat 5
 | `crates/engine`     | Document, line index and commands shared by every front end    |
 | `apps/xml-atlas`    | egui desktop app                                               |
 | `apps/xml-atlas-cli`| Command-line front end and benchmark tool                      |
-| `xtask`             | Project tasks (fixtures, packaging later)                      |
+| `xtask`             | Project tasks: fixtures, Linux packages                        |
 | `docs/spec`         | Clean-room behaviour spec                                      |
+| `packaging/linux`   | Desktop entry, icon and metainfo the Linux packages install    |
 
 ## License
 

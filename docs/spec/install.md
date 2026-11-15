@@ -87,21 +87,23 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 ### Linux
 
-- **PKG-30** `[planned]` A `.deb` package for Ubuntu 22.04 and 24.04 LTS and Debian 12 and
+- **PKG-30** `[built]` A `.deb` package for Ubuntu 22.04 and 24.04 LTS and Debian 12 and
   later, installable with `apt install ./xml-atlas_….deb`.
-- **PKG-31** `[planned]` An `.rpm` package for RHEL 9 and its rebuilds (Rocky Linux,
+- **PKG-31** `[built]` An `.rpm` package for RHEL 9 and its rebuilds (Rocky Linux,
   AlmaLinux), and for current Fedora, installable with `dnf install ./xml-atlas-….rpm`.
 - **PKG-32** `[planned]` After the `.deb` and `.rpm`: a Flatpak on Flathub, with the id
   `io.github.glaure.XmlAtlas`, for every other distribution and for users without
   administrator rights. It may read and write the files the user opens through the
   file dialog or the command line, and nothing else.
-- **PKG-33** `[planned]` The `.deb` and `.rpm` install both programs into `/usr/bin`, a
+- **PKG-33** `[built]` The `.deb` and `.rpm` install both programs into `/usr/bin`, a
   desktop entry and icon (so XML Atlas appears in the application menu), and the MIME
   association of PKG-4. They depend only on libraries the distribution provides (the
   graphics, Wayland and X11 libraries the window needs), declared so the package manager
   installs them. One build runs on the oldest supported release of each family. The desktop
   entry and icon use the id `io.github.glaure.XmlAtlas`. There is no AppImage or Snap
-  unless someone asks for one.
+  unless someone asks for one. `cargo xtask package` builds both into `target/dist`, against
+  glibc 2.34 (`docs/decisions.md`, D22); the window sets the same id, so the desktop shows
+  it with the entry's icon. Built and inspected; not yet installed on fresh systems.
 - **PKG-34** `[planned]` The window works under both Wayland and X11, and follows the
   desktop's light or dark setting (WIN-2), in every package.
 

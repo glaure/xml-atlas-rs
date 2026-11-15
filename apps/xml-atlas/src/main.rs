@@ -20,6 +20,10 @@ mod tree;
 /// OpenGL fails, and starts again.
 const RENDERER_VAR: &str = "XML_ATLAS_RENDERER";
 
+/// The application id: the name of the desktop entry and icon the Linux packages install
+/// (PKG-33), so that the desktop shows the window with them.
+const APP_ID: &str = "io.github.glaure.XmlAtlas";
+
 fn main() -> eframe::Result {
     env_logger::init();
     // Each file named opens in its own tab (OPEN-1, OPEN-5).
@@ -31,6 +35,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("XML Atlas")
+            .with_app_id(APP_ID)
             .with_inner_size([1280.0, 820.0])
             .with_drag_and_drop(true),
         // OpenGL starts in about half the time and memory of wgpu (D21).

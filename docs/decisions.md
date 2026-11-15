@@ -546,6 +546,28 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Not chosen:** wgpu with only one backend or adapter (start-up still pays for loading
   Vulkan); keeping wgpu and hiding the window until ready (the time stays).
 
+## D22: Linux packages are built against glibc 2.34
+
+- **What:** `cargo xtask package` builds both programs once with `cargo zigbuild` for
+  `x86_64-unknown-linux-gnu.2.34`, stripped, and packs the same executables into a `.deb`
+  (with `dpkg-deb`) and an `.rpm` (with the `rpm` crate, so no RPM tools are needed). It
+  refuses executables that name a newer glibc than 2.34.
+- **Why:** PKG-33 asks for one build that runs on the oldest supported release of each
+  family. RHEL 9 has glibc 2.34, Ubuntu 22.04 has 2.35; a plain `cargo build` on a current
+  system needs the build machine's glibc (2.43 on Ubuntu 26.04). zig links against any older
+  glibc without a container, so CI and a developer machine build the same way.
+- **Dependencies:** the window links only libc and libm; everything else it loads at run time
+  (EGL and Wayland, or GLX, X11 and xcb, plus xkbcommon and fontconfig), so neither package
+  manager finds them by itself. The packages name them: Debian package names in the `.deb`,
+  library names (`libEGL.so.1()(64bit)`) in the `.rpm`, which RHEL and Fedora share. Found
+  with `strace` under X11 and from the crates' `dlopen` names for Wayland.
+- **Licenses (PKG-2):** the packages carry `THIRD-PARTY-LICENSES.txt`, made from `cargo
+  metadata`: every crate compiled into the two programs, each license text once with the
+  crates that ship it, and the fonts' OFL and Ubuntu Font Licence.
+- **Not chosen:** building inside a Rocky Linux 9 container (needs Docker or Podman, which a
+  developer machine may not allow); `cargo-deb` and `cargo-generate-rpm` (two tools with two
+  configurations for one file list).
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in

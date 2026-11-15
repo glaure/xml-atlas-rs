@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.glaure.XmlAtlas</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>XML Atlas</name>
+  <summary>View and edit large XML files</summary>
+  <description>
+    <p>
+      XML Atlas opens XML files of hundreds of megabytes in well under a second and shows
+      them as a tree, a grid of the selected element's children, and the source text.
+    </p>
+    <p>
+      The text can be edited, and tree and grid follow. Files that are not well-formed still
+      open, with their errors listed. Formatting changes only whitespace, and saving keeps
+      every other byte as it was.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.glaure.XmlAtlas.desktop</launchable>
+  <url type="homepage">https://github.com/glaure/xml-atlas-rs</url>
+  <url type="bugtracker">https://github.com/glaure/xml-atlas-rs/issues</url>
+  <developer id="io.github.glaure">
+    <name>Gunther Laure</name>
+  </developer>
+  <provides>
+    <binary>xml-atlas</binary>
+    <binary>xml-atlas-cli</binary>
+    <mediatype>application/xml</mediatype>
+    <mediatype>text/xml</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-15"/>
+  </releases>
+</component>

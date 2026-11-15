@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=XML Atlas
+GenericName=XML Viewer
+Comment=View and edit large XML files
+Exec=xml-atlas %F
+Icon=io.github.glaure.XmlAtlas
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=application/xml;text/xml;
+Keywords=XML;viewer;editor;tree;grid;
+StartupWMClass=io.github.glaure.XmlAtlas

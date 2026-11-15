@@ -8,6 +8,9 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+# Writes the .rpm in Rust: no rpmbuild needed. gzip keeps it free of C libraries.
+rpm = { version = "0.30.2", default-features = false, features = ["payload", "gzip-compression"] }
+serde_json = "1.0.154"
 
 [lints]
 workspace = true
