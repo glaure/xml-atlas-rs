@@ -125,14 +125,18 @@ pub fn index(src: &[u8]) -> Index {
 
 impl Index {
     /// Updates the index after `removed` bytes at `at` were replaced by `inserted` bytes;
-    /// `src` is the source after the change. Only the smallest element around the change is
-    /// indexed again and spliced in (`docs/decisions.md`, D9), so the cost follows that
-    /// element plus one pass to shift the nodes after it.
+    /// `src` is the source after the change. Only the nodes around the change are indexed
+    /// again and spliced in (`docs/decisions.md`, D9), so the cost follows them plus one pass
+    /// to shift the nodes after them:
+    ///
+    /// - when the change lies between the children of the innermost element around it, only
+    ///   the children it touches (moving, deleting or adding elements under a large parent);
+    /// - otherwise that whole element (its start tag, its text).
     ///
     /// Returns false, with the index unchanged, when that is not possible: the document
     /// already had an error, no element contains the change with a byte to spare on both
-    /// sides, or the element's new bytes are not one well-formed element on their own. The
-    /// caller then indexes the whole document.
+    /// sides, or the new bytes do not parse on their own. The caller then indexes the whole
+    /// document.
     pub fn update(&mut self, src: &[u8], at: usize, removed: usize, inserted: usize) -> bool {
         if self.error.is_some() {
             return false;
@@ -142,17 +146,18 @@ impl Index {
         let Some(e) = self.innermost_around(at, old_end) else {
             return false;
         };
+        if let Some(done) = self.update_children(src, e, at, old_end, delta) {
+            return done;
+        }
         let old = self.nodes[e as usize];
         let Some(new_end) = old.end.checked_add_signed(delta) else {
             return false;
         };
-        let (start, new_end) = (old.start as usize, new_end as usize);
-        let Some(bytes) = src.get(start..new_end) else {
+        let Some(bytes) = src.get(old.start as usize..new_end as usize) else {
             return false;
         };
         let frag = index(bytes);
-        let top = frag.nodes.get(1);
-        let whole = top.is_some_and(|n| {
+        let whole = frag.nodes.get(1).is_some_and(|n| {
             n.kind == NodeKind::Element
                 && n.start == 0
                 && n.end == bytes.len() as u64
@@ -162,44 +167,137 @@ impl Index {
             return false;
         }
         let after = e as usize + 1 + old.descendants as usize;
-        let old_elements = self.nodes[e as usize..after]
+        self.splice_nodes(old.parent, e as usize..after, old.start, &frag, delta);
+        true
+    }
+
+    /// The children of element `e` that the change at `at..old_end` touches, indexed again:
+    /// everything from the end of the last child before the change to the start of the first
+    /// child after it. `None` when this does not apply and the whole element must be read;
+    /// `Some(false)` when the new bytes do not parse.
+    fn update_children(
+        &mut self,
+        src: &[u8],
+        e: NodeId,
+        at: u64,
+        old_end: u64,
+        delta: i64,
+    ) -> Option<bool> {
+        let n = self.nodes[e as usize];
+        let head_end = n.start + n.head_len as u64;
+        if !n.has_children() || at < head_end {
+            return None;
+        }
+        let mut before = None;
+        let mut first_after = None;
+        for c in self.children(e) {
+            let k = self.node(c);
+            if k.end <= at {
+                before = Some(c);
+            } else if k.start >= old_end {
+                first_after = Some(c);
+                break;
+            }
+        }
+        // Every child touched: reading the element is as cheap, and it folds text (D11).
+        if before.is_none() && first_after.is_none() {
+            return None;
+        }
+        // Text next to the change could merge with new text, and a text or CDATA section left
+        // alone would be folded into the element (D11); reading the element decides both.
+        let is_text = |id: Option<NodeId>| {
+            id.is_some_and(|c| matches!(self.node(c).kind, NodeKind::Text | NodeKind::CData))
+        };
+        if is_text(before) || is_text(first_after) {
+            return None;
+        }
+        let end_id = e as usize + 1 + n.descendants as usize;
+        let lo = before.map_or(e as usize + 1, |b| {
+            b as usize + 1 + self.node(b).descendants as usize
+        });
+        let hi = first_after.map_or(end_id, |c| c as usize);
+        let from = before.map_or(head_end, |b| self.node(b).end);
+        // Up to the next child, or to the element's end tag. The end tag is found in the new
+        // source; it must lie wholly after the inserted bytes, or the change touched it.
+        let (to, new_to) = match first_after {
+            Some(c) => {
+                let t = self.node(c).start;
+                (t, t.checked_add_signed(delta)?)
+            }
+            None => {
+                let new_end = n.end.checked_add_signed(delta)?;
+                let span = src.get(n.start as usize..new_end as usize)?;
+                let new_to = n.start + memchr::memrchr(b'<', span)? as u64;
+                if new_to < at + (old_end - at).wrapping_add_signed(delta) {
+                    return None;
+                }
+                (new_to.checked_add_signed(-delta)?, new_to)
+            }
+        };
+        if old_end > to {
+            return None;
+        }
+        let bytes = src.get(from as usize..new_to as usize)?;
+        let frag = index(bytes);
+        if frag.error.is_some() {
+            return Some(false);
+        }
+        self.splice_nodes(e, lo..hi, from, &frag, delta);
+        Some(true)
+    }
+
+    /// Replaces nodes `old` (whole subtrees, children of `parent`) with the nodes of `frag`,
+    /// whose top-level nodes become children of `parent` and whose offsets start at `base`.
+    /// Shifts everything after by `delta` bytes and adjusts `parent` and its ancestors.
+    fn splice_nodes(
+        &mut self,
+        parent: NodeId,
+        old: Range<usize>,
+        base: u64,
+        frag: &Index,
+        delta: i64,
+    ) {
+        let old_elements = self.nodes[old.clone()]
             .iter()
             .filter(|n| n.kind == NodeKind::Element)
             .count() as u32;
         let new_count = frag.nodes.len() - 1;
-        let dn = new_count as i64 - (after - e as usize) as i64;
-        let depth = self.depth(e);
-        // Nodes after the element move by `delta` bytes and `dn` ids; parents before it stay.
-        for n in &mut self.nodes[after..] {
+        let dn = new_count as i64 - old.len() as i64;
+        let depth = if parent == NONE {
+            0
+        } else {
+            self.depth(parent)
+        };
+        // Nodes after move by `delta` bytes and `dn` ids; parents before the splice stay.
+        for n in &mut self.nodes[old.end..] {
             n.start = n.start.wrapping_add_signed(delta);
             n.end = n.end.wrapping_add_signed(delta);
-            if n.parent != NONE && n.parent as usize >= after {
+            if n.parent != NONE && n.parent as usize >= old.end {
                 n.parent = (n.parent as i64 + dn) as NodeId;
             }
         }
         // The ancestors end later or earlier and hold more or fewer nodes.
-        let mut p = old.parent;
+        let mut p = parent;
         while p != NONE {
             let n = &mut self.nodes[p as usize];
             n.end = n.end.wrapping_add_signed(delta);
             n.descendants = (n.descendants as i64 + dn) as u32;
             p = n.parent;
         }
-        let base = old.start;
+        let first = old.start as NodeId;
         let spliced = frag.nodes[1..].iter().map(|n| Node {
             start: n.start + base,
             end: n.end + base,
             parent: if n.parent == ROOT {
-                old.parent
+                parent
             } else {
-                e + n.parent - 1
+                first + n.parent - 1
             },
             ..*n
         });
-        self.nodes.splice(e as usize..after, spliced);
+        self.nodes.splice(old, spliced);
         self.element_count = self.element_count - old_elements + frag.element_count;
-        self.max_depth = self.max_depth.max(depth - 1 + frag.max_depth);
-        true
+        self.max_depth = self.max_depth.max(depth + frag.max_depth);
     }
 
     /// The innermost element whose span contains `at..end` with at least one byte of the
@@ -1142,6 +1240,13 @@ mod tests {
         let mut total = 0;
         for seed in 0..20 {
             accepted += check_updates(DOC.to_vec(), seed, 200);
+            total += 200;
+        }
+        // Many siblings under one parent, some with text or CDATA between them: edits between
+        // children take the shorter path.
+        let siblings = b"<r>\n  <a x=\"1\">t</a>\n  <b/>text<c><![CDATA[d]]></c>\n  <![CDATA[e]]><f/>\n  <!--g-->\n  <h><i/></h>\n</r>\n";
+        for seed in 0..20 {
+            accepted += check_updates(siblings.to_vec(), 100 + seed, 200);
             total += 200;
         }
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/corpus");

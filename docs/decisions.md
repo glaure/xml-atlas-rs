@@ -174,6 +174,14 @@ Still open, found by the same review:
   - Checked: 6,200 random edits on the corpus, of which 1,349 took the fast path, each equal
     to a full index of the new source; random edits, all undone and all redone, each leave
     the node and line index equal to opening the new source.
+- **Children only (2026-11-15):** when the change lies between the children of that element,
+  only the children it touches are indexed again, from the end of the last child before it
+  to the start of the first child after it. Without this, moving, deleting or duplicating a
+  child of the root element read the whole document (move: 380 ms on 100 MiB, now 33 ms).
+  A text or CDATA child next to the change, or a change that touches every child, still
+  reads the whole element, because text may merge or be folded (D11). An edit with a few
+  changes (rename: start and end tag) is spliced in place and reported as the span from the
+  first change to the last, so it updates locally too.
 
 ## D10: One contiguous buffer, edited in place
 

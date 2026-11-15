@@ -16,6 +16,7 @@ pub use format::{
 };
 pub use xml_atlas_xml as xml;
 
+pub mod command;
 pub mod edit;
 pub mod find;
 pub mod format;

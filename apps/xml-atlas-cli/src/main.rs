@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{Direction, FindOptions, Finder};
-use xml_atlas_engine::{Document, FormatOptions, truncate};
+use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -56,6 +57,47 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Set the text of an element that holds only text, e.g. `/orders/order[2]/customer`.
+    SetText {
+        #[command(flatten)]
+        target: Target,
+        text: String,
+    },
+    /// Set an attribute of an element, adding it if it is not there.
+    SetAttribute {
+        #[command(flatten)]
+        target: Target,
+        name: String,
+        value: String,
+    },
+    /// Remove an attribute of an element.
+    RemoveAttribute {
+        #[command(flatten)]
+        target: Target,
+        name: String,
+    },
+    /// Rename an element (start and end tag).
+    Rename {
+        #[command(flatten)]
+        target: Target,
+        name: String,
+    },
+    /// Delete an element, with its lines when it stands on lines of its own.
+    Delete {
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Put a copy of an element right after it.
+    Duplicate {
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Swap an element with the previous or next element among its siblings.
+    Move {
+        #[command(flatten)]
+        target: Target,
+        direction: MoveDirection,
+    },
     /// Find text and print the lines that contain it.
     Find {
         file: PathBuf,
@@ -68,6 +110,24 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+}
+
+/// The element an edit command works on, and where the result goes.
+#[derive(Args)]
+struct Target {
+    file: PathBuf,
+    /// Path of the element, as the GUI shows it: `/root/child[2]/grandchild`. A step without
+    /// `[n]` must match exactly one element.
+    path: String,
+    /// Output file (may be the input file); defaults to stdout.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum MoveDirection {
+    Up,
+    Down,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -121,6 +181,25 @@ fn main() -> anyhow::Result<()> {
             };
             write_output(output, &doc.compact(&options)?)
         }
+        Command::SetText { target, text } => edit(target, |d, id| command::set_text(d, id, &text)),
+        Command::SetAttribute {
+            target,
+            name,
+            value,
+        } => edit(target, |d, id| command::set_attribute(d, id, &name, &value)),
+        Command::RemoveAttribute { target, name } => {
+            edit(target, |d, id| command::remove_attribute(d, id, &name))
+        }
+        Command::Rename { target, name } => edit(target, |d, id| command::rename(d, id, &name)),
+        Command::Delete { target } => edit(target, command::delete),
+        Command::Duplicate { target } => edit(target, command::duplicate),
+        Command::Move { target, direction } => {
+            let direction = match direction {
+                MoveDirection::Up => command::Direction::Up,
+                MoveDirection::Down => command::Direction::Down,
+            };
+            edit(target, |d, id| command::move_element(d, id, direction))
+        }
         Command::Find {
             file,
             query,
@@ -151,9 +230,35 @@ struct ContentArgs {
 }
 
 /// Writes `bytes` to `output`, or to stdout.
+/// Opens the target's file, runs one edit command on the element at its path and writes the
+/// result. The same commands as the GUI's (EDIT-5 to EDIT-10).
+fn edit(
+    target: Target,
+    command: impl FnOnce(&Document, xml_atlas_engine::xml::NodeId) -> Result<Edit, CommandError>,
+) -> anyhow::Result<()> {
+    let file = &target.file;
+    let mut doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    if let Some(e) = &doc.index.error {
+        anyhow::bail!("{} is not well-formed: {e}", file.display());
+    }
+    let id = command::resolve(&doc, &target.path)?;
+    let edit = command(&doc, id)?;
+    let label = edit.label().to_string();
+    match doc.apply(edit) {
+        Ok(()) => eprintln!("{label}"),
+        Err(xml_atlas_engine::EditError::Empty) => eprintln!("{label}: nothing to change"),
+        Err(e) => return Err(e.into()),
+    }
+    if let Some(e) = &doc.index.error {
+        anyhow::bail!("the edit would leave the document not well-formed: {e}");
+    }
+    write_output(target.output, &doc.src)
+}
+
 fn write_output(output: Option<PathBuf>, bytes: &[u8]) -> anyhow::Result<()> {
     match output {
-        Some(path) => std::fs::write(&path, bytes)?,
+        Some(path) => xml_atlas_engine::save_atomic(&path, bytes)
+            .with_context(|| format!("writing {}", path.display()))?,
         None => std::io::Write::write_all(&mut std::io::stdout().lock(), bytes)?,
     }
     Ok(())

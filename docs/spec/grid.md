@@ -23,7 +23,8 @@ this file needs the most observation.
   children. Double-clicking a cell that stands for a child element selects that child.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows.
-- **GRID-10** `[planned]` Editing a cell changes the attribute or text in the document.
+- **GRID-10** `[planned]` Editing a cell changes the attribute or text in the document
+  (EDIT-5, EDIT-6; built in the engine and CLI).
 - **GRID-11** `[done]` Above the child table, a table of the selected element's own
   attributes: name and value (XM-30). It folds away, and scrolls beyond six attributes.
 - **GRID-12** `[done]` A child element that has attributes or children of its own gets a

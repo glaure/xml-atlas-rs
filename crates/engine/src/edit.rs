@@ -7,6 +7,10 @@
 
 use std::ops::Range;
 
+/// Up to this many changes in one step are spliced in place, last first; more are written
+/// into a new buffer in one pass (D10).
+const SPLICES: usize = 16;
+
 /// Undo history kept at most, in bytes of text the steps would put back. The newest step is
 /// kept even when it alone is larger.
 pub const HISTORY_BYTES: usize = 512 << 20;
@@ -33,8 +37,9 @@ pub enum EditError {
     Empty,
 }
 
-/// Where a step with one change landed: `removed` bytes at `at` became `inserted` bytes. Lets
-/// the index update only around the change (D9).
+/// Where a step landed: `removed` bytes at `at` became `inserted` bytes. For a step with
+/// several changes it is the span from the first to the last. Lets the index update only
+/// around the change (D9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Splice {
     pub at: usize,
@@ -119,8 +124,7 @@ impl History {
         }
     }
 
-    /// Applies `edit` to `src` and records how to undo it. Returns where the change landed
-    /// when the edit made exactly one.
+    /// Applies `edit` to `src` and records how to undo it. Returns where it landed.
     pub fn apply(&mut self, src: &mut Vec<u8>, edit: Edit) -> Result<Option<Splice>, EditError> {
         let Edit { label, mut changes } = edit;
         changes.sort_by_key(|(r, _)| (r.start, r.end));
@@ -154,8 +158,8 @@ impl History {
         Ok(splice)
     }
 
-    /// Undoes the last edit. Returns its label and, for a step with one change, where it
-    /// landed; `None` when there is nothing to undo.
+    /// Undoes the last edit. Returns its label and where the change landed; `None` when there
+    /// is nothing to undo.
     pub fn undo(&mut self, src: &mut Vec<u8>) -> Option<(String, Option<Splice>)> {
         let step = self.undo.pop()?;
         let label = step.label.clone();
@@ -216,16 +220,18 @@ impl History {
 }
 
 impl Step {
-    /// For the step that reverses a one-change step: where that change landed.
+    /// For the step that reverses a step: where that step landed, from its first change to
+    /// its last.
     fn splice(&self) -> Option<Splice> {
-        match &self.changes[..] {
-            [c] => Some(Splice {
-                at: c.at,
-                removed: c.inserted.len(),
-                inserted: c.len,
-            }),
-            _ => None,
-        }
+        let (first, last) = (self.changes.first()?, self.changes.last()?);
+        let inserted = last.at + last.len - first.at;
+        let new: usize = self.changes.iter().map(|c| c.len).sum();
+        let old: usize = self.changes.iter().map(|c| c.inserted.len()).sum();
+        Some(Splice {
+            at: first.at,
+            removed: inserted - new + old,
+            inserted,
+        })
     }
 
     fn bytes(&self) -> usize {
@@ -269,6 +275,34 @@ fn replace(src: &mut Vec<u8>, changes: Vec<(Range<usize>, Vec<u8>)>, label: Stri
                 len,
                 inserted: old,
             });
+        }
+        n if n <= SPLICES => {
+            // A few places: splice each, the last first so earlier offsets stay valid. In the
+            // new source a change starts later by what the changes before it added.
+            let mut shift = 0i64;
+            let ats: Vec<usize> = changes
+                .iter()
+                .map(|(r, b)| {
+                    let at = r.start.wrapping_add_signed(shift as isize);
+                    shift += b.len() as i64 - r.len() as i64;
+                    at
+                })
+                .collect();
+            let mut olds = Vec::with_capacity(n);
+            for (range, bytes) in changes.iter().rev() {
+                olds.push(
+                    src.splice(range.clone(), bytes.iter().copied())
+                        .collect::<Vec<u8>>(),
+                );
+            }
+            olds.reverse();
+            for ((at, (_, bytes)), old) in ats.into_iter().zip(&changes).zip(olds) {
+                reverse.push(Change {
+                    at,
+                    len: bytes.len(),
+                    inserted: old,
+                });
+            }
         }
         _ => {
             // Many places: build the new source in one pass instead of moving the tail once per
@@ -353,6 +387,62 @@ mod tests {
         assert_eq!(src, SRC);
         h.redo(&mut src);
         assert_eq!(src, expected);
+    }
+
+    /// A few changes are spliced in place, many are written in one pass; both give the same
+    /// bytes as building the result by hand, undo exactly, and report the span from the
+    /// first change to the last.
+    #[test]
+    fn few_and_many_changes_agree() {
+        let base: Vec<u8> = (0..400u32).map(|i| b'a' + (i % 26) as u8).collect();
+        for count in [2usize, 5, SPLICES, SPLICES + 1, 40] {
+            // Every ninth byte range, replaced by a string of varying length.
+            let ranges: Vec<(Range<usize>, Vec<u8>)> = (0..count)
+                .map(|i| {
+                    let start = 3 + i * 9;
+                    (start..start + i % 4, vec![b'Z'; (i * 7) % 5])
+                })
+                .collect();
+            let mut expected = Vec::new();
+            let mut prev = 0;
+            for (r, b) in &ranges {
+                expected.extend_from_slice(&base[prev..r.start]);
+                expected.extend_from_slice(b);
+                prev = r.end;
+            }
+            expected.extend_from_slice(&base[prev..]);
+
+            let mut src = base.clone();
+            let mut h = History::new();
+            let mut edit = Edit::new("many");
+            for (r, b) in ranges.iter().rev() {
+                edit = edit.replace(r.clone(), b.clone());
+            }
+            let splice = h.apply(&mut src, edit).unwrap().unwrap();
+            assert_eq!(src, expected, "{count} changes");
+            let first = ranges
+                .iter()
+                .find(|(r, b)| base[r.clone()] != b[..])
+                .unwrap();
+            let last = ranges
+                .iter()
+                .rev()
+                .find(|(r, b)| base[r.clone()] != b[..])
+                .unwrap();
+            assert_eq!(splice.at, first.0.start, "{count}");
+            assert_eq!(splice.removed, last.0.end - first.0.start, "{count}");
+            assert_eq!(base.len() - splice.removed + splice.inserted, src.len());
+            assert_eq!(src[..splice.at], base[..splice.at]);
+            assert_eq!(
+                src[splice.at + splice.inserted..],
+                base[splice.at + splice.removed..]
+            );
+            let (_, back) = h.undo(&mut src).unwrap();
+            assert_eq!(src, base, "{count} undone");
+            assert_eq!(back.unwrap().inserted, splice.removed);
+            h.redo(&mut src);
+            assert_eq!(src, expected, "{count} redone");
+        }
     }
 
     #[test]

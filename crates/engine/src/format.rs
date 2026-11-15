@@ -406,7 +406,7 @@ fn end_tag(element: &[u8]) -> &[u8] {
 }
 
 /// The line ending of the first line; LF if the source has a single line.
-fn newline_style(src: &[u8]) -> &'static [u8] {
+pub(crate) fn newline_style(src: &[u8]) -> &'static [u8] {
     match memchr::memchr(b'\n', src) {
         Some(i) if i > 0 && src[i - 1] == b'\r' => b"\r\n",
         _ => b"\n",
