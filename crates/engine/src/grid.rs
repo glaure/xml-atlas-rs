@@ -1,19 +1,31 @@
 //! The grid: the child elements of one element as table rows (`docs/spec/grid.md`).
 //!
-//! [`Grid::build`] finds the rows and the columns once, when the selection changes. Cells are
-//! decoded on demand by [`Grid::cell`], so a view pays only for the rows it shows. Sorting
+//! [`Grid::build`] finds the rows and the columns once, when the selection changes; a view
+//! uses [`Grid::start`] and [`Grid::scan`] to find the columns of a long list over several
+//! frames instead (GRID-3). Cells are decoded on demand by [`Grid::cell`], so a view pays only
+//! for the rows it shows. Sorting
 //! (GRID-14) and hiding empty columns (GRID-15) decode a whole column once, on request.
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
-use xml_atlas_xml::{Folded, NodeId, NodeKind, NodeSplice};
+use xml_atlas_xml::{Folded, NONE, NodeId, NodeKind, NodeSplice};
 
 use crate::command::{as_parsed, holds_only_text};
 use crate::{Document, truncate};
 
-/// Rows examined to find the columns. Wide enough for real data, bounded for huge lists
-/// (`docs/spec/grid.md`, GRID-3).
+/// Rows [`Grid::start`] examines for columns before it returns. Every row is examined in the
+/// end (GRID-3); these show at once.
 pub const COLUMN_SAMPLE: usize = 1000;
+
+/// Up to this many rows, a change to a row's attributes or children examines every row again,
+/// so that a column no row has any more goes away. Above it only the changed rows are
+/// examined: a new column is added at the end, and one that became empty stays until the grid
+/// is built again. 10,000 rows take about a millisecond.
+pub const FOLLOW_RESCAN_ROWS: usize = 10_000;
+
+/// Columns found while scanning are searched one by one up to this many, then hashed.
+const SEEN_LIST: usize = 16;
 
 /// Cell text is cut at this many characters (GRID-4).
 pub const CELL_CHARS: usize = 200;
@@ -120,59 +132,117 @@ pub struct Grid {
     view: View,
     /// When sorted, the position of each row in document order, from 0; empty otherwise.
     positions: Vec<u32>,
+    /// The next child of `parent` to examine for columns; `None` when all have been.
+    scan: Option<NodeId>,
 }
 
 impl Grid {
+    /// The grid of the children of `parent`, every row examined for columns.
     pub fn build(doc: &Document, parent: NodeId) -> Self {
+        let mut grid = Self::start(doc, parent);
+        grid.scan(doc, usize::MAX);
+        grid
+    }
+
+    /// The grid of the children of `parent`, with the columns of the first
+    /// [`COLUMN_SAMPLE`] rows; [`Grid::scan`] finds the rest.
+    pub fn start(doc: &Document, parent: NodeId) -> Self {
         let idx = &doc.index;
         let mut rows: Vec<NodeId> = idx
             .children(parent)
             .filter(|&c| idx.node(c).kind == NodeKind::Element)
             .collect();
-        if rows.is_empty() {
+        let scan = if rows.is_empty() {
             rows.push(parent);
-        }
+            None
+        } else {
+            Some(parent + 1)
+        };
         let path = idx.path(&doc.src, parent);
         let attributes = idx.attributes(&doc.src, parent);
-        Self::with_rows(doc, parent, path, attributes, rows)
+        Self::with_rows(doc, parent, path, attributes, rows, scan)
     }
 
-    /// A grid of the given rows, children of `parent`; the columns come from them.
+    /// Examines up to `children` more children of `parent` for columns (GRID-3). New columns
+    /// are added at the end. Returns `true` once every row has been examined.
+    pub fn scan(&mut self, doc: &Document, children: usize) -> bool {
+        let Some(from) = self.scan else { return true };
+        let idx = &doc.index;
+        let end = self.parent as u64 + 1 + idx.node(self.parent).descendants as u64;
+        let mut next = from as u64;
+        let mut left = children;
+        let rows = std::iter::from_fn(|| {
+            while next < end && left > 0 {
+                let id = next as NodeId;
+                next += 1 + idx.node(id).descendants as u64;
+                left -= 1;
+                if idx.node(id).kind == NodeKind::Element {
+                    return Some(id);
+                }
+            }
+            None
+        });
+        add_columns(doc, &mut self.columns, rows);
+        self.scan = (next < end).then_some(next as NodeId);
+        self.scan.is_none()
+    }
+
+    /// Whether every row has been examined for columns.
+    pub fn scanned(&self) -> bool {
+        self.scan.is_none()
+    }
+
+    /// A grid of the given rows, children of `parent`. With `scan`, the child of `parent` to
+    /// examine from, the columns come from the first [`COLUMN_SAMPLE`] children on;
+    /// without, from all the rows.
     fn with_rows(
         doc: &Document,
         parent: NodeId,
         path: String,
         attributes: Vec<(String, String)>,
         rows: Vec<NodeId>,
+        scan: Option<NodeId>,
     ) -> Self {
-        let columns = columns_of(doc, rows.iter().copied().take(COLUMN_SAMPLE));
-        Self {
+        let mut grid = Self {
             parent,
             path,
             attributes,
             rows,
-            columns,
+            columns: Vec::new(),
             view: View::default(),
             positions: Vec::new(),
+            scan,
+        };
+        if scan.is_some() {
+            grid.scan(doc, COLUMN_SAMPLE);
+        } else {
+            add_columns(doc, &mut grid.columns, grid.rows.iter().copied());
         }
+        grid
     }
 
     /// Follows a change that replaced nodes ([`NodeSplice`], D19) instead of building the
-    /// grid again: ids move, and the columns are sampled again when the change lies in the
-    /// rows they are sampled from. Rows are not sorted again, so a row does not jump away
-    /// while it is typed in. Returns `false` when the grid must be built again: the element
-    /// it shows was replaced, or rows were added or removed while it is sorted or shows only
-    /// its element (GRID-5).
+    /// grid again: ids move, and the columns are found again when the change touches a row's
+    /// attributes or children (see [`FOLLOW_RESCAN_ROWS`]). Rows are not sorted again, so a
+    /// row does not jump away while it is typed in. Returns `false` when the grid must be
+    /// built again: the element it shows was replaced, or rows were added or removed while it
+    /// is sorted, or it shows only its element (GRID-5) and that changed.
     pub fn follow(&mut self, doc: &Document, ns: &NodeSplice) -> bool {
         let Some(parent) = ns.map(self.parent) else {
             return false;
         };
         let idx = &doc.index;
+        let own = self.rows == [self.parent];
+        if own && ns.parent == parent {
+            return false;
+        }
+        // The rows whose attributes or children changed.
+        let mut changed = Vec::new();
         if ns.parent == parent && ns.removed != ns.inserted {
             // Rows were replaced, added or removed. In document order the rows are the child
-            // elements by id: put the new ones in place of the replaced ones. A sorted grid,
-            // or one that shows its element itself (GRID-5), is built again.
-            if !self.positions.is_empty() || self.rows == [self.parent] {
+            // elements by id: put the new ones in place of the replaced ones. A sorted grid
+            // is built again.
+            if !self.positions.is_empty() {
                 return false;
             }
             let lo = self.rows.partition_point(|&r| r < ns.at);
@@ -180,14 +250,14 @@ impl Grid {
             for r in &mut self.rows[hi..] {
                 *r = ns.map(*r).expect("rows after the replaced nodes stay");
             }
-            let new: Vec<NodeId> = ns
+            changed = ns
                 .new_ids()
                 .filter(|&id| {
                     let n = idx.node(id);
                     n.parent == parent && n.kind == NodeKind::Element
                 })
                 .collect();
-            self.rows.splice(lo..hi, new);
+            self.rows.splice(lo..hi, changed.iter().copied());
             if self.rows.is_empty() {
                 return false;
             }
@@ -196,24 +266,35 @@ impl Grid {
             for r in &mut self.rows {
                 *r = ns.map(*r).unwrap_or(*r);
             }
+            if ns.parent == parent {
+                changed = ns
+                    .new_ids()
+                    .filter(|&id| {
+                        let n = idx.node(id);
+                        n.parent == parent && n.kind == NodeKind::Element
+                    })
+                    .collect();
+            } else if !own {
+                // The change lies in `ns.parent`, whose own tag may have changed too: a row's
+                // columns change when it is the row, or one of the row's children.
+                let up = idx.node(ns.parent).parent;
+                if up == parent {
+                    changed.push(ns.parent);
+                } else if up != NONE && idx.node(up).parent == parent {
+                    changed.push(up);
+                }
+            }
         }
+        // The next child to examine moves with the ids; one that was replaced is examined
+        // again from the first new node.
+        self.scan = self.scan.map(|s| ns.map(s).unwrap_or(ns.at));
         self.parent = parent;
         self.attributes = idx.attributes(&doc.src, parent);
-        let sample: Vec<NodeId> = if self.rows == [parent] {
-            vec![parent]
-        } else {
-            idx.children(parent)
-                .filter(|&c| idx.node(c).kind == NodeKind::Element)
-                .take(COLUMN_SAMPLE)
-                .collect()
-        };
-        let sampled = sample
-            .last()
-            .map_or(parent, |&l| l + idx.node(l).descendants);
-        // The change lies under `ns.parent`: re-sample when that is the shown element or in
-        // a sampled row, its start tag included.
-        if (parent..=sampled).contains(&ns.parent) {
-            self.columns = columns_of(doc, sample.into_iter());
+        let touched = ns.parent == parent || !changed.is_empty();
+        if touched && self.rows.len() <= FOLLOW_RESCAN_ROWS {
+            self.columns.clear();
+            self.scan = Some(parent + 1);
+            self.scan(doc, usize::MAX);
             let columns = &self.columns;
             self.view.hidden.retain(|c| columns.contains(c));
             if let Some(Sort {
@@ -224,6 +305,8 @@ impl Grid {
             {
                 self.view.sort = None;
             }
+        } else {
+            add_columns(doc, &mut self.columns, changed.into_iter());
         }
         true
     }
@@ -423,7 +506,14 @@ impl Grid {
                     [one] => Detail::Element(Grid::build(doc, one)),
                     _ => {
                         let path = format!("{}/{child}", idx.path(src, row));
-                        Detail::Elements(Grid::with_rows(doc, row, path, Vec::new(), matching))
+                        Detail::Elements(Grid::with_rows(
+                            doc,
+                            row,
+                            path,
+                            Vec::new(),
+                            matching,
+                            None,
+                        ))
                     }
                 }
             }
@@ -522,12 +612,6 @@ impl SortKey {
     }
 }
 
-fn push_unique(columns: &mut Vec<Column>, c: Column) {
-    if !columns.contains(&c) {
-        columns.push(c);
-    }
-}
-
 fn name(doc: &Document, id: NodeId) -> String {
     String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned()
 }
@@ -546,28 +630,75 @@ fn text(doc: &Document, id: NodeId) -> String {
     truncate(&doc.index.element_text(&doc.src, id), CELL_CHARS)
 }
 
-/// The columns for rows `sample`: their attributes, child element names and text, in the
-/// order first met (GRID-3).
-fn columns_of(doc: &Document, sample: impl Iterator<Item = NodeId>) -> Vec<Column> {
+/// Adds the columns of `rows` that `columns` lacks: their attributes, child element names and
+/// text, in the order first met (GRID-3). Reads names as bytes and allocates only per new
+/// column, not per row, so it can look at every row of a large list.
+fn add_columns(doc: &Document, columns: &mut Vec<Column>, rows: impl Iterator<Item = NodeId>) {
     let idx = &doc.index;
-    let src = &doc.src;
-    let mut columns = Vec::new();
-    for row in sample {
-        for (name, _) in idx.attributes(src, row) {
-            push_unique(&mut columns, Column::Attribute(name));
+    let src = &doc.src[..];
+    let mut found = Vec::new();
+    let mut seen = Seen::default();
+    let mut text = false;
+    for c in columns.iter() {
+        match c {
+            Column::Attribute(n) => seen.list.push((false, n.as_bytes())),
+            Column::Child(n) => seen.list.push((true, n.as_bytes())),
+            Column::Text => text = true,
+        }
+    }
+    for row in rows {
+        for name in idx.attribute_names(src, row) {
+            seen.add(&mut found, false, name);
         }
         for c in idx.children(row) {
             match idx.node(c).kind {
-                NodeKind::Element => push_unique(&mut columns, Column::Child(name(doc, c))),
-                NodeKind::Text | NodeKind::CData => push_unique(&mut columns, Column::Text),
+                NodeKind::Element => seen.add(&mut found, true, idx.name(src, c)),
+                NodeKind::Text | NodeKind::CData if !text => {
+                    text = true;
+                    found.push(Column::Text);
+                }
                 _ => {}
             }
         }
-        if idx.node(row).folded != Folded::No {
-            push_unique(&mut columns, Column::Text);
+        if !text && idx.node(row).folded != Folded::No {
+            text = true;
+            found.push(Column::Text);
         }
     }
-    columns
+    columns.extend(found);
+}
+
+/// Columns met so far while scanning, by kind and raw name. Searched in order while few, the
+/// common case, which is twice as fast as hashing; hashed when many, so that a list whose
+/// rows all differ stays linear.
+#[derive(Default)]
+struct Seen<'s> {
+    list: Vec<(bool, &'s [u8])>,
+    set: HashSet<(bool, &'s [u8])>,
+}
+
+impl<'s> Seen<'s> {
+    /// Adds an attribute (`child` false) or child element column, unless it is there already.
+    fn add(&mut self, columns: &mut Vec<Column>, child: bool, name: &'s [u8]) {
+        let key = (child, name);
+        let new = if self.list.len() < SEEN_LIST {
+            !self.list.contains(&key)
+        } else {
+            if self.set.is_empty() {
+                self.set.extend(self.list.iter().copied());
+            }
+            self.set.insert(key)
+        };
+        if new {
+            self.list.push(key);
+            let name = String::from_utf8_lossy(name).into_owned();
+            columns.push(if child {
+                Column::Child(name)
+            } else {
+                Column::Attribute(name)
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1022,5 +1153,105 @@ mod tests {
             }
         }
         assert!(followed * 2 > total, "followed only {followed} of {total}");
+    }
+
+    /// A list of `n` rows with a byte order mark and CRLF; row `late` alone has an attribute
+    /// and a child the others lack.
+    fn long_list(n: usize, late: usize) -> Document {
+        let mut src = String::from("\u{feff}<liste>\r\n");
+        for i in 0..n {
+            if i == late {
+                src.push_str(&format!(
+                    "<zeile nr=\"{i}\" größe=\"groß\"><später>ä</später></zeile>\r\n"
+                ));
+            } else {
+                src.push_str(&format!("<zeile nr=\"{i}\"/>\r\n"));
+            }
+        }
+        src.push_str("</liste>\r\n");
+        Document::from_bytes(src.into_bytes())
+    }
+
+    /// A column only a row far down has is there (GRID-3): at once when built, and after
+    /// scanning when started; at the end, as it was met last.
+    #[test]
+    fn a_column_far_down_is_found() {
+        let doc = long_list(3 * COLUMN_SAMPLE, 2 * COLUMN_SAMPLE + 7);
+        let list = doc.index.root_element().unwrap();
+        let all = [attr("nr"), attr("größe"), child("später")];
+        assert_eq!(Grid::build(&doc, list).columns, all);
+
+        let mut grid = Grid::start(&doc, list);
+        assert_eq!(grid.columns, [attr("nr")]);
+        assert!(!grid.scanned());
+        let mut steps = 0;
+        while !grid.scan(&doc, 100) {
+            steps += 1;
+        }
+        assert!(steps > 10, "scanned in {steps} steps");
+        assert!(grid.scanned());
+        assert_eq!(grid.columns, all);
+        let late = grid.rows[2 * COLUMN_SAMPLE + 7];
+        assert_eq!(grid.cell(&doc, late, &attr("größe")), value("groß"));
+        assert_eq!(grid.cell(&doc, late, &child("später")), value("ä"));
+    }
+
+    /// In a list longer than [`FOLLOW_RESCAN_ROWS`], typing a new attribute or child into a
+    /// row adds its column at the end, also while the rest is still being scanned; a scan
+    /// that is under way goes on from where it was.
+    #[test]
+    fn a_long_list_follows_new_columns() {
+        let n = FOLLOW_RESCAN_ROWS + 10;
+        let mut doc = long_list(n, n - 1);
+        let list = doc.index.root_element().unwrap();
+        let mut grid = Grid::start(&doc, list);
+        assert_eq!(grid.columns, [attr("nr")]);
+
+        let type_at = |doc: &mut Document, at: &str, text: &str| {
+            let i = doc
+                .src
+                .windows(at.len())
+                .position(|w| w == at.as_bytes())
+                .unwrap();
+            let sel = crate::text::Selection::cursor(i + at.len());
+            let change = crate::text::insert(doc, sel, text).unwrap();
+            doc.apply_typed(change.edit).unwrap();
+            doc.node_splice().expect("local")
+        };
+        // An attribute in row 5's start tag.
+        let ns = type_at(&mut doc, "<zeile nr=\"5\"", " neu=\"ja\"");
+        assert!(grid.follow(&doc, &ns));
+        assert_eq!(grid.columns, [attr("nr"), attr("neu")]);
+        // A child element in row 6, pasted over the whole empty row.
+        let row = b"<zeile nr=\"6\"/>";
+        let i = doc.src.windows(row.len()).position(|w| w == row).unwrap();
+        let sel = crate::text::Selection {
+            anchor: i,
+            head: i + row.len(),
+        };
+        let change = crate::text::paste(&doc, sel, "<zeile nr=\"6\"><kind/></zeile>").unwrap();
+        doc.apply_typed(change.edit).unwrap();
+        let ns = doc.node_splice().expect("local");
+        assert!(grid.follow(&doc, &ns));
+        assert_eq!(grid.columns, [attr("nr"), attr("neu"), child("kind")]);
+
+        while !grid.scan(&doc, 1000) {}
+        assert_eq!(
+            grid.columns,
+            [
+                attr("nr"),
+                attr("neu"),
+                child("kind"),
+                attr("größe"),
+                child("später")
+            ]
+        );
+        let fresh = Grid::build(&doc, list);
+        assert_eq!(grid.rows, fresh.rows);
+        let mut a = grid.columns.clone();
+        let mut b = fresh.columns.clone();
+        a.sort_by_key(|c| format!("{c:?}"));
+        b.sort_by_key(|c| format!("{c:?}"));
+        assert_eq!(a, b);
     }
 }

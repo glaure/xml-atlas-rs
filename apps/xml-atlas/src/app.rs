@@ -3,7 +3,7 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::command::CommandError;
@@ -19,6 +19,13 @@ use crate::tabs::Tabs;
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
+
+/// Time a frame spends looking at a long grid's rows for columns (GRID-3).
+const GRID_SCAN_TIME: Duration = Duration::from_millis(3);
+
+/// Children of the grid's element looked at between checks of [`GRID_SCAN_TIME`]: about
+/// half a millisecond.
+const GRID_SCAN_CHILDREN: usize = 4096;
 
 pub struct App {
     /// The open documents, one tab each (OPEN-5).
@@ -1330,6 +1337,9 @@ impl eframe::App for App {
         for open in self.docs.iter_mut() {
             open.reparse_when_due(&ctx);
         }
+        if let Some(open) = self.docs.active_mut() {
+            open.scan_grid(&ctx);
+        }
         self.find.shortcuts(&ctx, self.docs.active_mut());
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
@@ -1588,7 +1598,7 @@ impl Open {
         if !followed {
             let view = self.grid.as_ref().map(|g| g.view().clone());
             self.grid = selected.map(|id| {
-                let mut grid = Grid::build(&self.doc, id);
+                let mut grid = Grid::start(&self.doc, id);
                 if let Some(view) = view {
                     grid.set_view(&self.doc, view);
                 }
@@ -1646,6 +1656,23 @@ impl Open {
         }
     }
 
+    /// Looks at more of the grid's rows for columns (GRID-3), for at most [`GRID_SCAN_TIME`]
+    /// a frame, until all have been. Call once per frame for the document shown.
+    pub fn scan_grid(&mut self, ctx: &egui::Context) {
+        let Some(grid) = &mut self.grid else { return };
+        if grid.scanned() {
+            return;
+        }
+        let t = Instant::now();
+        while !grid.scan(&self.doc, GRID_SCAN_CHILDREN) {
+            if t.elapsed() >= GRID_SCAN_TIME {
+                ctx.request_repaint();
+                return;
+            }
+        }
+        log::debug!("grid columns: last step {:?}", t.elapsed());
+    }
+
     /// Reads the document again now if typing left the index behind, before a command that
     /// works from the index.
     pub fn settle(&mut self) {
@@ -1683,7 +1710,7 @@ impl Open {
         self.selected = Some(id);
         self.focus = Some(id);
         self.mark = None;
-        self.grid = Some(Grid::build(&self.doc, id));
+        self.grid = Some(Grid::start(&self.doc, id));
         self.grid_cell = None;
         self.grid_edit = None;
         self.tree.reveal(&self.doc, id);

@@ -24,6 +24,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Tree: icons per kind of row (TREE-11)
 - [x] Grid: attribute table of the selected element (GRID-11), nested children by name and
       count (GRID-12), absent and empty values told apart (GRID-13)
+- [x] Grid: a column for every attribute and child of every row, not only of the first 1,000
+      (GRID-3)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error

@@ -10,8 +10,13 @@ this file needs the most observation.
 - **GRID-2** `[done]` The columns are: the row number, the element name, then one column for
   each attribute (`@name`), one for each child element name (its name), and `text()` for the
   row's own text. Columns appear in the order they are first met.
-- **GRID-3** `[gap]` Every attribute and child of every row has a column. Today only the
-  first 1,000 rows are examined, so a column that first appears later is missing.
+- **GRID-3** `[done]` Every attribute and child of every row has a column. The first 1,000
+  rows are examined when the grid is shown, the rest over the next frames, about 3 ms each, so
+  a column met only far down appears at the end shortly after. Examining reads names only:
+  about 130 ns a row, so the 211,383 orders of the 100 MiB fixture take about 27 ms spread over
+  some frames. While typing in a list of more than 10,000 rows, only the changed rows are
+  examined: a new column is added at the end, and one no row has any more stays until the grid
+  is shown again.
 - **GRID-4** `[built]` A cell shows the attribute value or the text with entities decoded, cut
   at 200 characters.
 - **GRID-5** `[built]` If the selected element has no child elements, the grid shows that
@@ -86,6 +91,9 @@ this file needs the most observation.
   which shows `<price>` because it has an attribute.
 - Select a `price` element: one row, the attribute table shows `currency`, the columns are
   `@currency` and `text()`.
+- Open a list of 3,000 rows with a byte order mark and CRLF where only row 2,008 has
+  `größe="groß"` and a `<später>` child: the grid gets `@größe` and `später` columns, and
+  that row shows `groß` and `ä`.
 - Select `orders` in the fixture, click a row, press End: row 211,383 is marked and shown, its
   number on one line.
 - Select `orders` in a CRLF file with a byte order mark, click an order's `<total>` cell: the
