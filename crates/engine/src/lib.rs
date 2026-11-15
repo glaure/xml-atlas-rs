@@ -10,11 +10,13 @@ use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
+pub use edit::{Edit, EditError, History};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
 };
 pub use xml_atlas_xml as xml;
 
+pub mod edit;
 pub mod find;
 pub mod format;
 pub mod grid;
@@ -29,6 +31,8 @@ pub struct Document {
     /// Byte offset where each line starts. Always contains at least `0`.
     pub line_starts: Vec<u64>,
     pub timings: Timings,
+    /// Undo and redo, and whether the source differs from the file.
+    pub history: History,
 }
 
 /// How long each stage of opening took.
@@ -75,7 +79,47 @@ impl Document {
                 index: index_time,
                 lines: lines_time,
             },
+            history: History::new(),
         }
+    }
+
+    /// Applies `edit` as one undo step and indexes the document again. On error nothing
+    /// changes.
+    pub fn apply(&mut self, edit: Edit) -> Result<(), EditError> {
+        self.history.apply(&mut self.src, edit)?;
+        self.reindex();
+        Ok(())
+    }
+
+    /// Undoes the last edit; returns its label.
+    pub fn undo(&mut self) -> Option<String> {
+        let label = self.history.undo(&mut self.src)?;
+        self.reindex();
+        Some(label)
+    }
+
+    /// Redoes the last undone edit; returns its label.
+    pub fn redo(&mut self) -> Option<String> {
+        let label = self.history.redo(&mut self.src)?;
+        self.reindex();
+        Some(label)
+    }
+
+    /// Whether the source differs from the file it was opened from or last saved to.
+    pub fn is_modified(&self) -> bool {
+        self.history.is_modified()
+    }
+
+    /// Builds the node and line index again after the source changed. The whole document for
+    /// now; D9 makes this an update of the changed element, off the UI thread.
+    fn reindex(&mut self) {
+        let t = Instant::now();
+        self.index = xml_atlas_xml::index(&self.src);
+        self.timings.index = t.elapsed();
+        let t = Instant::now();
+        self.line_starts = line_starts(&self.src);
+        self.timings.lines = t.elapsed();
+        self.timings.read = Duration::ZERO;
     }
 
     /// Re-indented copy of the source. See [`format`] for what is and is not changed.
@@ -99,6 +143,7 @@ impl Document {
     pub fn save(&mut self, path: &Path) -> io::Result<()> {
         save_atomic(path, &self.src)?;
         self.path = Some(path.to_path_buf());
+        self.history.mark_saved();
         Ok(())
     }
 
@@ -217,6 +262,38 @@ fn write_and_replace(tmp: &Path, target: &Path, bytes: &[u8]) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An edit, its undo and its redo each leave an index and line index that match the
+    /// source; saving makes the document unmodified.
+    #[test]
+    fn edits_reindex_and_saving_clears_modified() {
+        let src = b"<r>\r\n  <a>1</a>\r\n</r>".to_vec();
+        let mut doc = Document::from_bytes(src.clone());
+        let a = doc.src.windows(8).position(|w| w == b"<a>1</a>").unwrap();
+        doc.apply(Edit::new("Add").replace(a + 8..a + 8, "\r\n  <b/>"))
+            .unwrap();
+        assert!(doc.is_modified());
+        assert_eq!(doc.index.element_count, 3);
+        assert_eq!(doc.line_count(), 4);
+        assert_eq!(doc.line(2), b"  <b/>");
+        assert_eq!(doc.undo().as_deref(), Some("Add"));
+        assert_eq!(doc.src, src);
+        assert_eq!(doc.index.element_count, 2);
+        assert_eq!(doc.line_count(), 3);
+        assert!(!doc.is_modified());
+        doc.redo();
+        assert_eq!(doc.index.element_count, 3);
+
+        let dir = std::env::temp_dir().join(format!("xml-atlas-edit-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.xml");
+        doc.save(&path).unwrap();
+        assert!(!doc.is_modified());
+        assert_eq!(fs::read(&path).unwrap(), doc.src);
+        doc.undo();
+        assert!(doc.is_modified());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn line_index() {

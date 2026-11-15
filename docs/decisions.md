@@ -184,6 +184,12 @@ Still open, found by the same review:
   is undone as one step.
 - **Revisit when:** a single edit lags visibly on the largest files people edit. Then a piece
   table or a gap buffer behind the same edit and undo API.
+- **Built (2026-11-15):** `Edit` (byte ranges and their new bytes, one undo step) and
+  `History` in `crates/engine/src/edit.rs`. A step stores the bytes it would put back, not
+  the ones it removes, so the history holds each old text once; a whole-document change
+  (Format) moves the old source into the history without copying it. Measured on the 100 MiB
+  fixture: Format 214 ms, applying it 414 ms, undo 342 ms, redo 413 ms, a one-byte edit
+  238 ms; nearly all of it is indexing the whole document again, which D9 replaces.
 
 ## D11: No memory-mapped open for now; shrink the index first
 
