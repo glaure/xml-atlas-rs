@@ -4,7 +4,8 @@ How the views are laid out, and how the window looks.
 
 ## Rules
 
-- **WIN-1** `[done]` The tree is on the left. View > Layout chooses what is on the right:
+- **WIN-1** `[done]` Below the menu, the tabs of the open documents (OPEN-5). The tree is on
+  the left. View > Layout chooses what is on the right:
   *Grid above text* (the default) or *Text above grid*, as in XML Marker (XM-1). The change is
   immediate and keeps the open file. The find bar sits directly above the text when open
   (TEXT-12), and the problems list directly under it when there are problems (OPEN-13). The
