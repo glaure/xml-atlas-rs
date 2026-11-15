@@ -1,7 +1,10 @@
 //! The grid: the child elements of one element as table rows (`docs/spec/grid.md`).
 //!
 //! [`Grid::build`] finds the rows and the columns once, when the selection changes. Cells are
-//! decoded on demand by [`Grid::cell`], so a view pays only for the rows it shows.
+//! decoded on demand by [`Grid::cell`], so a view pays only for the rows it shows. Sorting
+//! (GRID-14) and hiding empty columns (GRID-15) decode a whole column once, on request.
+
+use std::cmp::Ordering;
 
 use xml_atlas_xml::{Folded, NodeId, NodeKind};
 
@@ -49,6 +52,32 @@ pub enum CellTarget {
     Text(NodeId),
 }
 
+/// What the rows are sorted by (GRID-14).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SortBy {
+    /// The element name of each row.
+    Name,
+    /// The cells of one column.
+    Column(Column),
+}
+
+/// A sort order (GRID-14). Rows with equal values stay in document order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sort {
+    pub by: SortBy,
+    pub descending: bool,
+}
+
+/// How the grid is shown: its sort and hidden columns. Kept by column, not by index, so it
+/// applies again after an edit rebuilds the grid ([`Grid::set_view`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct View {
+    /// `None`: document order.
+    pub sort: Option<Sort>,
+    /// Hidden columns (GRID-15), in the order they were hidden.
+    pub hidden: Vec<Column>,
+}
+
 /// Rows and columns for the children of one element.
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -61,8 +90,13 @@ pub struct Grid {
     pub attributes: Vec<(String, String)>,
     /// Child elements of `parent` in document order (GRID-1); `parent` itself when it has
     /// none (GRID-5).
+    /// In the order shown: document order unless sorted (GRID-14).
     pub rows: Vec<NodeId>,
     pub columns: Vec<Column>,
+    /// The sort and hidden columns.
+    view: View,
+    /// When sorted, the position of each row in document order, from 0; empty otherwise.
+    positions: Vec<u32>,
 }
 
 impl Grid {
@@ -98,7 +132,110 @@ impl Grid {
             attributes: idx.attributes(src, parent),
             rows,
             columns,
+            view: View::default(),
+            positions: Vec::new(),
         }
+    }
+
+    /// The sort and hidden columns.
+    pub fn view(&self) -> &View {
+        &self.view
+    }
+
+    /// Applies a view kept from an earlier grid of the same element. Hidden columns this grid
+    /// does not have are dropped, and so is a sort by such a column.
+    pub fn set_view(&mut self, doc: &Document, view: View) {
+        self.view.hidden = view
+            .hidden
+            .into_iter()
+            .filter(|c| self.columns.contains(c))
+            .collect();
+        let sort = view.sort.filter(|s| match &s.by {
+            SortBy::Name => true,
+            SortBy::Column(c) => self.columns.contains(c),
+        });
+        self.sort(doc, sort);
+    }
+
+    /// Sorts the rows (GRID-14); `None` puts them back in document order. Values that are all
+    /// numbers compare as numbers and come before text; text compares ignoring case, letter by code point. Cells
+    /// with child elements come after values, by count, and absent cells last in either
+    /// direction. Rows with equal values keep their document order.
+    pub fn sort(&mut self, doc: &Document, sort: Option<Sort>) {
+        if !self.positions.is_empty() {
+            let mut rows: Vec<(u32, NodeId)> = self
+                .positions
+                .iter()
+                .copied()
+                .zip(self.rows.iter().copied())
+                .collect();
+            rows.sort_unstable_by_key(|&(p, _)| p);
+            self.rows = rows.into_iter().map(|(_, r)| r).collect();
+            self.positions.clear();
+        }
+        self.view.sort = sort;
+        let Some(sort) = &self.view.sort else { return };
+        let mut keyed: Vec<(SortKey, u32, NodeId)> = self
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, &row)| (self.sort_key(doc, row, &sort.by), i as u32, row))
+            .collect();
+        // A stable sort keeps document order among equal values in both directions.
+        keyed.sort_by(|a, b| a.0.cmp_in(&b.0, sort.descending));
+        self.positions = keyed.iter().map(|&(_, p, _)| p).collect();
+        self.rows = keyed.into_iter().map(|(_, _, r)| r).collect();
+    }
+
+    /// Where the `i`th row shown stands in document order, from 1: its row number.
+    pub fn number(&self, i: usize) -> usize {
+        self.positions.get(i).map_or(i, |&p| p as usize) + 1
+    }
+
+    /// Whether `column` is hidden (GRID-15).
+    pub fn is_hidden(&self, column: &Column) -> bool {
+        self.view.hidden.contains(column)
+    }
+
+    /// Hides `column` (GRID-15).
+    pub fn hide(&mut self, column: &Column) {
+        if self.columns.contains(column) && !self.is_hidden(column) {
+            self.view.hidden.push(column.clone());
+        }
+    }
+
+    /// Shows a hidden `column` again.
+    pub fn show(&mut self, column: &Column) {
+        self.view.hidden.retain(|c| c != column);
+    }
+
+    /// Shows every hidden column again.
+    pub fn show_all(&mut self) {
+        self.view.hidden.clear();
+    }
+
+    /// Hides the columns that are empty in every row: absent, or an empty value (GRID-15).
+    /// Returns how many it hid.
+    pub fn hide_empty(&mut self, doc: &Document) -> usize {
+        let mut empty: Vec<Column> = self
+            .columns
+            .iter()
+            .filter(|c| !self.is_hidden(c))
+            .cloned()
+            .collect();
+        for &row in &self.rows {
+            if empty.is_empty() {
+                break;
+            }
+            empty.retain(|c| match self.cell(doc, row, c) {
+                Cell::Absent => true,
+                Cell::Value(v) => v.is_empty(),
+                Cell::Element(_) | Cell::Repeated { .. } => false,
+            });
+        }
+        let n = empty.len();
+        self.view.hidden.extend(empty);
+        n
     }
 
     /// The cell of `row` in `column`.
@@ -189,6 +326,60 @@ impl Grid {
                 _ => None,
             },
         }
+    }
+}
+
+impl Grid {
+    fn sort_key(&self, doc: &Document, row: NodeId, by: &SortBy) -> SortKey {
+        let value = |v: String| match v.trim().parse::<f64>() {
+            Ok(n) if n.is_finite() => SortKey::Number(n),
+            _ => SortKey::Text(v.to_lowercase(), v),
+        };
+        match by {
+            SortBy::Name => value(name(doc, row)),
+            SortBy::Column(c) => match self.cell(doc, row, c) {
+                Cell::Absent => SortKey::Absent,
+                Cell::Value(v) => value(v),
+                Cell::Element(_) => SortKey::Nested(1),
+                Cell::Repeated { count, .. } => SortKey::Nested(count),
+            },
+        }
+    }
+}
+
+/// What a row sorts by (GRID-14). The variants are in ascending order.
+#[derive(Debug)]
+enum SortKey {
+    Number(f64),
+    /// Lower-cased for comparing, then as written to order `a` and `A` the same way each time.
+    Text(String, String),
+    /// Child elements, by count.
+    Nested(usize),
+    Absent,
+}
+
+impl SortKey {
+    fn rank(&self) -> u8 {
+        match self {
+            Self::Number(_) => 0,
+            Self::Text(..) => 1,
+            Self::Nested(_) => 2,
+            Self::Absent => 3,
+        }
+    }
+
+    /// Ascending or descending, with absent values last either way.
+    fn cmp_in(&self, other: &Self, descending: bool) -> Ordering {
+        let order = match (self, other) {
+            (Self::Absent, Self::Absent) => return Ordering::Equal,
+            (Self::Absent, _) => return Ordering::Greater,
+            (_, Self::Absent) => return Ordering::Less,
+            (Self::Number(a), Self::Number(b)) => a.total_cmp(b),
+            (Self::Text(a, x), Self::Text(b, y)) => a.cmp(b).then_with(|| x.cmp(y)),
+            (Self::Nested(a), Self::Nested(b)) => a.cmp(b),
+            _ => self.rank().cmp(&other.rank()),
+        };
+        if descending { order.reverse() } else { order }
     }
 }
 
@@ -450,5 +641,105 @@ mod tests {
             Some((CellTarget::Text(a2), String::new()))
         );
         assert_eq!(target(a1, Column::Text), None);
+    }
+
+    fn sorted(doc: &Document, grid: &mut Grid, by: SortBy, descending: bool) -> Vec<String> {
+        grid.sort(doc, Some(Sort { by, descending }));
+        let id = attr("id");
+        grid.rows
+            .iter()
+            .map(|&r| match grid.cell(doc, r, &id) {
+                Cell::Value(v) => v,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    const PRICES: &str = "\u{feff}<list>\r\n<p id=\"a\" v=\"10\" n=\"Zoë\"/>\r\n<p id=\"b\" v=\"9.5\" n=\"äpfel\"/>\r\n<p id=\"c\" n=\"Apfel\"/>\r\n<p id=\"d\" v=\"n/a\" n=\"zoë\"/>\r\n<p id=\"e\" v=\"-2\" n=\"apfel\"/>\r\n<q id=\"f\" v=\"10\"/>\r\n</list>\r\n";
+
+    /// GRID-14: numbers as numbers and before text, absent last both ways, ties in document
+    /// order; the row number stays the document position.
+    #[test]
+    fn sort_by_column() {
+        let d = doc(PRICES);
+        let mut g = grid_of(&d, "list");
+        let v = || SortBy::Column(attr("v"));
+        assert_eq!(
+            sorted(&d, &mut g, v(), false),
+            ["e", "b", "a", "f", "d", "c"]
+        );
+        assert_eq!(g.number(0), 5);
+        assert_eq!(g.number(5), 3);
+        assert_eq!(
+            sorted(&d, &mut g, v(), true),
+            ["d", "a", "f", "b", "e", "c"]
+        );
+        // Text ignores case, then "A" before "a"; letters compare by code point, so "ä" comes
+        // after "z".
+        let n = || SortBy::Column(attr("n"));
+        assert_eq!(
+            sorted(&d, &mut g, n(), false),
+            ["c", "e", "a", "d", "b", "f"]
+        );
+        assert_eq!(
+            sorted(&d, &mut g, SortBy::Name, true),
+            ["f", "a", "b", "c", "d", "e"]
+        );
+        g.sort(&d, None);
+        assert_eq!(g.rows, grid_of(&d, "list").rows);
+        assert_eq!(g.number(2), 3);
+    }
+
+    /// GRID-14: cells with child elements sort after values, by count.
+    #[test]
+    fn sort_nested_cells() {
+        let d = doc(ORDERS);
+        let mut g = grid_of(&d, "orders");
+        let note = || SortBy::Column(child("note"));
+        assert_eq!(sorted(&d, &mut g, note(), false), ["2", "1", "3"]);
+        let customer = || SortBy::Column(child("customer"));
+        // Empty text first, then "Müller", then "Ø & Co".
+        assert_eq!(sorted(&d, &mut g, customer(), false), ["2", "1", "3"]);
+    }
+
+    /// GRID-15: hiding, showing, and hiding the columns empty in every row.
+    #[test]
+    fn hide_columns() {
+        let d = doc("<r><a x=\"\" y=\"1\"><e/></a><a x=\"\"><e></e><f>ü</f></a></r>");
+        let mut g = grid_of(&d, "r");
+        assert_eq!(g.columns, [attr("x"), attr("y"), child("e"), child("f")]);
+        assert_eq!(g.hide_empty(&d), 2);
+        assert!(g.is_hidden(&attr("x")) && g.is_hidden(&child("e")));
+        assert!(!g.is_hidden(&attr("y")) && !g.is_hidden(&child("f")));
+        assert_eq!(g.hide_empty(&d), 0);
+        g.hide(&attr("y"));
+        g.show(&attr("x"));
+        assert_eq!(g.view().hidden, [child("e"), attr("y")]);
+        g.show_all();
+        assert_eq!(g.view().hidden, []);
+    }
+
+    /// The view applies again to a rebuilt grid, without columns it no longer has.
+    #[test]
+    fn view_applies_to_a_rebuilt_grid() {
+        let d = doc(PRICES);
+        let mut g = grid_of(&d, "list");
+        g.hide(&attr("n"));
+        g.sort(
+            &d,
+            Some(Sort {
+                by: SortBy::Column(attr("v")),
+                descending: true,
+            }),
+        );
+        let view = g.view().clone();
+        let mut again = grid_of(&d, "list");
+        again.set_view(&d, view.clone());
+        assert_eq!(again.rows, g.rows);
+        assert!(again.is_hidden(&attr("n")));
+        let other = doc("<list><p id=\"1\"/></list>");
+        let mut rebuilt = grid_of(&other, "list");
+        rebuilt.set_view(&other, view);
+        assert_eq!(rebuilt.view(), &View::default());
     }
 }

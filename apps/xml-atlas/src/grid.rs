@@ -4,7 +4,7 @@
 use egui::{Color32, Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
 use egui_extras::{Column as TableColumn, TableBuilder};
 use xml_atlas_engine::command;
-use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid};
+use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
 use xml_atlas_engine::xml::NodeId;
 
 use crate::app::{Note, Open, Pane, Shift};
@@ -37,6 +37,21 @@ enum Action {
     Edit { row: NodeId, column: usize },
     /// The editor closed: save its text, or not.
     Close { save: bool },
+    /// Sort the rows, or put them back in document order (GRID-14).
+    Sort(Option<Sort>),
+    /// Hide a column (GRID-15).
+    Hide(Column),
+    /// Hide the columns that are empty in every row (GRID-15).
+    HideEmpty,
+    /// Show a hidden column again, or all of them.
+    Show(Option<Column>),
+}
+
+/// What a header stands for.
+enum Header<'a> {
+    Number,
+    Name,
+    Column(&'a Column),
 }
 
 pub fn show(ui: &mut Ui, open: &mut Open) {
@@ -44,6 +59,14 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(&grid.path).strong());
         ui.label(RichText::new(format!("{} rows", grid.rows.len())).weak());
+        let hidden = grid.view().hidden.len();
+        if hidden > 0 {
+            let text = match hidden {
+                1 => "1 column hidden".to_string(),
+                n => format!("{n} columns hidden"),
+            };
+            ui.label(RichText::new(text).weak());
+        }
     });
     attributes(ui, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
@@ -66,6 +89,40 @@ fn run(open: &mut Open, action: Action) {
         }
         Action::Enter(id) => open.select(id),
         Action::Edit { row, column } => start_edit(open, row, column),
+        Action::Sort(sort) => {
+            let Some(grid) = &mut open.grid else { return };
+            grid.sort(&open.doc, sort);
+            // The marked row stays in view.
+            let focus = open.focus;
+            open.grid_scroll_to = grid
+                .rows
+                .iter()
+                .position(|&r| focus.is_some_and(|f| f == r || open.doc.index.node(f).parent == r));
+        }
+        Action::Hide(column) => {
+            if let Some(grid) = &mut open.grid {
+                grid.hide(&column);
+            }
+            unmark_hidden(open);
+        }
+        Action::HideEmpty => {
+            let Some(grid) = &mut open.grid else { return };
+            let n = grid.hide_empty(&open.doc);
+            open.note = Some(Note::info(match n {
+                0 => "No column is empty in every row".to_string(),
+                1 => "Hid 1 empty column".to_string(),
+                n => format!("Hid {n} empty columns"),
+            }));
+            unmark_hidden(open);
+        }
+        Action::Show(column) => {
+            if let Some(grid) = &mut open.grid {
+                match column {
+                    Some(c) => grid.show(&c),
+                    None => grid.show_all(),
+                }
+            }
+        }
         Action::Close { save } => {
             let Some(editor) = open.grid_edit.take() else {
                 return;
@@ -78,6 +135,18 @@ fn run(open: &mut Open, action: Action) {
                 );
             }
         }
+    }
+}
+
+/// A marked cell whose column was hidden is no longer marked; its editor closes.
+fn unmark_hidden(open: &mut Open) {
+    let Some(grid) = &open.grid else { return };
+    let hidden = |i: usize| grid.columns.get(i).is_none_or(|c| grid.is_hidden(c));
+    if open.grid_cell.is_some_and(hidden) {
+        open.grid_cell = None;
+    }
+    if open.grid_edit.as_ref().is_some_and(|e| hidden(e.column)) {
+        open.grid_edit = None;
     }
 }
 
@@ -164,6 +233,10 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
     let grid = grid.as_ref()?;
     let doc = &*doc;
     let mut action = None;
+    // Columns shown, by index into `grid.columns` (GRID-15).
+    let shown: Vec<usize> = (0..grid.columns.len())
+        .filter(|&i| !grid.is_hidden(&grid.columns[i]))
+        .collect();
     let mut editor_shown = false;
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let digits = grid.rows.len().to_string().len() as f32;
@@ -185,23 +258,19 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
         .column(TableColumn::initial(110.0).at_least(40.0).clip(true))
         .columns(
             TableColumn::initial(140.0).at_least(40.0).clip(true),
-            grid.columns.len(),
+            shown.len(),
         )
         .header(row_h + 2.0, |mut h| {
-            h.col(|ui| {
-                ui.strong("#");
-            });
-            h.col(|ui| {
-                ui.strong("element");
-            });
-            for c in &grid.columns {
-                h.col(|ui| {
-                    match c {
-                        Column::Attribute(n) => ui.strong(format!("@{n}")),
-                        Column::Child(n) => ui.strong(n),
-                        Column::Text => ui.strong("text()"),
-                    };
+            let headers = [Header::Number, Header::Name]
+                .into_iter()
+                .chain(shown.iter().map(|&i| Header::Column(&grid.columns[i])));
+            for header in headers {
+                let (_, resp) = h.col(|ui| {
+                    ui.strong(header_text(grid, &header));
                 });
+                if let Some(a) = header_action(grid, &header, &resp) {
+                    action = Some(a);
+                }
             }
         })
         .body(|body| {
@@ -212,13 +281,14 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
                 let marked = focus.is_some_and(|f| f == id || doc.index.node(f).parent == id);
                 row.set_selected(marked);
                 row.col(|ui| {
-                    ui.label(RichText::new((i + 1).to_string()).weak());
+                    ui.label(RichText::new(grid.number(i).to_string()).weak());
                 });
                 row.col(|ui| {
                     ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
                 });
                 let mut cell_action = None;
-                for (ci, c) in grid.columns.iter().enumerate() {
+                for &ci in &shown {
+                    let c = &grid.columns[ci];
                     let editing = grid_edit.as_mut().filter(|e| e.row == id && e.column == ci);
                     if let Some(editor) = editing {
                         editor_shown = true;
@@ -283,6 +353,90 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>) -> Option<Action> 
     if grid_edit.is_some() && !editor_shown && action.is_none() {
         action = Some(Action::Close { save: false });
     }
+    action
+}
+
+/// A header's text, with an arrow when the rows are sorted by it (GRID-14).
+fn header_text(grid: &Grid, header: &Header) -> String {
+    let (text, by) = match header {
+        Header::Number => ("#".to_string(), None),
+        Header::Name => ("element".to_string(), Some(SortBy::Name)),
+        Header::Column(c) => (column_name(c), Some(SortBy::Column((*c).clone()))),
+    };
+    match &grid.view().sort {
+        Some(sort) if Some(&sort.by) == by.as_ref() => {
+            format!("{text} {}", if sort.descending { "⏷" } else { "⏶" })
+        }
+        _ => text,
+    }
+}
+
+fn column_name(column: &Column) -> String {
+    match column {
+        Column::Attribute(n) => format!("@{n}"),
+        Column::Child(n) => n.clone(),
+        Column::Text => "text()".to_string(),
+    }
+}
+
+/// A click on a header sorts by it, again reverses; on `#` it restores document order
+/// (GRID-14). Its menu sorts, hides and shows columns (GRID-15).
+fn header_action(grid: &Grid, header: &Header, resp: &egui::Response) -> Option<Action> {
+    let by = match header {
+        Header::Number => None,
+        Header::Name => Some(SortBy::Name),
+        Header::Column(c) => Some(SortBy::Column((*c).clone())),
+    };
+    let current = grid.view().sort.as_ref();
+    let mut action = None;
+    if resp.clicked() {
+        action = Some(Action::Sort(by.clone().map(|by| {
+            let descending = current.is_some_and(|s| s.by == by && !s.descending);
+            Sort { by, descending }
+        })));
+    }
+    resp.context_menu(|ui| {
+        if let Some(by) = &by {
+            for (label, descending) in [("Sort ascending", false), ("Sort descending", true)] {
+                if ui.button(label).clicked() {
+                    action = Some(Action::Sort(Some(Sort {
+                        by: by.clone(),
+                        descending,
+                    })));
+                }
+            }
+        }
+        let sorted = current.is_some();
+        if ui
+            .add_enabled(sorted, egui::Button::new("Document order"))
+            .clicked()
+        {
+            action = Some(Action::Sort(None));
+        }
+        ui.separator();
+        if let Header::Column(c) = header
+            && ui.button("Hide column").clicked()
+        {
+            action = Some(Action::Hide((*c).clone()));
+        }
+        if ui.button("Hide empty columns").clicked() {
+            action = Some(Action::HideEmpty);
+        }
+        let hidden = &grid.view().hidden;
+        ui.add_enabled_ui(!hidden.is_empty(), |ui| {
+            ui.menu_button("Show column", |ui| {
+                for c in hidden {
+                    if ui.button(column_name(c)).clicked() {
+                        action = Some(Action::Show(Some(c.clone())));
+                    }
+                }
+                ui.separator();
+                if ui.button("Show all").clicked() {
+                    action = Some(Action::Show(None));
+                }
+            });
+        });
+    });
     action
 }
 
@@ -378,14 +532,16 @@ pub fn key(open: &mut Open, key: GridKey) {
         grid.rows.iter().position(|&r| r == f || r == parent)
     });
     let columns = grid.columns.len();
+    let shown = |i: usize| !grid.is_hidden(&grid.columns[i]);
     match (key, cur, open.grid_cell) {
+        // Hidden columns are skipped (GRID-15).
         (GridKey::Left, Some(_), cell) => {
-            open.grid_cell = cell.and_then(|c| c.checked_sub(1));
+            open.grid_cell = cell.and_then(|c| (0..c).rev().find(|&i| shown(i)));
             return;
         }
         (GridKey::Right, Some(_), cell) => {
-            let next = cell.map_or(0, |c| c + 1);
-            if next < columns {
+            let from = cell.map_or(0, |c| c + 1);
+            if let Some(next) = (from..columns).find(|&i| shown(i)) {
                 open.grid_cell = Some(next);
             }
             return;

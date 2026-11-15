@@ -987,6 +987,11 @@ impl Open {
             .as_ref()
             .zip(self.grid_cell)
             .and_then(|(g, c)| g.columns.get(c).cloned());
+        // The sort and hidden columns stay when the grid shows the same element again.
+        let view = self
+            .grid
+            .as_ref()
+            .map(|g| (g.path.clone(), g.view().clone()));
         let expanded: Vec<Vec<u32>> = self
             .tree
             .expanded_ids()
@@ -1018,6 +1023,11 @@ impl Open {
                 self.selected = None;
                 self.grid = None;
             }
+        }
+        if let (Some(grid), Some((path, view))) = (&mut self.grid, view)
+            && grid.path == path
+        {
+            grid.set_view(&self.doc, view);
         }
         let focus = match focus {
             Some(p) => self.doc.index.element_at_position(&p),
