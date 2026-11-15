@@ -23,8 +23,16 @@ this file needs the most observation.
   children. Double-clicking a cell that stands for a child element selects that child.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows.
-- **GRID-10** `[planned]` Editing a cell changes the attribute or text in the document
-  (EDIT-5, EDIT-6; built in the engine and CLI).
+- **GRID-10** `[done]` Editing a cell changes the attribute or text in the document
+  (EDIT-5, EDIT-6). Clicking a cell marks it; Left and Right move the mark along the row (left
+  of the first column the whole row is marked again). F2 or Enter on the marked cell, or
+  right-click > Edit, edits it in place: Enter saves, Escape or a click elsewhere cancels.
+  Editable are attribute cells (a hatched one adds the attribute), `text()` cells and child
+  cells that show text, when the element holds only text or nothing; the editor starts with
+  the whole value, not the 200 characters the cell shows. Enter on a cell that stands for
+  child elements opens it; F2 on a cell that cannot be edited says why in the status bar.
+  Saving an unchanged value, or nothing into a hatched cell, changes nothing. Each edit is
+  one undo step, and the row and cell stay marked.
 - **GRID-11** `[done]` Above the child table, a table of the selected element's own
   attributes: name and value (XM-30). It folds away, and scrolls beyond six attributes.
 - **GRID-12** `[done]` A child element that has attributes or children of its own gets a
@@ -41,8 +49,9 @@ this file needs the most observation.
   (XM-37). The grid does not change. To be tried before it is kept.
 - **GRID-17** `[done]` Keyboard, after a click in the grid: Up and Down move the marked row,
   Home and End go to the first and last, Page Up and Page Down move by 20 rows; the text
-  follows and the grid scrolls the row into view. Enter opens the marked row, as a double-click
-  does (GRID-7). Backspace goes back to the parent (Drill Up, TREE-10).
+  follows and the grid scrolls the row into view. The marked column stays. Enter opens the
+  marked row, as a double-click does (GRID-7), when no cell is marked (GRID-10). Backspace
+  goes back to the parent (Drill Up, TREE-10).
 - **GRID-18** `[done]` The row-number column is as wide as the largest row number.
 
 ## Known gaps
@@ -60,6 +69,10 @@ this file needs the most observation.
   `@currency` and `text()`.
 - Select `orders` in the fixture, click a row, press End: row 211,383 is marked and shown, its
   number on one line.
+- In a CRLF file with a byte order mark, click the hatched `@status` cell of an order, press
+  F2, type `new`, Enter: only ` status="new"` is added to that start tag. Click a `customer`
+  cell holding `Günther &amp; Söhne`, press Enter, then Escape: nothing changes. Ctrl+Z undoes
+  the edit, and the file saves byte for byte as before.
 
 ## Seen in the reference programs
 
@@ -104,5 +117,5 @@ today.
 ## Questions
 
 1. Is there anything you wish XML Marker's grid did differently? Open for now.
-2. The owner mostly reads the grid. Copy grid to clipboard and in-place editing (GRID-10)
-   could be handy. Which comes first?
+2. The owner mostly reads the grid. Copy grid to clipboard could be handy; in-place editing
+   (GRID-10) came first.

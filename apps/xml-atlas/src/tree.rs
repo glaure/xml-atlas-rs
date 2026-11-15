@@ -2,12 +2,13 @@
 
 use std::ops::Range;
 
-use egui::{Align2, Color32, FontId, Sense, Shape, Ui, pos2, vec2};
+use egui::{Align2, Color32, FontId, Key, Rect, Sense, Shape, Ui, pos2, vec2};
 use xml_atlas_engine::Document;
+use xml_atlas_engine::command::{self, Direction};
 use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, ROOT};
 
-use crate::app::Open;
+use crate::app::{Note, Open, Shift};
 use crate::highlight::Palette;
 use crate::icons;
 
@@ -31,6 +32,27 @@ pub enum TreeKey {
     PageDown,
 }
 
+/// Edits from the tree (TREE-9), on the marked row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeCommand {
+    /// F2: rename the element in place.
+    Rename,
+    /// Delete: the element, comment or text; on an attribute row, the attribute.
+    Delete,
+    /// Ctrl+D.
+    Duplicate,
+    /// Alt+Shift+Up and Alt+Shift+Down.
+    Move(Direction),
+}
+
+/// An element being renamed in place. Enter saves, Escape or a click elsewhere cancels.
+struct Rename {
+    id: NodeId,
+    name: String,
+    /// Keyboard focus has been asked for.
+    focused: bool,
+}
+
 pub struct TreeState {
     pub options: TreeOptions,
     expanded: Vec<bool>,
@@ -43,6 +65,7 @@ pub struct TreeState {
     scroll_to: Option<usize>,
     /// Rows on screen in the last frame.
     visible: Range<usize>,
+    rename: Option<Rename>,
 }
 
 impl TreeState {
@@ -55,6 +78,7 @@ impl TreeState {
             dirty: true,
             scroll_to: None,
             visible: 0..0,
+            rename: None,
         };
         if let Some(root) = doc.index.root_element() {
             s.expanded[root as usize] = true;
@@ -168,6 +192,11 @@ impl TreeState {
         (target != cur).then(|| self.rows[target])
     }
 
+    /// The marked row.
+    pub fn selected(&self) -> Option<Row> {
+        self.selected
+    }
+
     /// Shows or hides attribute rows.
     pub fn set_attributes(&mut self, show: bool) {
         if self.options.attributes != show {
@@ -201,6 +230,9 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let palette = Palette::new(visuals.dark_mode);
     let mut toggle = None;
     let mut clicked = None;
+    let mut chosen = None;
+    let mut renamed = None;
+    let mut rename_shown = false;
     area.show_rows(ui, row_h, open.tree.rows.len(), |ui, range| {
         open.tree.visible = range.clone();
         for i in range {
@@ -241,6 +273,15 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
             let text = |pos, s: &str, color| {
                 painter.text(pos, Align2::LEFT_CENTER, s, font.clone(), color)
             };
+            let renaming = open.tree.rename.as_mut().filter(|r| row == Row::Node(r.id));
+            if let Some(rename) = renaming {
+                rename_shown = true;
+                let at = Rect::from_min_max(pos2(left.x - 2.0, rect.top()), rect.max);
+                if let Some(save) = rename_editor(ui, at, rename) {
+                    renamed = Some(save);
+                }
+                continue;
+            }
             match tree::label(doc, row) {
                 Label::Element { name, hint } => {
                     let r = text(left, &name, strong);
@@ -260,6 +301,15 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                     text(left, &s, weak);
                 }
             }
+            // A right-click marks the row, then offers what can be done to it.
+            if resp.secondary_clicked() {
+                clicked = Some(row);
+            }
+            resp.context_menu(|ui| {
+                if let Some(command) = context_menu(ui, doc, row) {
+                    chosen = Some((row, command));
+                }
+            });
             if resp.clicked() {
                 let on_arrow = resp
                     .interact_pointer_pos()
@@ -284,6 +334,188 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     }
     if let Some(row) = clicked {
         select_row(open, row);
+    }
+    if let Some(save) = renamed {
+        finish_rename(open, save);
+    } else if open.tree.rename.is_some() && !rename_shown {
+        // The row scrolled out of view or was collapsed away: the rename is cancelled.
+        open.tree.rename = None;
+    }
+    if let Some((row, command)) = chosen {
+        select_row(open, row);
+        run(open, row, command);
+    }
+}
+
+/// Runs `command` on `row` (TREE-9). Each edit is one undo step; the selection follows a
+/// moved element, goes to a copy, and after a delete to the element that took its place.
+pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
+    let doc = &open.doc;
+    let element = match row {
+        Row::Node(id) if doc.index.node(id).kind == NodeKind::Element => Some(id),
+        _ => None,
+    };
+    let position = element.map(|id| doc.index.element_position(id));
+    match (command, row) {
+        (TreeCommand::Rename, _) => match element {
+            Some(id) => {
+                let name = String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned();
+                open.tree.rename = Some(Rename {
+                    id,
+                    name,
+                    focused: false,
+                });
+            }
+            None => open.note = Some(Note::refused("Only elements can be renamed")),
+        },
+        (TreeCommand::Delete, Row::Attribute { element, index }) => {
+            let Some((name, _)) = doc
+                .index
+                .attributes(&doc.src, element)
+                .into_iter()
+                .nth(index as usize)
+            else {
+                return;
+            };
+            open.command(
+                "remove the attribute",
+                |d| command::remove_attribute(d, element, &name).map(Some),
+                Shift::None,
+            );
+        }
+        (TreeCommand::Delete, Row::FoldedText(element)) => open.command(
+            "delete the text",
+            |d| command::set_text(d, element, "").map(Some),
+            Shift::None,
+        ),
+        (TreeCommand::Delete, Row::Node(id)) => {
+            let shift = position.map_or(Shift::None, Shift::Remove);
+            open.command("delete", |d| command::delete(d, id).map(Some), shift);
+        }
+        (TreeCommand::Duplicate | TreeCommand::Move(_), _) => {
+            let (Some(id), Some(p)) = (element, position) else {
+                open.note = Some(Note::refused("Only elements can be duplicated or moved"));
+                return;
+            };
+            let next = |p: &[u32], up: bool| {
+                let mut q = p.to_vec();
+                let last = q.last_mut().expect("an element has a position");
+                *last = if up {
+                    last.saturating_sub(1)
+                } else {
+                    *last + 1
+                };
+                q
+            };
+            match command {
+                TreeCommand::Duplicate => open.command(
+                    "duplicate",
+                    |d| command::duplicate(d, id).map(Some),
+                    Shift::Insert(next(&p, false)),
+                ),
+                TreeCommand::Move(direction) => {
+                    let other = next(&p, direction == Direction::Up);
+                    open.command(
+                        "move",
+                        |d| command::move_element(d, id, direction).map(Some),
+                        Shift::Swap(p, other),
+                    );
+                }
+                _ => unreachable!("matched above"),
+            }
+        }
+    }
+}
+
+/// The rename field, over the row's label. `Some(true)` when Enter saves it, `Some(false)`
+/// when Escape or a click elsewhere closes it.
+fn rename_editor(ui: &mut Ui, at: Rect, rename: &mut Rename) -> Option<bool> {
+    let resp = ui.put(
+        at,
+        egui::TextEdit::singleline(&mut rename.name)
+            .id_salt("tree-rename")
+            .margin(vec2(2.0, 0.0)),
+    );
+    if !rename.focused {
+        resp.request_focus();
+        rename.focused = true;
+    }
+    resp.lost_focus()
+        .then(|| ui.input(|i| i.key_pressed(Key::Enter)))
+}
+
+fn finish_rename(open: &mut Open, save: bool) {
+    let Some(rename) = open.tree.rename.take() else {
+        return;
+    };
+    if !save {
+        return;
+    }
+    let unchanged = open.doc.index.name(&open.doc.src, rename.id) == rename.name.as_bytes();
+    open.command(
+        "rename",
+        |d| {
+            if unchanged {
+                return Ok(None);
+            }
+            command::rename(d, rename.id, &rename.name).map(Some)
+        },
+        Shift::None,
+    );
+}
+
+/// The right-click menu of a row. Returns the command chosen.
+fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
+    let idx = &doc.index;
+    let mut chosen = None;
+    let mut item = |ui: &mut Ui, enabled: bool, text: &str, command| {
+        if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
+            chosen = Some(command);
+        }
+    };
+    match row {
+        Row::Node(id) if idx.node(id).kind == NodeKind::Element => {
+            let inner = Some(id) != idx.root_element();
+            item(ui, true, "Rename    F2", TreeCommand::Rename);
+            item(ui, inner, "Delete    Del", TreeCommand::Delete);
+            item(ui, inner, "Duplicate    Ctrl+D", TreeCommand::Duplicate);
+            ui.separator();
+            let up = inner && has_sibling(doc, id, Direction::Up);
+            let down = inner && has_sibling(doc, id, Direction::Down);
+            item(
+                ui,
+                up,
+                "Move up    Alt+Shift+↑",
+                TreeCommand::Move(Direction::Up),
+            );
+            item(
+                ui,
+                down,
+                "Move down    Alt+Shift+↓",
+                TreeCommand::Move(Direction::Down),
+            );
+        }
+        Row::Attribute { .. } => item(ui, true, "Delete attribute    Del", TreeCommand::Delete),
+        Row::Node(_) | Row::FoldedText(_) => item(ui, true, "Delete    Del", TreeCommand::Delete),
+    }
+    if chosen.is_some() {
+        ui.close();
+    }
+    chosen
+}
+
+/// Whether element `id` has an element sibling before or after it, so it can move there.
+fn has_sibling(doc: &Document, id: NodeId, direction: Direction) -> bool {
+    let idx = &doc.index;
+    let is_element = |c: NodeId| idx.node(c).kind == NodeKind::Element;
+    match direction {
+        Direction::Up => idx
+            .children(idx.node(id).parent)
+            .take_while(|&c| c != id)
+            .any(is_element),
+        Direction::Down => {
+            std::iter::successors(idx.next_sibling(id), |&c| idx.next_sibling(c)).any(is_element)
+        }
     }
 }
 

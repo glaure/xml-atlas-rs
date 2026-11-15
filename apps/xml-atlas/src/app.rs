@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
+use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{Document, Edit, EditError, FormatError, FormatOptions};
 
@@ -31,7 +32,7 @@ pub struct App {
     loading: Option<Loading>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
-    notice: Option<String>,
+    notice: Option<Note>,
     /// The Format options dialog, with the values being edited.
     format_dialog: Option<FormatOptions>,
 }
@@ -75,6 +76,93 @@ pub struct Open {
     pub keys: Pane,
     /// Grid row to scroll into view on the next frame.
     pub grid_scroll_to: Option<usize>,
+    /// The marked grid cell of the marked row: an index into the grid's columns. `None`
+    /// marks the whole row.
+    pub grid_cell: Option<usize>,
+    /// The grid cell being edited (GRID-10).
+    pub grid_edit: Option<crate::grid::CellEditor>,
+    /// What the last edit command did, or why it could not; the app shows it.
+    pub note: Option<Note>,
+}
+
+/// How a structured edit moves elements among their siblings, so that the selection and
+/// the expanded tree rows follow them. Positions are as [`xml_atlas_engine::xml::Index::element_position`]
+/// gives them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Shift {
+    /// No element moves (rename, set text or attribute).
+    None,
+    /// Two siblings swap places (move up or down).
+    Swap(Vec<u32>, Vec<u32>),
+    /// A new element at this position (duplicate); it becomes the selection.
+    Insert(Vec<u32>),
+    /// The element at this position is gone (delete); the next one takes its place.
+    Remove(Vec<u32>),
+}
+
+impl Shift {
+    /// Where the element at `p` is after the edit; `None` when it is gone.
+    pub fn remap(&self, p: &[u32]) -> Option<Vec<u32>> {
+        let mut out = p.to_vec();
+        match self {
+            Shift::None => {}
+            Shift::Swap(a, b) => {
+                if p.starts_with(a) {
+                    out[a.len() - 1] = b[b.len() - 1];
+                } else if p.starts_with(b) {
+                    out[b.len() - 1] = a[a.len() - 1];
+                }
+            }
+            Shift::Insert(at) => {
+                if let Some(k) = sibling_level(at, p)
+                    && p[k] >= at[k]
+                {
+                    out[k] += 1;
+                }
+            }
+            Shift::Remove(at) => {
+                if p.starts_with(at) {
+                    return None;
+                }
+                if let Some(k) = sibling_level(at, p)
+                    && p[k] > at[k]
+                {
+                    out[k] -= 1;
+                }
+            }
+        }
+        Some(out)
+    }
+}
+
+/// The level at which `p` is at or under a sibling of `at`: they share `at`'s parent.
+fn sibling_level(at: &[u32], p: &[u32]) -> Option<usize> {
+    let k = at.len().checked_sub(1)?;
+    (p.len() > k && p[..k] == at[..k]).then_some(k)
+}
+
+/// A line for the status bar about the last command.
+#[derive(Clone, Debug)]
+pub struct Note {
+    pub text: String,
+    /// The command was refused: drawn as a warning.
+    pub refused: bool,
+}
+
+impl Note {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            refused: false,
+        }
+    }
+
+    pub fn refused(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            refused: true,
+        }
+    }
 }
 
 /// A view that takes arrow keys.
@@ -167,6 +255,9 @@ impl App {
             problems: Vec::new(),
             keys: Pane::Tree,
             grid_scroll_to: None,
+            grid_cell: None,
+            grid_edit: None,
+            note: None,
         };
         open.problems = open.doc.problems();
         open.tree.set_attributes(self.settings.tree_attributes);
@@ -352,9 +443,9 @@ impl App {
             Ok(out) => {
                 let edit = Edit::whole(label, open.doc.src.len(), out);
                 match open.edit(|doc| doc.apply(edit).map(|()| true)) {
-                    Ok(_) => self.notice = Some(notice(options)),
+                    Ok(_) => self.notice = Some(Note::info(notice(options))),
                     // Already formatted: the edit changes nothing.
-                    Err(EditError::Empty) => self.notice = Some(notice(options)),
+                    Err(EditError::Empty) => self.notice = Some(Note::info(notice(options))),
                     Err(e) => self.message = Some(format!("Cannot {label}: {e}")),
                 }
             }
@@ -370,7 +461,7 @@ impl App {
             label = doc.undo();
             Ok(label.is_some())
         }) {
-            self.notice = label.map(|l| format!("Undid {l}"));
+            self.notice = label.map(|l| Note::info(format!("Undid {l}")));
         }
     }
 
@@ -382,7 +473,7 @@ impl App {
             label = doc.redo();
             Ok(label.is_some())
         }) {
-            self.notice = label.map(|l| format!("Redid {l}"));
+            self.notice = label.map(|l| Note::info(format!("Redid {l}")));
         }
     }
 
@@ -677,7 +768,12 @@ impl App {
                 s.timings.total().as_secs_f64() * 1000.0,
             ));
             if let Some(n) = &self.notice {
-                ui.label(RichText::new(format!("  ·  {n}")).weak());
+                let text = RichText::new(format!("  ·  {}", n.text));
+                ui.label(if n.refused {
+                    text.color(ui.visuals().warn_fg_color)
+                } else {
+                    text.weak()
+                });
             }
             if let Some(i) = open
                 .problems
@@ -798,6 +894,9 @@ impl eframe::App for App {
                 crate::text_view::show(ui, open);
             });
         });
+        if let Some(note) = open.note.take() {
+            self.notice = Some(note);
+        }
     }
 }
 
@@ -809,12 +908,82 @@ impl Open {
         &mut self,
         change: impl FnOnce(&mut Document) -> Result<bool, EditError>,
     ) -> Result<bool, EditError> {
+        self.edit_with(change, &Shift::None)
+    }
+
+    /// Runs a structured edit (EDIT-5 to EDIT-10) as one undo step and notes what it did.
+    /// `what` names the command in a refusal; `shift` says how it moves elements, so that
+    /// the selection and the expanded rows follow.
+    pub fn command(
+        &mut self,
+        what: &str,
+        make: impl FnOnce(&Document) -> Result<Option<Edit>, CommandError>,
+        shift: Shift,
+    ) {
+        if let Some(e) = &self.doc.index.error {
+            self.note = Some(Note::refused(format!(
+                "Cannot {what}: the document is not well-formed ({e})"
+            )));
+            return;
+        }
+        let edit = match make(&self.doc) {
+            Ok(Some(edit)) => edit,
+            Ok(None) => return,
+            Err(e) => {
+                self.note = Some(Note::refused(format!("Cannot {what}: {e}")));
+                return;
+            }
+        };
+        let label = edit.label().to_string();
+        self.note = Some(
+            match self.edit_with(|doc| doc.apply(edit).map(|()| true), &shift) {
+                Ok(_) => Note::info(label),
+                Err(EditError::Empty) => {
+                    // Two equal siblings swapped: the bytes stay, but the selection moves as
+                    // asked, so that pressing the key again goes on moving.
+                    if let Shift::Swap(_, to) = &shift
+                        && let Some(id) = self.doc.index.element_at_position(to)
+                    {
+                        self.select(id);
+                    }
+                    Note::info(format!("{label}: nothing to change"))
+                }
+                Err(e) => Note::refused(format!("Cannot {what}: {e}")),
+            },
+        );
+    }
+
+    /// [`Open::edit`], with positions moved by `shift`. When nothing is at the selection's
+    /// position any more (it was deleted), the selection goes to the element after it, else
+    /// the one before, else its parent. A marked grid row and cell stay marked.
+    fn edit_with(
+        &mut self,
+        change: impl FnOnce(&mut Document) -> Result<bool, EditError>,
+        shift: &Shift,
+    ) -> Result<bool, EditError> {
         let idx = &self.doc.index;
-        let selected = self.selected.map(|id| idx.element_position(id));
+        let selected = self.selected.map(|id| {
+            let p = idx.element_position(id);
+            match shift {
+                Shift::Insert(at) => at.clone(),
+                _ => shift.remap(&p).unwrap_or(p),
+            }
+        });
+        let focus = self
+            .focus
+            .filter(|&f| Some(f) != self.selected)
+            .map(|id| idx.element_position(id))
+            .filter(|p| !p.is_empty())
+            .and_then(|p| shift.remap(&p));
+        let column = self
+            .grid
+            .as_ref()
+            .zip(self.grid_cell)
+            .and_then(|(g, c)| g.columns.get(c).cloned());
         let expanded: Vec<Vec<u32>> = self
             .tree
             .expanded_ids()
-            .map(|id| idx.element_position(id))
+            .filter_map(|id| shift.remap(&idx.element_position(id)))
             .collect();
         if !change(&mut self.doc)? {
             return Ok(false);
@@ -834,13 +1003,25 @@ impl Open {
         self.focus = None;
         self.mark = None;
         let selected = selected
-            .and_then(|p| self.doc.index.element_at_position(&p))
+            .and_then(|p| nearest_element(&self.doc, p))
             .or_else(|| self.doc.index.root_element());
         match selected {
             Some(id) => self.select(id),
             None => {
                 self.selected = None;
                 self.grid = None;
+            }
+        }
+        let focus = match focus {
+            Some(p) => self.doc.index.element_at_position(&p),
+            // The grid shows the selection itself as its one row (GRID-5).
+            None => self.selected.filter(|_| column.is_some()),
+        };
+        if let Some(id) = focus {
+            self.focus(id);
+            if let Some(grid) = &self.grid {
+                self.grid_scroll_to = grid.rows.iter().position(|&r| r == id);
+                self.grid_cell = column.and_then(|c| grid.columns.iter().position(|g| *g == c));
             }
         }
         Ok(true)
@@ -853,6 +1034,8 @@ impl Open {
         self.focus = Some(id);
         self.mark = None;
         self.grid = Some(Grid::build(&self.doc, id));
+        self.grid_cell = None;
+        self.grid_edit = None;
         self.tree.reveal(&self.doc, id);
         self.scroll_text_to = Some(self.doc.line_of(self.doc.index.node(id).start));
     }
@@ -912,6 +1095,26 @@ impl Open {
     }
 }
 
+/// The element at `position`, else the one before it among its siblings, else the nearest
+/// ancestor that is still there. After a delete the element at the position is the one that
+/// followed the deleted one.
+fn nearest_element(doc: &Document, mut position: Vec<u32>) -> Option<NodeId> {
+    let idx = &doc.index;
+    while let Some(&last) = position.last() {
+        if let Some(id) = idx.element_at_position(&position) {
+            return Some(id);
+        }
+        if last > 0 {
+            *position.last_mut().expect("not empty") = last - 1;
+            if let Some(id) = idx.element_at_position(&position) {
+                return Some(id);
+            }
+        }
+        position.pop();
+    }
+    None
+}
+
 /// `s` cut from the left to at most `max` characters, with `…` where it was cut: the end of
 /// a folder path says more than its start.
 fn shorten_left(s: &str, max: usize) -> String {
@@ -927,4 +1130,42 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shifts_follow_the_moved_elements() {
+        let swap = Shift::Swap(vec![0, 2], vec![0, 3]);
+        assert_eq!(swap.remap(&[0, 2]), Some(vec![0, 3]));
+        assert_eq!(swap.remap(&[0, 3, 1]), Some(vec![0, 2, 1]));
+        assert_eq!(swap.remap(&[0, 4]), Some(vec![0, 4]));
+        assert_eq!(swap.remap(&[0]), Some(vec![0]));
+        let insert = Shift::Insert(vec![0, 2]);
+        assert_eq!(insert.remap(&[0, 1]), Some(vec![0, 1]));
+        assert_eq!(insert.remap(&[0, 2, 5]), Some(vec![0, 3, 5]));
+        assert_eq!(insert.remap(&[1, 3]), Some(vec![1, 3]));
+        let remove = Shift::Remove(vec![0, 2]);
+        assert_eq!(remove.remap(&[0, 2]), None);
+        assert_eq!(remove.remap(&[0, 2, 0]), None);
+        assert_eq!(remove.remap(&[0, 3, 1]), Some(vec![0, 2, 1]));
+        assert_eq!(remove.remap(&[0, 1]), Some(vec![0, 1]));
+        assert_eq!(remove.remap(&[0]), Some(vec![0]));
+    }
+
+    #[test]
+    fn nearest_element_falls_back_to_the_previous_sibling_then_the_parent() {
+        let doc = Document::from_bytes("<r><a/><b><c/></b></r>".as_bytes().to_vec());
+        let name = |p: Vec<u32>| {
+            let id = nearest_element(&doc, p).unwrap();
+            String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned()
+        };
+        assert_eq!(name(vec![0, 1]), "b");
+        assert_eq!(name(vec![0, 2]), "b");
+        assert_eq!(name(vec![0, 1, 1]), "c");
+        assert_eq!(name(vec![0, 0, 0]), "a");
+        assert_eq!(name(vec![0, 5]), "r");
+    }
 }

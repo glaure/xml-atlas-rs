@@ -23,8 +23,9 @@ the structured edits behind grid cells (GRID-10), the tree (TREE-9) and the CLI.
   again (0.4 s for 100 MiB), which also finds and reports the error.
 
 - **EDIT-5** `[done]` Set text: the text of an element that holds only text, or nothing,
-  is replaced. `<a/>` becomes `<a>text</a>`. `&`, `<` and `>` are written as entities. A CDATA
-  section stays one when the new text allows it. An element with child elements, comments or
+  is replaced. `<a/>` becomes `<a>text</a>`. `&`, `<` and `>` are written as entities. A line
+  feed is written as the file's line ending, so a CRLF file stays CRLF; a carriage return on
+  its own as `&#13;`. A CDATA section stays one when the new text allows it. An element with child elements, comments or
   processing instructions is refused, with a message.
 - **EDIT-6** `[done]` Set attribute: the value is replaced inside its quotes, keeping the
   quote character; a new attribute goes after the last one, in double quotes. Values are
@@ -43,8 +44,9 @@ the structured edits behind grid cells (GRID-10), the tree (TREE-9) and the CLI.
   the byte order mark and everything else stay as they were. Each is one undo step. Today
   they are in the engine and the CLI (`xml-atlas-cli set-text|set-attribute|remove-attribute|
   rename|delete|duplicate|move FILE PATH ...`, where PATH is the path the grid shows, such
-  as `/orders/order[2]/customer`); the grid and tree come next (GRID-10, TREE-9). On a
-  100 MiB file each takes 15 to 33 ms, its undo as long.
+  as `/orders/order[2]/customer`), in grid cells (GRID-10) and in the tree (TREE-9). The GUI
+  refuses them while the document is not well-formed. On a 100 MiB file each takes 15 to
+  33 ms, its undo as long.
 
 ## Acceptance tests
 

@@ -11,6 +11,7 @@ use std::ops::Range;
 use xml_atlas_xml::{Folded, NodeId, NodeKind, ROOT};
 
 use crate::format::newline_style;
+use crate::grid::CellTarget;
 use crate::{Document, Edit};
 
 /// Why a command cannot be run. The document is unchanged.
@@ -47,14 +48,12 @@ pub enum Direction {
 
 /// Sets the text of an element that holds only text (or nothing): `<a>old</a>` becomes
 /// `<a>new</a>`, `<a/>` becomes `<a>new</a>`. The text is escaped; a CDATA section stays a
-/// CDATA section when the new text allows it.
+/// CDATA section when the new text allows it. A line feed is written as the document's line
+/// ending, so a CRLF file stays CRLF.
 pub fn set_text(doc: &Document, id: NodeId, text: &str) -> Result<Edit, CommandError> {
     let n = element(doc, id)?;
     let idx = &doc.index;
-    if idx
-        .children(id)
-        .any(|c| !matches!(idx.node(c).kind, NodeKind::Text | NodeKind::CData))
-    {
+    if !holds_only_text(doc, id) {
         return Err(CommandError::NotTextOnly(name(doc, id)));
     }
     let label = format!("Edit <{}>", name(doc, id));
@@ -66,17 +65,19 @@ pub fn set_text(doc: &Document, id: NodeId, text: &str) -> Result<Edit, CommandE
         }
         let name = idx.name(&doc.src, id);
         let mut bytes = b">".to_vec();
-        bytes.extend_from_slice(escape_text(text).as_bytes());
+        bytes.extend_from_slice(escape_text(text, newline_style(&doc.src)).as_bytes());
         bytes.extend_from_slice(b"</");
         bytes.extend_from_slice(name);
         bytes.push(b'>');
         return Ok(Edit::new(label).replace(n.end as usize - 2..n.end as usize, bytes));
     }
     let content = head_end..end_tag_start(doc, id);
-    let new = if n.folded == Folded::CData && !text.contains("]]>") {
+    let newline = newline_style(&doc.src);
+    let new = if n.folded == Folded::CData && !text.contains("]]>") && !text.contains('\r') {
+        let text = text.replace('\n', std::str::from_utf8(newline).expect("ASCII"));
         format!("<![CDATA[{text}]]>")
     } else {
-        escape_text(text)
+        escape_text(text, newline)
     };
     Ok(Edit::new(label).replace(content, new))
 }
@@ -109,6 +110,39 @@ pub fn set_attribute(
         .map_or(n.start as usize + 1 + n.name_len as usize, |s| s.end);
     let bytes = format!(" {attr}=\"{}\"", escape_attribute(value, b'"'));
     Ok(Edit::new(label).replace(at..at, bytes))
+}
+
+/// Sets what a grid cell stands for (GRID-10): an attribute through [`set_attribute`], text
+/// through [`set_text`]. `None` when `value` is what is there already, so that confirming a
+/// cell unchanged leaves its bytes (entities, CDATA) as they were. A missing attribute counts
+/// as empty, so an empty value does not add one.
+pub fn set_cell(
+    doc: &Document,
+    target: &CellTarget,
+    value: &str,
+) -> Result<Option<Edit>, CommandError> {
+    let idx = &doc.index;
+    match target {
+        CellTarget::Attribute { element, name } => {
+            let current = idx
+                .attributes(&doc.src, *element)
+                .into_iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v)
+                .unwrap_or_default();
+            if current == value {
+                return Ok(None);
+            }
+            set_attribute(doc, *element, name, value).map(Some)
+        }
+        CellTarget::Text(id) => {
+            element(doc, *id)?;
+            if as_parsed(&idx.element_text(&doc.src, *id)) == value {
+                return Ok(None);
+            }
+            set_text(doc, *id, value).map(Some)
+        }
+    }
 }
 
 /// Removes attribute `attr` and the whitespace before it.
@@ -304,6 +338,13 @@ fn own_lines(src: &[u8], span: Range<usize>) -> Option<OwnLines> {
     })
 }
 
+/// Whether an element holds nothing but text and CDATA, so that [`set_text`] can replace it.
+pub(crate) fn holds_only_text(doc: &Document, id: NodeId) -> bool {
+    let idx = &doc.index;
+    idx.children(id)
+        .all(|c| matches!(idx.node(c).kind, NodeKind::Text | NodeKind::CData))
+}
+
 fn element(doc: &Document, id: NodeId) -> Result<&xml_atlas_xml::Node, CommandError> {
     let n = doc.index.node(id);
     if n.kind == NodeKind::Element {
@@ -353,15 +394,24 @@ fn check_name(name: &str) -> Result<(), CommandError> {
     }
 }
 
-/// Text content escaped: `&`, `<` and `>` as entities, and a carriage return as a character
-/// reference so that it survives (a parser would turn a bare one into a line feed).
-fn escape_text(s: &str) -> String {
+/// Text as a parser reports it: a CRLF or a lone CR is a line feed. (An escaped `&#13;` is
+/// already a CR here and becomes one too.)
+pub(crate) fn as_parsed(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// Text content escaped: `&`, `<` and `>` as entities, a line feed as `newline`, and a
+/// carriage return as a character reference so that it survives (a parser would turn a bare
+/// one into a line feed).
+fn escape_text(s: &str, newline: &[u8]) -> String {
+    let newline = std::str::from_utf8(newline).expect("ASCII");
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
+            '\n' => out.push_str(newline),
             '\r' => out.push_str("&#13;"),
             c => out.push(c),
         }
@@ -613,5 +663,58 @@ mod tests {
             resolve(&d, "/r//x"),
             Err(CommandError::BadPath(_))
         ));
+    }
+
+    #[test]
+    fn set_cell_changes_only_a_changed_value() {
+        let mut d = doc();
+        let owner = at(&d, "/shop/owner");
+        let id = CellTarget::Attribute {
+            element: owner,
+            name: "id".into(),
+        };
+        let missing = CellTarget::Attribute {
+            element: owner,
+            name: "größe".into(),
+        };
+        let text = CellTarget::Text(owner);
+        // Unchanged values, including decoded entities and a missing attribute left empty,
+        // are no edit at all: `&amp;` is not rewritten.
+        assert_eq!(set_cell(&d, &id, "7"), Ok(None));
+        assert_eq!(set_cell(&d, &missing, ""), Ok(None));
+        assert_eq!(set_cell(&d, &text, "Günther & Söhne"), Ok(None));
+        let script = CellTarget::Text(at(&d, "/shop/script"));
+        assert_eq!(set_cell(&d, &script, "a < b"), Ok(None));
+        assert_eq!(
+            run(&mut d, |d| set_cell(d, &id, "8").map(Option::unwrap)),
+            with("id=\"7\"", "id=\"8\"")
+        );
+        assert_eq!(
+            run(&mut d, |d| set_cell(d, &missing, "ß").map(Option::unwrap)),
+            with("id=\"7\"", "id=\"7\" größe=\"ß\"")
+        );
+        assert_eq!(
+            run(&mut d, |d| set_cell(d, &text, "Söhne").map(Option::unwrap)),
+            with("Günther &amp; Söhne", "Söhne")
+        );
+        // In a CRLF file a line feed is written as CRLF, and text with CRLF line endings
+        // reads back as line feeds, unchanged.
+        assert_eq!(
+            run(&mut d, |d| set_cell(d, &text, "eins\nzwei")
+                .map(Option::unwrap)),
+            with("Günther &amp; Söhne", "eins\r\nzwei")
+        );
+        let lines = "<r>\r\n  <t>eins\r\nzwei</t>\r\n  <c><![CDATA[x]]></c>\r\n</r>\r\n";
+        let mut l = Document::from_bytes(lines.as_bytes().to_vec());
+        let t = CellTarget::Text(at(&l, "/r/t"));
+        assert_eq!(set_cell(&l, &t, "eins\nzwei"), Ok(None));
+        let c = at(&l, "/r/c");
+        l.apply(set_text(&l, c, "a\nb").unwrap()).unwrap();
+        assert!(String::from_utf8_lossy(&l.src).contains("<c><![CDATA[a\r\nb]]></c>"));
+        let mixed = CellTarget::Text(at(&d, "/shop/mixed"));
+        assert_eq!(
+            set_cell(&d, &mixed, "z").unwrap_err(),
+            CommandError::NotTextOnly("mixed".into())
+        );
     }
 }
