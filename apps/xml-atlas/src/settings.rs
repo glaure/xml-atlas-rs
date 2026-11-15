@@ -22,9 +22,9 @@ const APP_DIR: &str = "xml-atlas";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Layout {
     /// The grid above the text.
-    #[default]
     GridAbove,
-    /// The text above the grid, as in XML Marker.
+    /// The text above the grid, as in XML Marker; the default.
+    #[default]
     TextAbove,
 }
 
@@ -322,7 +322,7 @@ mod tests {
                 remove_comments: true,
                 trim_text: true,
             },
-            layout: Layout::TextAbove,
+            layout: Layout::GridAbove,
             theme: ThemeChoice::Light,
             tree_attributes: false,
             cell_pane: false,
@@ -360,6 +360,8 @@ mod tests {
         assert_eq!(s.format.tabs, d.format.tabs);
         assert_eq!(s.layout, d.layout);
         assert_eq!(Settings::from_text(""), d);
+        // As in XML Marker: the text above the grid (WIN-1).
+        assert_eq!(d.layout, Layout::TextAbove);
     }
 
     #[test]
@@ -381,7 +383,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("xml-atlas-settings-{}", std::process::id()));
         let file = dir.join("nested").join(FILE_NAME);
         let s = Settings {
-            layout: Layout::TextAbove,
+            layout: Layout::GridAbove,
             ..Settings::default()
         };
         s.save_to(&file).unwrap();
@@ -389,10 +391,10 @@ mod tests {
         // A damaged line does not cost the readable ones.
         std::fs::write(
             &file,
-            b"\x00\xff [[[ = =\n[view]\nlayout = \"text-above\"\n",
+            b"\x00\xff [[[ = =\n[view]\nlayout = \"grid-above\"\n",
         )
         .unwrap();
-        assert_eq!(Settings::load_from(&file).layout, Layout::TextAbove);
+        assert_eq!(Settings::load_from(&file).layout, Layout::GridAbove);
         std::fs::remove_dir_all(&dir).unwrap();
         // A missing file gives the defaults.
         assert_eq!(Settings::load_from(&file), Settings::default());
