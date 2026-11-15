@@ -37,8 +37,18 @@ of it.
   selects the element that contains it, so tree and grid follow, and is outlined in the text
   (TEXT-11). The bar shows how many matches the document has. Escape closes it. The CLI has
   the same search: `xml-atlas-cli find FILE TEXT [--match-case] [--whole-word]`.
-- **TEXT-14** `[planned]` Replace, with the same options, in the selection or the whole file,
-  and Replace All (XM-46). It needs an editable document (roadmap 0.2).
+- **TEXT-14** `[done]` Replace and Replace All (XM-46): Ctrl+H, or Edit > Replace, opens the
+  Find bar with a Replace row; the same options as Find. Replace replaces the outlined match
+  and finds the next; when nothing is outlined, or the outlined text is no longer a match, it
+  only finds, so the first press shows what the next replaces. Enter in the replacement field
+  is Replace. Replace All replaces every match in the whole document, or with *In selected
+  element* only inside the element selected in tree or grid (its tags included; a text
+  selection takes its place when the text view can be edited, TEXT-9). Like Find, Replace
+  works on the whole source, tags and attribute names too, and inserts the replacement as
+  typed (the owner's choice, 2026-11-15). When that leaves the document not well-formed, the
+  status bar says so, and the problems list shows where. Replace All is one undo step. The
+  CLI has it too: `xml-atlas-cli replace FILE TEXT WITH [--match-case] [--whole-word]
+  [--within PATH] [-o OUT]`, which refuses a result that is not well-formed.
 - **TEXT-15** `[planned]` Regular expressions, and search by element name or attribute value.
 - **TEXT-13** `[planned]` Word wrap can be turned on.
 
@@ -46,6 +56,11 @@ of it.
 
 - Open a file whose comments contain umlauts and CJK characters: no crash, text is intact.
 - Click line 1,000,000 of the 100 MiB fixture: the tree shows the element on that line.
+- In a CRLF file with a byte order mark, Ctrl+H, find `total`, replace with `sum`: Enter
+  outlines the first `total`, Enter again replaces it and the status bar warns that the
+  document is no longer well-formed. Replace All replaces the other five; one Ctrl+Z undoes
+  them, a second the first, and the file is byte for byte as before.
+- Select one `order`, tick *In selected element*, Replace All: only that order's tags change.
 - Open `crates/engine/tests/corpus/one_line.xml` and click row `b` in the grid: only
   `<b><c/><c/></b>` is outlined, inside the root's highlight.
 - Click an attribute row in the tree: only that attribute's `name="value"` is outlined.

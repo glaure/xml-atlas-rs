@@ -685,6 +685,13 @@ impl App {
                     self.find.open();
                 }
                 if ui
+                    .add_enabled(self.open.is_some(), egui::Button::new("Replace…    Ctrl+H"))
+                    .clicked()
+                {
+                    ui.close();
+                    self.find.open_replace();
+                }
+                if ui
                     .add_enabled(self.open.is_some(), egui::Button::new("Format"))
                     .clicked()
                 {

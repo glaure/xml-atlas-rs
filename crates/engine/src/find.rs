@@ -1,4 +1,4 @@
-//! Find text in the source (`docs/spec/text.md`, TEXT-12).
+//! Find and replace text in the source (`docs/spec/text.md`, TEXT-12, TEXT-14).
 //!
 //! The query is a literal, not a pattern: `a.b` finds `a.b`. Matching case ignores case by
 //! Unicode rules (`SÖHNE` finds `Söhne`). Whole word means the characters next to the match are
@@ -7,6 +7,8 @@
 use std::ops::Range;
 
 use regex::bytes::{Regex, RegexBuilder};
+
+use crate::Edit;
 
 /// How far back a backward search first looks. The window grows until it finds a match or
 /// reaches the start.
@@ -129,6 +131,35 @@ impl Finder {
         }
     }
 
+    /// Every match that lies wholly inside `within`, in order, not overlapping.
+    pub fn all(&self, src: &[u8], within: Range<usize>) -> Vec<Range<usize>> {
+        let end = within.end.min(src.len());
+        let mut out = Vec::new();
+        let mut at = within.start;
+        while at < end
+            && let Some(m) = self.forward(src, at, end)
+        {
+            if m.end <= end {
+                at = m.end;
+                out.push(m);
+            } else {
+                // Runs past the end of `within`: not inside it.
+                at = m.start + 1;
+            }
+        }
+        out
+    }
+
+    /// Whether `range` is exactly a match: the one Find found, before Replace replaces it.
+    pub fn is_match(&self, src: &[u8], range: Range<usize>) -> bool {
+        range.end <= src.len()
+            && self
+                .regex
+                .find_at(&src[..range.end], range.start)
+                .is_some_and(|m| m.range() == range)
+            && self.accept(src, range)
+    }
+
     fn accept(&self, src: &[u8], range: Range<usize>) -> bool {
         !self.whole_word
             || (!char_before(src, range.start).is_some_and(is_word)
@@ -141,6 +172,37 @@ fn is_word(c: char) -> bool {
 }
 
 /// The character that ends just before byte `i`, if the bytes there are UTF-8.
+/// Replace (TEXT-14): replaces the match at `range` with `with`, as typed. `None` when
+/// `range` is not a match of `finder`, for instance because the document changed.
+pub fn replace(finder: &Finder, src: &[u8], range: Range<usize>, with: &str) -> Option<Edit> {
+    finder
+        .is_match(src, range.clone())
+        .then(|| Edit::new("Replace").replace(range, with.as_bytes()))
+}
+
+/// Replace All (TEXT-14): one edit, so one undo step, that replaces every match inside
+/// `within` with `with`, as typed; and how many there are. `None` when there is none.
+pub fn replace_all(
+    finder: &Finder,
+    src: &[u8],
+    within: Range<usize>,
+    with: &str,
+) -> Option<(Edit, usize)> {
+    let matches = finder.all(src, within);
+    if matches.is_empty() {
+        return None;
+    }
+    let count = matches.len();
+    let label = match count {
+        1 => "Replace All (1 match)".to_string(),
+        n => format!("Replace All ({n} matches)"),
+    };
+    let edit = matches
+        .into_iter()
+        .fold(Edit::new(label), |e, m| e.replace(m, with.as_bytes()));
+    Some((edit, count))
+}
+
 fn char_before(src: &[u8], i: usize) -> Option<char> {
     let lo = i.saturating_sub(4);
     (lo..i)
@@ -252,5 +314,67 @@ mod tests {
             Finder::new("", FindOptions::default()),
             Err(FindError::Empty)
         ));
+    }
+
+    #[test]
+    fn replace_all_changes_every_match_and_undoes_in_one_step() {
+        let src = "\u{feff}<r>\r\n  <a k=\"Söhne\">Söhne &amp; SÖHNE</a>\r\n  <b>Söhnefeld</b>\r\n</r>\r\n";
+        let mut doc = crate::Document::from_bytes(src.as_bytes().to_vec());
+        let finder = Finder::new("söhne", WORD).unwrap();
+        let (edit, count) = replace_all(&finder, &doc.src, 0..doc.src.len(), "Töchter").unwrap();
+        assert_eq!(count, 3);
+        assert_eq!(edit.label(), "Replace All (3 matches)");
+        let revision = doc.revision();
+        doc.apply(edit).unwrap();
+        assert!(doc.revision() > revision);
+        assert_eq!(
+            String::from_utf8(doc.src.clone()).unwrap(),
+            src.replace("Söhne\"", "Töchter\"")
+                .replace("Söhne &amp; SÖHNE", "Töchter &amp; Töchter")
+        );
+        assert!(doc.index.error.is_none());
+        doc.undo();
+        assert_eq!(doc.src, src.as_bytes());
+        // Nothing to replace.
+        assert!(
+            replace_all(
+                &Finder::new("x y", CASE).unwrap(),
+                &doc.src,
+                0..doc.src.len(),
+                "z"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn replace_all_within_an_element_keeps_to_it() {
+        let src = "<r><a>xx</a><b>x<c>x</c></b><d>x</d></r>";
+        let finder = Finder::new("x", CASE).unwrap();
+        let b = src.find("<b>").unwrap()..src.find("<d>").unwrap();
+        let (edit, count) = replace_all(&finder, src.as_bytes(), b, "y").unwrap();
+        assert_eq!(count, 2);
+        let mut doc = crate::Document::from_bytes(src.as_bytes().to_vec());
+        doc.apply(edit).unwrap();
+        assert_eq!(doc.src, b"<r><a>xx</a><b>y<c>y</c></b><d>x</d></r>");
+        // A match that runs past the end of the range is not inside it.
+        let finder = Finder::new("ab", CASE).unwrap();
+        assert_eq!(finder.all(b"abab", 0..3), vec![0..2]);
+        assert_eq!(finder.all(b"abab", 1..4), vec![2..4]);
+    }
+
+    #[test]
+    fn replace_needs_the_range_to_be_a_match() {
+        let finder = Finder::new("söhne", WORD).unwrap();
+        let src = SRC.as_bytes();
+        let first = find("söhne", WORD, 0, Direction::Forward).unwrap().range;
+        let edit = replace(&finder, src, first.clone(), "Kinder").unwrap();
+        let mut doc = crate::Document::from_bytes(src.to_vec());
+        doc.apply(edit).unwrap();
+        assert!(String::from_utf8_lossy(&doc.src).starts_with("<a>Kinder</a>"));
+        // Shifted by a byte, or a part of a longer word with whole word on: not a match.
+        assert!(replace(&finder, src, first.start + 1..first.end + 1, "x").is_none());
+        let feld = SRC.find("Söhnefeld").unwrap();
+        assert!(replace(&finder, src, feld..feld + "Söhne".len(), "x").is_none());
     }
 }

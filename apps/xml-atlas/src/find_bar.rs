@@ -1,18 +1,22 @@
-//! Find bar above the text view (`docs/spec/text.md`, TEXT-12).
+//! Find bar above the text view (`docs/spec/text.md`, TEXT-12, TEXT-14).
 //!
-//! Ctrl+F opens it, Escape closes it. Enter or F3 finds the next match, Shift+Enter or
-//! Shift+F3 the previous one. A match selects the element that contains it, so tree and grid
-//! follow, and is outlined in the text.
+//! Ctrl+F opens it, Ctrl+H opens it with a Replace row, Escape closes it. Enter or F3 finds
+//! the next match, Shift+Enter or Shift+F3 the previous one. A match selects the element that
+//! contains it, so tree and grid follow, and is outlined in the text. Replace replaces the
+//! outlined match and finds the next; Replace All replaces every match, in the whole document
+//! or in the selected element, as one undo step.
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
-use xml_atlas_engine::find::{Direction, FindOptions, Finder};
+use xml_atlas_engine::find::{self, Direction, FindOptions, Finder};
+use xml_atlas_engine::{Edit, EditError};
 
-use crate::app::Open;
+use crate::app::{Note, Open};
 
 /// Matches counted at most, so a very common query does not stall typing.
 const COUNT_LIMIT: usize = 1_000_000;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+const OPEN_REPLACE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
 const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
 const PREVIOUS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::SHIFT, Key::F3);
 
@@ -25,12 +29,19 @@ pub struct FindBar {
     compiled: Option<Compiled>,
     /// Number of matches in the document, shown after the buttons.
     count: String,
-    /// The document `count` belongs to (address and length of its source), so that it is
-    /// recounted when another file is opened.
-    counted: Option<(usize, usize)>,
+    /// The document `count` belongs to (address and length of its source, and its revision),
+    /// so that it is recounted when another file is opened or the document changes.
+    counted: Option<(usize, usize, u64)>,
     /// What the last search said: "not found", "continued from the top".
     note: String,
     focus_field: bool,
+    /// The Replace row is shown (TEXT-14).
+    pub replacing: bool,
+    /// The replacement text.
+    with: String,
+    /// Replace All only inside the selected element.
+    in_selection: bool,
+    focus_with: bool,
 }
 
 struct Compiled {
@@ -56,10 +67,25 @@ impl FindBar {
         self.focus_field = true;
     }
 
+    /// Shows the bar with the Replace row; the cursor goes to the replacement when there is
+    /// already something to find.
+    pub fn open_replace(&mut self) {
+        self.visible = true;
+        self.replacing = true;
+        if self.query.is_empty() {
+            self.focus_field = true;
+        } else {
+            self.focus_with = true;
+        }
+    }
+
     /// Global shortcuts; call once per frame before the panels are drawn.
     pub fn shortcuts(&mut self, ctx: &egui::Context, open: Option<&mut Open>) {
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
             self.open();
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&OPEN_REPLACE)) {
+            self.open_replace();
         }
         let Some(open) = open else { return };
         // Shift+F3 first: the plain F3 shortcut would also match it.
@@ -133,15 +159,122 @@ impl FindBar {
                 if ui.button("✕").on_hover_text("Close (Escape)").clicked() {
                     self.visible = false;
                 }
+                let toggle = if self.replacing {
+                    "Find only"
+                } else {
+                    "Replace…"
+                };
+                if ui.button(toggle).on_hover_text("Ctrl+H").clicked() {
+                    self.replacing = !self.replacing;
+                    self.focus_with = self.replacing;
+                }
             });
         });
+        let mut action = None;
+        if self.replacing {
+            ui.horizontal(|ui| {
+                ui.label("Replace with");
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.with)
+                        .desired_width(260.0)
+                        .hint_text("inserted as typed"),
+                );
+                if std::mem::take(&mut self.focus_with) {
+                    field.request_focus();
+                }
+                if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    action = Some(false);
+                    field.request_focus();
+                }
+                if (field.has_focus() || field.lost_focus())
+                    && ui.input(|i| i.key_pressed(Key::Escape))
+                {
+                    self.visible = false;
+                }
+                if ui
+                    .button("Replace")
+                    .on_hover_text("Replace the outlined match and find the next (Enter)")
+                    .clicked()
+                {
+                    action = Some(false);
+                }
+                if ui.button("Replace All").clicked() {
+                    action = Some(true);
+                }
+                ui.add_enabled(
+                    open.selected.is_some(),
+                    egui::Checkbox::new(&mut self.in_selection, "In selected element"),
+                )
+                .on_hover_text("Replace All only inside the element selected in tree or grid");
+            });
+        }
         if let Some(d) = direction {
             self.find(open, d);
+        }
+        match action {
+            Some(true) => self.replace_all(open),
+            Some(false) => self.replace(open),
+            None => {}
+        }
+    }
+
+    /// Replaces the outlined match, when it is one, and finds the next. Otherwise only finds
+    /// the next, so the first press shows what the second will replace.
+    fn replace(&mut self, open: &mut Open) {
+        let with = self.with.clone();
+        let edit = match (self.finder(), &open.mark) {
+            (Some(finder), Some(m)) => {
+                let range = m.start as usize..m.end as usize;
+                find::replace(finder, &open.doc.src, range.clone(), &with)
+                    .map(|e| (e, range.start + with.len()))
+            }
+            _ => None,
+        };
+        let Some((edit, after)) = edit else {
+            self.find(open, Direction::Forward);
+            return;
+        };
+        apply(open, edit, "Replaced 1 match".into());
+        self.find_from(open, after, Direction::Forward);
+    }
+
+    /// Replaces every match, in the selected element or the whole document, as one step.
+    fn replace_all(&mut self, open: &mut Open) {
+        let within = match open.selected.filter(|_| self.in_selection) {
+            Some(id) => open.doc.index.node(id).span(),
+            None => 0..open.doc.src.len(),
+        };
+        let with = self.with.clone();
+        let Some(finder) = self.finder() else {
+            return;
+        };
+        match find::replace_all(finder, &open.doc.src, within, &with) {
+            Some((edit, count)) => {
+                let done = match count {
+                    1 => "Replaced 1 match".to_string(),
+                    n => format!("Replaced {n} matches"),
+                };
+                apply(open, edit, done);
+                self.note.clear();
+            }
+            None => self.note = "Not found".into(),
         }
     }
 
     /// Finds the next match in `direction` from the current one, or from the selection.
     fn find(&mut self, open: &mut Open, direction: Direction) {
+        let from = match (&open.mark, direction) {
+            (Some(m), Direction::Forward) => m.start as usize + 1,
+            (Some(m), Direction::Backward) => m.start as usize,
+            (None, _) => open
+                .selected
+                .map_or(0, |id| open.doc.index.node(id).start as usize),
+        };
+        self.find_from(open, from, direction);
+    }
+
+    /// Finds the next match in `direction` from byte `from`.
+    fn find_from(&mut self, open: &mut Open, from: usize, direction: Direction) {
         let Some(finder) = self.finder() else {
             self.note = if self.query.is_empty() {
                 String::new()
@@ -149,13 +282,6 @@ impl FindBar {
                 "Cannot search for this text".into()
             };
             return;
-        };
-        let from = match (&open.mark, direction) {
-            (Some(m), Direction::Forward) => m.start as usize + 1,
-            (Some(m), Direction::Backward) => m.start as usize,
-            (None, _) => open
-                .selected
-                .map_or(0, |id| open.doc.index.node(id).start as usize),
         };
         let Some(found) = finder.next(&open.doc.src, from, direction) else {
             self.note = "Not found".into();
@@ -217,6 +343,26 @@ impl FindBar {
     }
 }
 
-fn doc_key(open: &Open) -> (usize, usize) {
-    (open.doc.src.as_ptr() as usize, open.doc.src.len())
+fn doc_key(open: &Open) -> (usize, usize, u64) {
+    (
+        open.doc.src.as_ptr() as usize,
+        open.doc.src.len(),
+        open.doc.revision(),
+    )
+}
+
+/// Applies a replacement as one undo step and says what it did. Replacing is plain text, so
+/// it can break the markup: then the status bar says so, and Ctrl+Z undoes it.
+fn apply(open: &mut Open, edit: Edit, done: String) {
+    let was_broken = open.doc.index.error.is_some();
+    open.note = Some(match open.edit(|doc| doc.apply(edit).map(|()| true)) {
+        Ok(_) => match (&open.doc.index.error, was_broken) {
+            (Some(e), false) => Note::refused(format!(
+                "{done}; the document is no longer well-formed ({e}). Ctrl+Z undoes it"
+            )),
+            _ => Note::info(done),
+        },
+        Err(EditError::Empty) => Note::info(format!("{done}: already as given, nothing changed")),
+        Err(e) => Note::refused(format!("Cannot replace: {e}")),
+    });
 }
