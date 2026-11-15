@@ -54,9 +54,15 @@ this file needs the most observation.
 - **GRID-19** `[done]` Sort and hidden columns stay when an edit, undo or redo rebuilds the
   grid of the same element. Selecting another element starts in document order with every
   column shown.
-- **GRID-16** `[planned]` Clicking a cell shows what it stands for in a second pane: an element
-  with its attributes and children, or a table when the cell stands for several elements
-  (XM-37). The grid does not change. To be tried before it is kept.
+- **GRID-16** `[done]` A pane beside the grid shows what the clicked row or cell stands for
+  (XM-37). The grid does not change. A row, or a cell that stands for one child element
+  (`<total>`), shows that element as the grid would: its path, its attributes and a table of
+  its children. A cell that stands for several (`<note> ×2`) shows a table of just those. A
+  value cell shows its name and the whole value, not cut at 200 characters, with entities
+  decoded; it can be selected and copied, not edited. An absent cell says so. Before a click
+  the pane says to click. A double-click on a row in the pane selects that element. The
+  pane's width can be dragged. View > Cell pane beside the grid turns it off, remembered with
+  the other settings (WIN-3). An experiment: kept or removed once the owner has tried it.
 - **GRID-17** `[done]` Keyboard, after a click in the grid: Up and Down move the marked row,
   Home and End go to the first and last, Page Up and Page Down move by 20 rows; the text
   follows and the grid scrolls the row into view. The marked column stays. Enter opens the
@@ -79,6 +85,10 @@ this file needs the most observation.
   `@currency` and `text()`.
 - Select `orders` in the fixture, click a row, press End: row 211,383 is marked and shown, its
   number on one line.
+- Select `orders` in a CRLF file with a byte order mark, click an order's `<total>` cell: the
+  pane shows the `total` element with its `currency` attribute. Click its `<note> ×2` cell: a
+  table of the two notes. Click a `customer` cell holding `Günther &amp; Söhne`: the pane
+  shows `Günther & Söhne`.
 - In a CRLF file with a byte order mark, click the hatched `@status` cell of an order, press
   F2, type `new`, Enter: only ` status="new"` is added to that start tag. Click a `customer`
   cell holding `Günther &amp; Söhne`, press Enter, then Escape: nothing changes. Ctrl+Z undoes
@@ -118,7 +128,7 @@ today.
 - An attribute table for the selected element (GRID-11).
 - Nested children shown by name and count (GRID-12).
 - A second pane for the clicked cell (GRID-16), to be tried: the owner is not sure it is easy
-  to use in XML Marker.
+  to use in XML Marker. Built as an experiment that View turns off.
 - Column hiding (GRID-15) instead of unique consolidation, which is harder to understand.
 - Absent and empty values look different (GRID-13).
 - Cells keep decoding entities (GRID-4).
