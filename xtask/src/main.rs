@@ -34,7 +34,7 @@ enum Command {
         skip_build: bool,
     },
     /// Build the Windows MSI and zip into target/dist (PKG-10, PKG-12). Runs on Windows;
-    /// the MSI needs WiX 4 or later.
+    /// the MSI needs WiX 5.0.2.
     PackageWindows {
         /// Use the executables already in target/x86_64-pc-windows-msvc/release.
         #[arg(long)]

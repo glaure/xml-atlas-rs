@@ -2,9 +2,12 @@
 //! PKG-12).
 //!
 //! Runs on Windows. It builds both programs with MSVC, collects them with the license texts,
-//! and writes `target/dist/xml-atlas-<version>-windows-x64.zip` and, with WiX 4 or later
-//! (`dotnet tool install --global wix`, `wix extension add --global WixToolset.UI.wixext`),
-//! `target/dist/xml-atlas-<version>-x64.msi` from `packaging/windows/xml-atlas.wxs`. With
+//! and writes `target/dist/xml-atlas-<version>-windows-x64.zip` and, with WiX 5.0.2
+//! (`dotnet tool install --global wix --version 5.0.2`,
+//! `wix extension add --global WixToolset.UI.wixext/5.0.2`),
+//! `target/dist/xml-atlas-<version>-x64.msi` from `packaging/windows/xml-atlas.wxs`. WiX 7
+//! does not run until its Open Source Maintenance Fee EULA is accepted, so the version is
+//! pinned instead of taking the latest. With
 //! `--bin-dir`, it packs executables from elsewhere instead of building: the signing script
 //! (PKG-14) packs the signed ones again.
 
@@ -18,6 +21,9 @@ use anyhow::{Context, bail};
 use crate::package::{BINARIES, NAME, metadata, third_party_licenses, version};
 
 const TARGET: &str = "x86_64-pc-windows-msvc";
+
+/// The WiX version the MSI is built with; the UI extension must be the same version.
+const WIX_VERSION: &str = "5.0.2";
 
 /// What the installer shows on its license page.
 const LICENSE_NOTE: &str = "XML Atlas is licensed under the MIT license or the Apache License, \
@@ -111,14 +117,18 @@ fn msi_build(
         .arg("-o")
         .arg(out)
         .status()
-        .context(
-            "running wix: install WiX with `dotnet tool install --global wix`, then \
-             `wix extension add --global WixToolset.UI.wixext`",
-        )?;
+        .with_context(|| {
+            format!(
+                "running wix: install WiX {WIX_VERSION} with \
+                 `dotnet tool install --global wix --version {WIX_VERSION}`, then \
+                 `wix extension add --global WixToolset.UI.wixext/{WIX_VERSION}`"
+            )
+        })?;
     if !status.success() {
         bail!(
-            "wix build failed; if it cannot find WixToolset.UI.wixext, add the version that \
-             matches `wix --version`: `wix extension add --global WixToolset.UI.wixext/<version>`"
+            "wix build failed; the MSI is built with WiX {WIX_VERSION} (see `wix --version`; \
+             `dotnet tool update --global wix --version {WIX_VERSION} --allow-downgrade`) and \
+             its UI extension (`wix extension add --global WixToolset.UI.wixext/{WIX_VERSION}`)"
         );
     }
     Ok(())

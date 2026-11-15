@@ -42,7 +42,7 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   current user (no administrator rights needed) or for all users. It adds a Start menu entry
   "XML Atlas", an entry in Settings > Apps for uninstalling, and *Open with* for `.xml`
   (PKG-4). A checkbox, off by default, adds `xml-atlas-cli` to the PATH.
-  `cargo xtask package-windows` builds it on Windows with WiX 4 or later from
+  `cargo xtask package-windows` builds it on Windows with WiX 5.0.2 from
   `packaging/windows/xml-atlas.wxs`. The installer's dialogs (WiX's Advanced set) ask for
   the current user or all users; the PATH is a feature under Customize, off unless chosen
   (`ADDLOCAL=AddToPath` on the command line). *Open with* comes from a ProgId of its own

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   The Windows installer (docs/spec/install.md, PKG-10, PKG-11). Built by
-  `cargo xtask package-windows` with WiX 4 or later, which passes:
+  `cargo xtask package-windows` with WiX 5.0.2, which passes:
     Version     the workspace version, such as 0.1.0
     SourceDir   the folder with the executables and license texts
     IconFile    packaging/windows/xml-atlas.ico

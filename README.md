@@ -59,11 +59,12 @@ Debian 12 and later (`docs/decisions.md`, D22).
 
 ## Windows packages
 
-On Windows, with Rust (MSVC), the .NET SDK and WiX:
+On Windows, with Rust (MSVC), the .NET SDK and WiX 5.0.2 (WiX 7 needs its maintenance-fee
+EULA accepted first, so the version is pinned):
 
 ```sh
-dotnet tool install --global wix
-wix extension add --global WixToolset.UI.wixext   # the same version as `wix --version`
+dotnet tool install --global wix --version 5.0.2
+wix extension add --global WixToolset.UI.wixext/5.0.2
 cargo xtask package-windows    # writes target/dist/*.msi and *-windows-x64.zip
 ```
 
