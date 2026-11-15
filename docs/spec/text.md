@@ -18,10 +18,12 @@ of it.
   the first to the last non-blank character.
 - **TEXT-7** `[built]` Clicking a line selects the innermost element that contains the first
   non-blank character of that line.
-- **TEXT-8** `[gap]` Every line of a very large file can be reached by scrolling, and every
-  wheel notch moves the view by the same amount. Far down very large files, some notches are
-  lost: one in six near the end of the 300 MiB fixture (`docs/decisions.md`, D16). Every line
-  can still be reached with Find, a click or the keyboard.
+- **TEXT-8** `[done]` Every line of a very large file can be reached by scrolling, and every
+  wheel notch moves the view by the same amount. The view scrolls by whole lines plus the
+  pixels of the top line out of sight, and draws its own scroll bars (`docs/decisions.md`,
+  D16). Checked on the 300 MiB fixture (7,033,083 lines): Ctrl+End shows the last line,
+  each wheel notch near the end moves 80 px as near the top, dragging the thumb reaches both
+  ends. Line numbers stay in place while the text scrolls sideways.
 - **TEXT-9** `[planned]` The text can be edited: cursor, selection, clipboard, undo. Tree and
   grid follow shortly after each change. TEXT-16 to TEXT-22 say what that means; the design
   is `docs/decisions.md`, D19.

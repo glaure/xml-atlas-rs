@@ -27,7 +27,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
 - [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
-- [ ] Integer scrolling for very tall views (D16)
+- [x] Integer scrolling for very tall views (D16): the text view; tree and grid stay within
+      a float's precision at 1.0's sizes
 - [x] Keyboard navigation in tree and grid (TREE-8, GRID-17); Drill Up and Drill Down (TREE-10)
 - [x] Ask before closing with unsaved changes (OPEN-11)
 - [x] CI: fmt, clippy and tests on Linux, Windows and macOS; build with Rust 1.95
@@ -62,8 +63,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Editable text view: cursor, selection, clipboard, input methods; the tree follows a
       click but not typing (TREE-12). Rules TEXT-16 to TEXT-22, design and order of work in
       `docs/decisions.md`, D19; built: the engine part, cursor, selection, typing, the
-      clipboard, input methods, the broken state and views that follow a key without a
-      rebuild; left: integer scrolling and paging long lines
+      clipboard, input methods, the broken state, views that follow a key without a
+      rebuild and integer scrolling; left: paging long lines (TEXT-5)
 - [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
 - [ ] Word wrap (TEXT-13); page very long lines; minified-file mode
 

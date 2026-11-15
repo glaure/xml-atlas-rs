@@ -9,6 +9,7 @@ mod highlight;
 mod icons;
 mod nav;
 mod problems_panel;
+mod scroll;
 mod settings;
 mod system_theme;
 mod tabs;
