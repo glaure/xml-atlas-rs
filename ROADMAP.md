@@ -70,6 +70,8 @@ The order follows `docs/decisions.md`, D15.
 
 ## Distribution and automation
 
-- [ ] Packages: MSI, DEB, Flatpak, DMG via `cargo xtask package`
+- [ ] Packages, built by CI from a version tag (`docs/spec/install.md`, PKG-1 to PKG-34):
+      Windows MSI and zip, macOS DMG (universal, Homebrew cask), Linux `.deb` (Ubuntu,
+      Debian), `.rpm` (RHEL, Fedora) and Flatpak; signing on Windows and macOS
 - [ ] JSON control channel and MCP server over the engine commands
 - [ ] Web build (WebAssembly)
