@@ -61,7 +61,8 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Editable text view: cursor, selection, clipboard, input methods; the tree follows a
       click but not typing (TREE-12). Rules TEXT-16 to TEXT-22, design and order of work in
       `docs/decisions.md`, D19; built: the engine part, cursor, selection, typing, the
-      clipboard and input methods; left: the broken state, integer scrolling
+      clipboard, input methods and the broken state; left: views that follow without a
+      rebuild per key, integer scrolling
 - [ ] Highlighting across lines, driven by the index (it knows comment and CDATA spans)
 - [ ] Word wrap (TEXT-13); page very long lines; minified-file mode
 

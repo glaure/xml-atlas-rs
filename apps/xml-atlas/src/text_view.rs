@@ -455,7 +455,19 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
     let Some(change) = change else { return };
     open.text_goal = None;
     let label = change.edit.label().to_string();
-    match open.edit(|doc| doc.apply(change.edit).map(|()| true)) {
+    let t = std::time::Instant::now();
+    let result = open.edit(|doc| doc.apply_typed(change.edit).map(|()| true));
+    log::debug!(
+        "typed: {:?}, index {:?}{}",
+        t.elapsed(),
+        open.doc.timings.index,
+        if open.doc.stale().is_some() {
+            ", stale"
+        } else {
+            ""
+        }
+    );
+    match result {
         Ok(_) => {
             open.text_sel = Some(change.selection);
             open.text_reveal = true;

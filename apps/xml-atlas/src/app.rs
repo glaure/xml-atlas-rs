@@ -3,11 +3,15 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::time::Instant;
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
-use xml_atlas_engine::{DiskChange, Document, Edit, EditError, FormatError, FormatOptions};
+use xml_atlas_engine::{
+    DiskChange, Document, Edit, EditError, FormatError, FormatOptions, REPARSE_INLINE_BYTES,
+    Reparsed,
+};
 
 use crate::disk_watch::DiskWatch;
 use crate::settings::{Layout, Settings, ThemeChoice};
@@ -118,6 +122,8 @@ pub struct Open {
     /// Text an input method is composing at the cursor; shown, not yet in the document
     /// (TEXT-19).
     pub text_preedit: Option<crate::text_view::Preedit>,
+    /// The document being read again on a worker thread after typing broke it (D19).
+    reparse: Option<Receiver<Reparsed>>,
     /// Lines the text view showed last frame.
     pub text_rows: std::ops::Range<usize>,
 }
@@ -397,6 +403,7 @@ impl App {
             text_reveal: false,
             text_focus: false,
             text_preedit: None,
+            reparse: None,
             text_rows: 0..0,
         };
         open.problems = open.doc.problems();
@@ -645,6 +652,10 @@ impl App {
     }
 
     fn format_document(&mut self) {
+        // Typing may have left the index behind the text: read it first (D19).
+        if let Some(open) = self.docs.active_mut() {
+            open.settle();
+        }
         let Some(open) = self.docs.active() else {
             return;
         };
@@ -669,6 +680,10 @@ impl App {
 
     /// Edit > Compact (FMT-14): the document on one line.
     fn compact_document(&mut self) {
+        // Typing may have left the index behind the text: read it first (D19).
+        if let Some(open) = self.docs.active_mut() {
+            open.settle();
+        }
         let Some(open) = self.docs.active() else {
             return;
         };
@@ -1298,6 +1313,10 @@ impl eframe::App for App {
             }
         }
 
+        // Typing broke the text of a document: read it again after a pause (D19).
+        for open in self.docs.iter_mut() {
+            open.reparse_when_due(&ctx);
+        }
         self.find.shortcuts(&ctx, self.docs.active_mut());
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
@@ -1397,6 +1416,8 @@ impl Open {
         make: impl FnOnce(&Document) -> Result<Option<Edit>, CommandError>,
         shift: Shift,
     ) {
+        // Typing may have left the index behind the text: read it first (D19).
+        self.settle();
         if let Some(e) = &self.doc.index.error {
             self.note = Some(Note::refused(format!(
                 "Cannot {what}: the document is not well-formed ({e})"
@@ -1512,6 +1533,68 @@ impl Open {
             }
         }
         Ok(true)
+    }
+
+    /// Reads the document again when typing broke it and the pause is over (TEXT-22, D19):
+    /// on this thread up to [`REPARSE_INLINE_BYTES`], else on a worker thread with a copy of
+    /// the source. Call once per frame for every open document.
+    pub fn reparse_when_due(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.reparse {
+            match rx.try_recv() {
+                Ok(done) => {
+                    self.reparse = None;
+                    let t = Instant::now();
+                    self.refresh(|doc| doc.finish_reparse(done));
+                    log::debug!("worker result taken in: {:?}", t.elapsed());
+                }
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => self.reparse = None,
+            }
+        }
+        let Some(wait) = self.doc.reparse_wait(Instant::now()) else {
+            return;
+        };
+        if !wait.is_zero() {
+            ctx.request_repaint_after(wait);
+        } else if self.doc.src.len() <= REPARSE_INLINE_BYTES {
+            let t = Instant::now();
+            self.refresh(Document::reparse);
+            log::debug!("read again on the UI thread: {:?}", t.elapsed());
+        } else if let Some(job) = {
+            let t = Instant::now();
+            let job = self.doc.reparse_job();
+            log::debug!(
+                "read again on a worker thread; copying the text: {:?}",
+                t.elapsed()
+            );
+            job
+        } {
+            let (tx, rx) = channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                // The document may have been closed meanwhile; then nobody listens.
+                let _ = tx.send(job.run());
+                ctx.request_repaint();
+            });
+            self.reparse = Some(rx);
+        }
+    }
+
+    /// Reads the document again now if typing left the index behind, before a command that
+    /// works from the index.
+    pub fn settle(&mut self) {
+        self.reparse = None;
+        self.refresh(Document::reparse);
+    }
+
+    /// Rebuilds tree, grid and problems when `change` changed the index but not the text,
+    /// keeping what is selected and expanded; nothing scrolls.
+    fn refresh(&mut self, change: impl FnOnce(&mut Document) -> bool) {
+        let text_scroll = self.scroll_text_to;
+        if let Ok(true) = self.edit(|doc| Ok(change(doc))) {
+            self.scroll_text_to = text_scroll;
+            self.tree.keep_scroll();
+        }
     }
 
     /// After undo or redo, the text cursor goes where the change was, behind what it put back

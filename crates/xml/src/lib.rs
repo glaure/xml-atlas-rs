@@ -246,6 +246,173 @@ impl Index {
         Some(true)
     }
 
+    /// Keeps the nodes after a change that [`Index::update`] could not take in, because the
+    /// text around it is not well-formed (`docs/decisions.md`, D19; TEXT-10). `src` is the
+    /// source after `removed` bytes at `at` became `inserted` bytes.
+    ///
+    /// Nodes after the change move with it, and the elements around it end that much later
+    /// or earlier. Nodes whose own bytes the change touched are dropped, so that every node
+    /// left reads bytes that are its own. The change lies inside the element it returns: the
+    /// innermost one whose `<` and end tag it left alone ([`ROOT`] when there is none). That
+    /// element keeps its children the change did not touch; its start tag is measured again
+    /// when the change was there (and so is any start tag around it the change reaches).
+    /// `stale`, an element an earlier change left stale, is
+    /// merged in: the result is the innermost element around both.
+    ///
+    /// Nodes are not read again, so tree and grid show the last well-formed state of the
+    /// stale element until the whole document is indexed again.
+    pub fn keep_stale(
+        &mut self,
+        src: &[u8],
+        at: usize,
+        removed: usize,
+        inserted: usize,
+        stale: Option<NodeId>,
+    ) -> NodeId {
+        let (at, old_end) = (at as u64, (at + removed) as u64);
+        let new_change_end = at + inserted as u64;
+        let delta = inserted as i64 - removed as i64;
+        // Bytes from `old_end` on are unchanged, from `new_change_end` on in `src`.
+        let tail_intact = |n: &Node| {
+            let Some(new_end) = n.end.checked_add_signed(delta) else {
+                return false;
+            };
+            let Some(tail) = src.get(new_change_end as usize..new_end as usize) else {
+                return false;
+            };
+            if n.head_len as u64 == n.end - n.start {
+                // `<a .../>`: its `/>` is intact.
+                tail.len() >= 2
+            } else {
+                // The end tag's `<` is the last of the element; it is intact when it lies in
+                // the unchanged tail.
+                memchr::memrchr(b'<', tail).is_some()
+            }
+        };
+        let mut s = ROOT;
+        'descend: loop {
+            for c in self.children(s) {
+                let n = self.node(c);
+                if n.start >= at {
+                    break;
+                }
+                if n.kind == NodeKind::Element && old_end < n.end && tail_intact(n) {
+                    s = c;
+                    continue 'descend;
+                }
+            }
+            break;
+        }
+        // The children of `s` the change touched are contiguous; drop them.
+        let mut first = None;
+        let mut past = None;
+        for c in self.children(s) {
+            let n = self.node(c);
+            let next = c as usize + 1 + n.descendants as usize;
+            if n.start >= old_end {
+                past.get_or_insert(c as usize);
+                break;
+            }
+            if n.end > at {
+                first.get_or_insert(c as usize);
+                past = Some(next);
+            }
+        }
+        let subtree_end = s as usize + 1 + self.node(s).descendants as usize;
+        let range = match (first, past) {
+            (Some(f), Some(p)) => f..p,
+            (None, Some(p)) => p..p,
+            _ => subtree_end..subtree_end,
+        };
+        let dropped = range.len();
+        let stale = stale.and_then(|p| match p as usize {
+            p if p < range.start => Some(p as NodeId),
+            p if p >= range.end => Some((p - dropped) as NodeId),
+            _ => None,
+        });
+        self.splice_nodes(s, range, 0, &index(b""), delta);
+        // A start tag the change lies in is measured again: the innermost element's, and an
+        // outer one's that an earlier measuring stretched over its children.
+        let mut a = s;
+        while a != ROOT && a != NONE {
+            if at < self.node(a).start + self.node(a).head_len as u64 {
+                self.measure_head(src, a);
+            }
+            a = self.node(a).parent;
+        }
+        if let Some(e) = &mut self.error {
+            if e.offset >= old_end {
+                e.offset = e.offset.wrapping_add_signed(delta);
+            } else if e.offset > at {
+                e.offset = at;
+            }
+        }
+        match stale {
+            Some(p) => self.common_ancestor(p, s),
+            None => s,
+        }
+    }
+
+    /// The innermost node that holds both `a` and `b`, or is one of them.
+    pub fn common_ancestor(&self, a: NodeId, b: NodeId) -> NodeId {
+        let (mut a, mut b) = (a, b);
+        let (mut da, mut db) = (self.depth(a), self.depth(b));
+        while da > db {
+            a = self.node(a).parent;
+            da -= 1;
+        }
+        while db > da {
+            b = self.node(b).parent;
+            db -= 1;
+        }
+        while a != b {
+            a = self.node(a).parent;
+            b = self.node(b).parent;
+        }
+        a
+    }
+
+    /// Measures the start tag of element `id` again after its bytes changed: up to the first
+    /// `>` outside quotes, or to its end tag when there is none. Keeps every accessor inside
+    /// the element's bytes.
+    fn measure_head(&mut self, src: &[u8], id: NodeId) {
+        let n = self.nodes[id as usize];
+        let (start, end) = (n.start as usize, n.end as usize);
+        let self_closing = n.head_len as u64 == n.end - n.start;
+        let limit = if self_closing {
+            end
+        } else {
+            // The end tag is intact (see `keep_stale`): its `<` is the element's last.
+            memchr::memrchr(b'<', &src[start + 1..end]).map_or(end, |i| start + 1 + i)
+        };
+        let head = if self_closing {
+            end - start
+        } else {
+            let mut quote = None;
+            let found = src[start + 1..limit].iter().position(|&b| match quote {
+                Some(q) => {
+                    if b == q {
+                        quote = None;
+                    }
+                    false
+                }
+                None if b == b'"' || b == b'\'' => {
+                    quote = Some(b);
+                    false
+                }
+                None => b == b'>',
+            });
+            found.map_or(limit - start, |i| i + 2)
+        };
+        let name = src[start + 1..start + head]
+            .iter()
+            .take_while(|&&b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'>'))
+            .count();
+        let node = &mut self.nodes[id as usize];
+        node.head_len = head as u32;
+        node.name_len = name.min(u16::MAX as usize) as u16;
+    }
+
     /// Replaces nodes `old` (whole subtrees, children of `parent`) with the nodes of `frag`,
     /// whose top-level nodes become children of `parent` and whose offsets start at `base`.
     /// Shifts everything after by `delta` bytes and adjusts `parent` and its ancestors.
@@ -474,7 +641,10 @@ impl Index {
         let raw = &src[span];
         match kind {
             NodeKind::Text => unescape(raw),
-            NodeKind::CData => String::from_utf8_lossy(&raw[9..raw.len() - 3]),
+            // Inside `<![CDATA[` and `]]>`; all of it while a typed change has broken them.
+            NodeKind::CData => {
+                String::from_utf8_lossy(raw.get(9..raw.len().saturating_sub(3)).unwrap_or(raw))
+            }
             _ => String::from_utf8_lossy(raw),
         }
     }
@@ -488,8 +658,9 @@ impl Index {
         }
         let start = n.start as usize + n.head_len as usize;
         // Text holds no `<`, and a CDATA section ends before the end tag: the last `<` of the
-        // element starts its end tag.
-        let end = memchr::memrchr(b'<', &src[start..n.end as usize])? + start;
+        // element starts its end tag. `get`: a start tag measured again while the text is
+        // broken (`Index::keep_stale`) may reach the end.
+        let end = memchr::memrchr(b'<', src.get(start..n.end as usize)?)? + start;
         Some(start..end)
     }
 
@@ -1288,6 +1459,171 @@ mod tests {
         // An index with an error always needs the full pass.
         let mut broken = index(b"<a><b></a>");
         assert!(!broken.update(b"<a><c></a>", 4, 1, 1));
+    }
+
+    /// Every node is inside its parent and after its previous sibling, and inside the source;
+    /// a start tag is inside its element.
+    fn check_structure(idx: &Index, src: &[u8]) {
+        assert_eq!(idx.node(ROOT).end, src.len() as u64);
+        for id in 1..idx.len() as NodeId {
+            let n = idx.node(id);
+            let p = idx.node(n.parent);
+            assert!(n.parent < id);
+            assert!(
+                id as usize + n.descendants as usize <= n.parent as usize + p.descendants as usize
+            );
+            assert!(
+                p.start <= n.start && n.end <= p.end,
+                "node {id} outside its parent"
+            );
+            assert!(
+                n.start + n.head_len as u64 <= n.end,
+                "start tag of {id} too long"
+            );
+            assert!(n.name_len as u32 <= n.head_len);
+        }
+        for id in 0..idx.len() as NodeId {
+            let kids: Vec<_> = idx.children(id).collect();
+            for w in kids.windows(2) {
+                assert!(idx.node(w[0]).end <= idx.node(w[1]).start);
+            }
+        }
+    }
+
+    /// Reads everything a view reads, to show that nothing panics.
+    fn read_all(idx: &Index, src: &[u8]) {
+        for id in 1..idx.len() as NodeId {
+            let _ = idx.name(src, id);
+            let _ = idx.raw(src, id);
+            let _ = idx.attributes(src, id);
+            let _ = idx.attribute_spans(src, id);
+            let _ = idx.folded_span(src, id);
+            let _ = idx.text(src, id);
+            if idx.node(id).kind == NodeKind::Element {
+                let _ = idx.element_text(src, id);
+            }
+        }
+    }
+
+    /// Random typed changes kept with [`Index::keep_stale`]: the index stays consistent, every
+    /// node but the elements around each change lies clear of it, so it reads its own bytes,
+    /// and nothing a view reads panics. When the
+    /// source is well-formed again, the document is indexed afresh, as the editor does.
+    fn check_stale(mut src: Vec<u8>, seed: u64, rounds: usize) {
+        let mut rng = Lcg(seed);
+        let mut idx = index(&src);
+        let mut stale = None;
+        for _ in 0..rounds {
+            let at = rng.below(src.len() + 1);
+            let removed = rng.below(7).min(src.len() - at);
+            let inserted: &[u8] = if rng.below(3) == 0 {
+                b""
+            } else {
+                SNIPPETS[rng.below(SNIPPETS.len())].as_bytes()
+            };
+            src.splice(at..at + removed, inserted.iter().copied());
+            let s = idx.keep_stale(&src, at, removed, inserted.len(), stale);
+            let what = format!("seed {seed}: at {at} -{removed} +{inserted:?}");
+            check_structure(&idx, &src);
+            // The nodes the change lies in, outermost first: elements whose `<` it left alone.
+            // The stale element holds the innermost. (A start tag whose `>` was deleted runs
+            // on to its end tag until the next full index; that is safe, only odd.)
+            let (from, to) = (at as u64, (at + inserted.len()) as u64);
+            let mut around = Vec::new();
+            for id in 1..idx.len() as NodeId {
+                let n = idx.node(id);
+                if n.end <= from || n.start >= to {
+                    continue;
+                }
+                assert!(
+                    n.kind == NodeKind::Element && n.start < from && to <= n.end,
+                    "{what}: node {id} {n:?} overlaps the change"
+                );
+                if let Some(&outer) = around.last() {
+                    assert_eq!(n.parent, outer, "{what}: not a chain");
+                }
+                around.push(id);
+            }
+            if let Some(&inner) = around.last() {
+                assert_eq!(
+                    idx.common_ancestor(s, inner),
+                    s,
+                    "{what}: stale is not around it"
+                );
+            }
+            read_all(&idx, &src);
+            stale = Some(s);
+            let full = index(&src);
+            if full.error.is_none() {
+                idx = full;
+                stale = None;
+            }
+        }
+    }
+
+    #[test]
+    fn stale_nodes_read_their_own_bytes() {
+        for seed in 0..20 {
+            check_stale(DOC.to_vec(), seed, 200);
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/corpus");
+        for (i, entry) in std::fs::read_dir(dir).expect("corpus").enumerate() {
+            let src = std::fs::read(entry.expect("entry").path()).expect("read");
+            check_stale(src, i as u64, 100);
+        }
+    }
+
+    /// What tree and grid keep while the text is broken (TEXT-10).
+    #[test]
+    fn stale_element_keeps_its_last_state() {
+        let src = "<r>\r\n <a x=\"1\"><b>Grüße</b><c/></a>\r\n <d/></r>";
+        let edit = |s: &str, at: &str, removed: usize, ins: &str| {
+            let i = s.find(at).unwrap();
+            let mut new = s.as_bytes().to_vec();
+            new.splice(i..i + removed, ins.bytes());
+            (i, new)
+        };
+        let names = |idx: &Index, src: &[u8]| -> Vec<String> {
+            (1..idx.len() as NodeId)
+                .filter(|&id| idx.node(id).kind == NodeKind::Element)
+                .map(|id| String::from_utf8_lossy(idx.name(src, id)).into_owned())
+                .collect()
+        };
+        let all = ["r", "a", "b", "c", "d"];
+
+        // `<` typed in the text of `b`: every node stays, `b` is stale, its text is what it
+        // is now.
+        let mut idx = index(src.as_bytes());
+        let (at, new) = edit(src, "üße", 0, "<");
+        let s = idx.keep_stale(&new, at, 0, 1, None);
+        assert_eq!(idx.name(&new, s), b"b");
+        assert_eq!(names(&idx, &new), all);
+        assert_eq!(idx.text(&new, s), "Gr<üße", "the text as it is now");
+        assert!(index(&new).error.is_some());
+
+        // A quote typed in the start tag of `a`: `a` is stale, measured again, and keeps its
+        // children; `d` moves by one byte.
+        let mut idx = index(src.as_bytes());
+        let (at, new) = edit(src, "1\"", 0, "\"");
+        let s = idx.keep_stale(&new, at, 0, 1, None);
+        assert_eq!(idx.name(&new, s), b"a");
+        assert_eq!(names(&idx, &new), all);
+        let d = (1..idx.len() as NodeId).last().unwrap();
+        assert_eq!(idx.raw(&new, d), b"<d/>");
+
+        // Deleting the `<` of `c`: `c` is gone, its parent `a` is stale.
+        let mut idx = index(src.as_bytes());
+        let (at, new) = edit(src, "<c/>", 1, "");
+        let s = idx.keep_stale(&new, at, 1, 0, None);
+        assert_eq!(idx.name(&new, s), b"a");
+        assert_eq!(names(&idx, &new), ["r", "a", "b", "d"]);
+
+        // Then a change in `d`: the stale element is the one around both, `r`.
+        let new_s = std::str::from_utf8(&new).unwrap().to_string();
+        let (at, newer) = edit(&new_s, "d/>", 0, "<");
+        let s = idx.keep_stale(&newer, at, 0, 1, Some(s));
+        assert_eq!(idx.name(&newer, s), b"r");
+        check_structure(&idx, &newer);
     }
 
     #[test]
