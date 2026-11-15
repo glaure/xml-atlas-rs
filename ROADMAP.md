@@ -40,7 +40,7 @@ The order follows `docs/decisions.md`, D15.
 - [ ] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
 - [ ] Replace and Replace All (TEXT-14)
 - [ ] The same edits from the CLI
-- [ ] Recent files (OPEN-12)
+- [x] Recent files (OPEN-12)
 - [x] Light and dark theme, following the system by default (WIN-2)
 - [x] Remember settings between sessions: layout, attribute rows, Format options, Find options
       (WIN-3)
