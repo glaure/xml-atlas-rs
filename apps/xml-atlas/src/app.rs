@@ -115,6 +115,9 @@ pub struct Open {
     pub text_reveal: bool,
     /// Give the text view the keyboard on the next frame: an Edit menu command acts there.
     pub text_focus: bool,
+    /// Text an input method is composing at the cursor; shown, not yet in the document
+    /// (TEXT-19).
+    pub text_preedit: Option<crate::text_view::Preedit>,
     /// Lines the text view showed last frame.
     pub text_rows: std::ops::Range<usize>,
 }
@@ -393,6 +396,7 @@ impl App {
             text_goal: None,
             text_reveal: false,
             text_focus: false,
+            text_preedit: None,
             text_rows: 0..0,
         };
         open.problems = open.doc.problems();

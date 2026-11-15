@@ -433,6 +433,13 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      take one path. The document keeps its line ending (`Document::newline`) for when no
      line break is left to tell it by.
   4. Input methods (TEXT-19).
+     **Built (2026-11-15):** the view reads `Event::Ime` and sets `PlatformOutput::ime`
+     every frame it has the keyboard; egui-winit turns the platform input method on only
+     then. The preedit is view state (`Open::text_preedit`), drawn into the cursor's line;
+     a commit is `text::insert`. `ImeEvent::DeleteSurrounding` is ignored, as egui's own
+     `TextEdit` does. Checked on screen under X11 with ibus over XIM (US international
+     layout): a dead key shows its preedit and commits `é`; a click mid-composition drops
+     it. Not checked: a CJK input method (none installed), Wayland, Windows, macOS.
   5. The broken state: stale marks in tree and grid (TEXT-10), and the worker thread.
   6. Integer scrolling (D16) and sideways paging of long lines (TEXT-5).
 - **Not chosen:**
@@ -445,7 +452,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - A key costs 15 ms on 100 MiB, nearly a frame; nearly all of it is shifting the nodes after
     the change. D9's "revisit when" (offsets relative to the parent) is the answer if it shows.
   - Input methods depend on the platform; egui's support on Linux under X11 and Wayland needs
-    checking on screen with a real input method.
+    checking on screen with a real input method. X11 with ibus is checked (step 4); a CJK
+    input method, Wayland, Windows and macOS are not.
 
 ## Open questions
 

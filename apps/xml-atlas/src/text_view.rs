@@ -1,14 +1,15 @@
-//! The source view: virtualized, and editable with a cursor and a selection
+//! The source view: virtualized, and editable with a cursor, a selection and input methods
 //! (`docs/spec/text.md`, TEXT-16 to TEXT-21; `docs/decisions.md`, D19). Only the visible lines
 //! are laid out each frame. Movement and edits come from `xml_atlas_engine::text`; this file
 //! maps keys and the mouse to them and draws the result.
 
 use std::ops::Range;
 
+use egui::output::IMEOutput;
 use egui::text::CCursor;
 use egui::{
-    Align2, Color32, Event, EventFilter, FontId, Galley, Key, Painter, Rect, Sense, Stroke, Ui,
-    pos2, vec2,
+    Align2, Color32, Event, EventFilter, FontId, Galley, IMEPurpose, ImeEvent, Key, Painter, Rect,
+    Sense, Stroke, Ui, pos2, vec2,
 };
 use xml_atlas_engine::FormatOptions;
 use xml_atlas_engine::problems::Problem;
@@ -28,6 +29,23 @@ const TAB_WIDTH: usize = text::TAB_WIDTH;
 
 /// Lines kept above or below the cursor when the view scrolls to it.
 const CONTEXT_LINES: usize = 3;
+
+/// Text an input method is composing (TEXT-19): shown at the cursor, underlined, and not in
+/// the document until it is committed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Preedit {
+    pub text: String,
+    /// The part the input method is working on, in characters of `text`.
+    pub active: Option<Range<usize>>,
+}
+
+/// A preedit shown in a line: before byte `at` of the line as drawn, `chars` columns wide.
+/// What lies at or after `at` is drawn that much further right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Shift {
+    at: usize,
+    chars: usize,
+}
 
 /// The keyboard focus of the text view of the document with view id `id`.
 pub fn focus_id(id: egui::Id) -> egui::Id {
@@ -75,6 +93,9 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             )
         });
         keys(ui, open, format);
+    } else {
+        // Losing the keyboard ends the composition; the input method is told by `ime` below.
+        open.text_preedit = None;
     }
     // Another command may have changed the text under the cursor.
     if let Some(sel) = &mut open.text_sel {
@@ -115,6 +136,8 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
     }
     let reveal = std::mem::take(&mut open.text_reveal);
     let sel = open.text_sel;
+    let preedit = open.text_preedit.clone();
+    let mut caret_rect = None;
     // The byte under the pointer, and the first non-blank byte of its line.
     let mut under: Option<(usize, usize)> = None;
     let pointer_pos = ui.input(|i| i.pointer.interact_pos());
@@ -125,7 +148,27 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             let start = (doc.line_starts[n] as usize).max(text::text_start(&doc.src));
             let len = doc.line(n).len() - (start - doc.line_starts[n] as usize);
             let raw = &doc.src[start..start + len.min(MAX_LINE_BYTES)];
-            let line = text::decode(raw).replace('\t', &" ".repeat(TAB_WIDTH));
+            // The preedit, on the cursor's line where the cursor can be drawn.
+            let pre = match (&preedit, sel) {
+                (Some(p), Some(s)) if cursor_line == Some(n) && s.head - start <= raw.len() => {
+                    Some((p, s.head - start))
+                }
+                _ => None,
+            };
+            let shift = pre.map(|(p, at)| Shift {
+                at,
+                chars: p.text.chars().count(),
+            });
+            let line = match pre {
+                Some((p, at)) => [
+                    text::decode(&raw[..at]),
+                    p.text.replace('\t', " "),
+                    text::decode(&raw[at..]),
+                ]
+                .concat(),
+                None => text::decode(raw),
+            };
+            let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
             let galley = ui.painter().layout_job(line_job(&line, &font, &palette));
             let width = (gutter + galley.size().x + 8.0).max(ui.available_width());
             let (rect, row) = ui.allocate_exact_size(vec2(width, row_h), Sense::hover());
@@ -139,6 +182,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     origin,
                     rect,
                     raw,
+                    shift,
                     &line_bytes,
                     r,
                     selected_fill,
@@ -153,6 +197,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     origin,
                     rect,
                     raw,
+                    shift,
                     &line_bytes,
                     r,
                     mark_fill,
@@ -168,7 +213,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     let x = |at: u64| {
                         let at = (at.clamp(line_bytes.start, line_bytes.end) - line_bytes.start)
                             as usize;
-                        origin.x + col_x(&galley, column(raw, at.min(raw.len())))
+                        origin.x + col_x(&galley, shown_column(raw, at.min(raw.len()), shift))
                     };
                     let mut right = x(b);
                     if b > line_bytes.end {
@@ -200,7 +245,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                     color,
                 );
                 let at = ((p.offset - line_bytes.start) as usize).min(raw.len());
-                let x = origin.x + col_x(&galley, column(raw, at));
+                let x = origin.x + col_x(&galley, shown_column(raw, at, shift));
                 let end = galley.size().x.max(x - origin.x + 8.0) + origin.x;
                 squiggle(painter, x, end.max(x + 8.0), rect.bottom() - 2.0, color);
             }
@@ -209,8 +254,14 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 && cursor_line == Some(n)
                 && s.head - start <= raw.len()
             {
-                let x = origin.x + col_x(&galley, column(raw, s.head - start));
+                // After the preedit, if there is one.
+                let x = origin.x + col_x(&galley, shown_column(raw, s.head - start, shift));
                 let caret = Rect::from_x_y_ranges(x..=x, rect.y_range());
+                caret_rect = Some(caret);
+                if let Some((p, at)) = pre {
+                    let color = visuals.text_color();
+                    underline_preedit(painter, &galley, origin, rect, column(raw, at), p, color);
+                }
                 if focused {
                     painter
                         .line_segment([caret.center_top(), caret.center_bottom()], cursor_stroke);
@@ -225,16 +276,19 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
                 row.on_hover_text(text.join("\n"));
             }
             if let Some(pos) = pointer_pos.filter(|p| rect.y_range().contains(p.y)) {
-                let col = galley.cursor_from_pos(pos - origin).index.0;
+                let col = unshift(raw, galley.cursor_from_pos(pos - origin).index.0, shift);
                 let indent = raw.iter().take_while(|b| b.is_ascii_whitespace()).count();
                 under = Some((start + byte_at(raw, col), start + indent));
             }
         }
     });
     let shift = ui.input(|i| i.modifiers.shift);
+    let mut interrupt = false;
     if let Some((at, line_first)) = under {
         let pressed = resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.any_pressed());
         if pressed || resp.double_clicked() || resp.triple_clicked() {
+            // A click ends a composition without committing it.
+            interrupt = open.text_preedit.take().is_some();
             mouse(ui, open, &resp, at);
         } else if resp.dragged()
             && let Some(s) = open.text_sel
@@ -251,6 +305,23 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions) {
             // The click came from the text view; don't jump it.
             open.scroll_text_to = None;
         }
+    }
+    if ui.memory(|m| m.has_focus(id)) {
+        // While the text view has the keyboard, input methods are on, and their windows open
+        // next to the cursor (TEXT-19).
+        let to_global = ui
+            .ctx()
+            .layer_transform_to_global(ui.layer_id())
+            .unwrap_or_default();
+        let cursor = caret_rect.unwrap_or(Rect::from_min_size(area_rect.min, vec2(0.0, row_h)));
+        ui.output_mut(|o| {
+            o.ime = Some(IMEOutput {
+                purpose: IMEPurpose::Normal,
+                rect: to_global * area_rect,
+                cursor_rect: to_global * cursor,
+                should_interrupt_composition: interrupt,
+            })
+        });
     }
 }
 
@@ -278,7 +349,7 @@ fn mouse(ui: &Ui, open: &mut Open, resp: &egui::Response, at: usize) {
     resp.request_focus();
 }
 
-/// The keys of TEXT-16 to TEXT-18, while the text view has the keyboard.
+/// The keys of TEXT-16 to TEXT-19, while the text view has the keyboard.
 fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
     let events = ui.input(|i| i.events.clone());
     let page = open.text_rows.len().saturating_sub(1).max(1) as isize;
@@ -300,6 +371,12 @@ fn keys(ui: &Ui, open: &mut Open, format: &FormatOptions) {
                 }
             }
             Event::Paste(t) => apply(open, text::paste(doc, sel, &t)),
+            // Input methods, dead keys and compose (TEXT-19).
+            Event::Ime(ime) => {
+                if let Some(t) = ime_event(&mut open.text_preedit, ime) {
+                    apply(open, text::insert(&open.doc, sel, &t));
+                }
+            }
             Event::Key {
                 key: Key::A,
                 pressed: true,
@@ -390,6 +467,82 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
     }
 }
 
+/// Follows an input method (TEXT-19): a preedit replaces the one before, an empty one ends
+/// the composition. Returns committed text, which goes into the document as typing. Empty
+/// commits and lone line breaks are left out: platforms send them to end a composition, and
+/// Enter comes as a key.
+fn ime_event(preedit: &mut Option<Preedit>, event: ImeEvent) -> Option<String> {
+    log::debug!("input method: {event:?}");
+    match event {
+        ImeEvent::Preedit {
+            text,
+            active_range_chars,
+        } => {
+            *preedit = (!text.is_empty()).then_some(Preedit {
+                text,
+                active: active_range_chars,
+            });
+            None
+        }
+        ImeEvent::Commit(text) => {
+            *preedit = None;
+            (!text.is_empty() && text != "\n" && text != "\r").then_some(text)
+        }
+        _ => None,
+    }
+}
+
+/// Underlines the preedit, which starts at display column `col`; the part the input method
+/// works on gets a heavier line.
+fn underline_preedit(
+    painter: &Painter,
+    galley: &Galley,
+    origin: egui::Pos2,
+    row: Rect,
+    col: usize,
+    pre: &Preedit,
+    color: Color32,
+) {
+    let y = row.bottom() - 2.0;
+    let x = |c: usize| origin.x + col_x(galley, col + c);
+    let all = 0..pre.text.chars().count();
+    painter.line_segment(
+        [pos2(x(all.start), y), pos2(x(all.end), y)],
+        Stroke::new(1.0, color),
+    );
+    if let Some(a) = pre
+        .active
+        .clone()
+        .filter(|a| !a.is_empty() && a.end <= all.end)
+    {
+        painter.line_segment(
+            [pos2(x(a.start), y), pos2(x(a.end), y)],
+            Stroke::new(2.0, color),
+        );
+    }
+}
+
+/// Display column of byte `at` in `raw` as drawn: after a preedit when it lies at or past it.
+fn shown_column(raw: &[u8], at: usize, shift: Option<Shift>) -> usize {
+    let col = column(raw, at);
+    match shift {
+        Some(s) if at >= s.at => col + s.chars,
+        _ => col,
+    }
+}
+
+/// The display column in `raw` that drawn column `col` stands for: inside a preedit is where
+/// it is inserted.
+fn unshift(raw: &[u8], col: usize, shift: Option<Shift>) -> usize {
+    let Some(s) = shift else { return col };
+    let start = column(raw, s.at);
+    if col >= start + s.chars {
+        col - s.chars
+    } else {
+        col.min(start)
+    }
+}
+
 /// The x offset of display column `col` in `galley`.
 fn col_x(galley: &Galley, col: usize) -> f32 {
     galley.pos_from_cursor(CCursor::new(col)).left()
@@ -436,12 +589,13 @@ fn paint_span(
     origin: egui::Pos2,
     row: Rect,
     raw: &[u8],
+    shift: Option<Shift>,
     line: &Range<u64>,
     span: &Range<u64>,
     fill: Color32,
     stroke: Option<Stroke>,
 ) {
-    let Some((a, b)) = span_columns(raw, line, span) else {
+    let Some((a, b)) = span_columns(raw, shift, line, span) else {
         return;
     };
     let x = |col| origin.x + col_x(galley, col);
@@ -456,7 +610,12 @@ fn paint_span(
 /// line. `raw` is the line's bytes as shown (without the line ending, possibly cut), `line`
 /// its byte range in the file. Where the span carries on from the previous line it starts at
 /// the first non-blank character; where it carries on to the next it ends at the last one.
-fn span_columns(raw: &[u8], line: &Range<u64>, span: &Range<u64>) -> Option<(usize, usize)> {
+fn span_columns(
+    raw: &[u8],
+    shift: Option<Shift>,
+    line: &Range<u64>,
+    span: &Range<u64>,
+) -> Option<(usize, usize)> {
     if span.end <= line.start || span.start > line.end {
         return None;
     }
@@ -478,7 +637,12 @@ fn span_columns(raw: &[u8], line: &Range<u64>, span: &Range<u64>) -> Option<(usi
     } else {
         ((span.end - line.start) as usize).min(raw.len())
     };
-    (start < end).then(|| (column(raw, start), column(raw, end)))
+    (start < end).then(|| {
+        (
+            shown_column(raw, start, shift),
+            shown_column(raw, end, shift),
+        )
+    })
 }
 
 /// Display column of byte `at` in `raw`: characters before it, with a tab counting as
@@ -495,7 +659,12 @@ mod tests {
 
     fn cols(line: &str, line_start: u64, span: Range<u64>) -> Option<(usize, usize)> {
         let raw = line.as_bytes();
-        span_columns(raw, &(line_start..line_start + raw.len() as u64), &span)
+        span_columns(
+            raw,
+            None,
+            &(line_start..line_start + raw.len() as u64),
+            &span,
+        )
     }
 
     #[test]
@@ -543,5 +712,85 @@ mod tests {
         // A byte that is not UTF-8 is one column, as the view draws it.
         assert_eq!(byte_at(b"a\xE4b", 2), 2);
         assert_eq!(column(b"a\xE4b", 2), 2);
+    }
+
+    fn pre(text: &str, active: Option<Range<usize>>) -> ImeEvent {
+        ImeEvent::Preedit {
+            text: text.into(),
+            active_range_chars: active,
+        }
+    }
+
+    /// Choosing a candidate, as egui-winit records it on macOS, Wayland with fcitx5, and
+    /// Windows: each commits `测试` once and leaves no preedit behind.
+    #[test]
+    fn input_method_commits_once() {
+        let commit = || ImeEvent::Commit("测试".into());
+        let platforms = [
+            vec![pre("ce", Some(0..2)), pre("", None), commit()],
+            vec![
+                pre("ce", Some(0..2)),
+                pre("", None),
+                commit(),
+                pre("", Some(0..0)),
+                pre("", None),
+            ],
+            vec![
+                pre("ce", Some(0..2)),
+                pre("测试", Some(0..2)),
+                pre("", None),
+                commit(),
+            ],
+        ];
+        for events in platforms {
+            let mut preedit = None;
+            let mut committed = Vec::new();
+            for e in events {
+                committed.extend(ime_event(&mut preedit, e));
+            }
+            assert_eq!(committed, ["测试"]);
+            assert_eq!(preedit, None);
+        }
+        // While composing, the preedit is kept; Backspace on its last letter clears it.
+        let mut preedit = None;
+        assert_eq!(ime_event(&mut preedit, pre("c", Some(0..1))), None);
+        assert_eq!(preedit.as_ref().map(|p| p.text.as_str()), Some("c"));
+        ime_event(&mut preedit, pre("", Some(0..0)));
+        assert_eq!(preedit, None);
+        // Ending with an empty commit or a line break adds nothing; a dead key's `é` does.
+        assert_eq!(
+            ime_event(&mut preedit, ImeEvent::Commit(String::new())),
+            None
+        );
+        assert_eq!(ime_event(&mut preedit, ImeEvent::Commit("\n".into())), None);
+        assert_eq!(
+            ime_event(&mut preedit, ImeEvent::Commit("é".into())).as_deref(),
+            Some("é")
+        );
+    }
+
+    /// A preedit `日本` (two columns) shown before `ße` in `\tGrüße`.
+    #[test]
+    fn a_preedit_moves_what_follows_it() {
+        let raw = "\tGrüße".as_bytes();
+        let at = "\tGrü".len();
+        let shift = Some(Shift { at, chars: 2 });
+        // Before it nothing moves; at and after it, two columns.
+        assert_eq!(shown_column(raw, 1, shift), 4);
+        assert_eq!(
+            shown_column(raw, at, shift),
+            7 + 2,
+            "the cursor goes after it"
+        );
+        assert_eq!(shown_column(raw, raw.len(), shift), 9 + 2);
+        // A highlight over the whole line stretches over it.
+        let line = 0..raw.len() as u64;
+        assert_eq!(span_columns(raw, shift, &line, &(0..100)), Some((4, 11)));
+        // A click inside it lands where it is inserted; after it, on the text.
+        assert_eq!(unshift(raw, 5, shift), 5);
+        assert_eq!(unshift(raw, 8, shift), 7);
+        assert_eq!(unshift(raw, 10, shift), 8);
+        assert_eq!(byte_at(raw, unshift(raw, 10, shift)), at + 2);
+        assert_eq!(unshift(raw, 8, None), 8);
     }
 }
