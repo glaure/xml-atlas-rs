@@ -13,7 +13,7 @@
 //! A document can carry its own options in an `Indentation Settings` comment before the root
 //! element (FMT-15); [`options_for`] reads it.
 
-use xml_atlas_xml::{Index, NodeId, NodeKind, ROOT, UTF8_BOM};
+use xml_atlas_xml::{Folded, Index, NodeId, NodeKind, ROOT, UTF8_BOM};
 
 /// How a comment that carries format settings starts (FMT-15).
 const SETTINGS_TITLE: &str = "Indentation Settings";
@@ -320,6 +320,7 @@ impl Writer<'_> {
         // Look at the children only when trimming is asked for: this runs for most elements.
         if !self.options.trim_text
             || rest.is_empty()
+            || n.folded == Folded::CData
             || !self
                 .index
                 .children(id)

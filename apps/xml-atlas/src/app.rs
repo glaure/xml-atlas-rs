@@ -756,6 +756,15 @@ impl Open {
         }
     }
 
+    /// Highlights the text that the index keeps inside `element` (D11), like a text node.
+    pub fn mark_text(&mut self, element: NodeId) {
+        if let Some(span) = self.doc.index.folded_span(&self.doc.src, element) {
+            self.focus = Some(element);
+            self.mark = Some(span.start as u64..span.end as u64);
+            self.scroll_text_to = Some(self.doc.line_of(span.start as u64));
+        }
+    }
+
     fn element_or_parent(&self, mut id: NodeId) -> NodeId {
         while id != ROOT && self.doc.index.node(id).kind != NodeKind::Element {
             id = self.doc.index.node(id).parent;

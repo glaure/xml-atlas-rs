@@ -206,7 +206,18 @@ Still open, found by the same review:
     is far outside the layout noise of D18;
   - GUI, launch until loaded: 1.10-1.11 s best before, 1.06-1.07 s after; peak memory 505 MiB
     before, 453 MiB after.
-- **Still to do:** folding text children.
+- **Done (2026-11-15): folded text.** An element whose whole content is one text or CDATA
+  section keeps it in the element (`Node::folded`, in the node's spare byte) instead of in a
+  node of its own; mixed content, CDATA with whitespace around it and elements cut short by
+  an error keep their text nodes. The tree shows folded text as a row like any other text.
+  On the 100 MiB fixture:
+  - nodes 3.42 M before, 2.35 M after (`stats` counts nodes, so its number drops);
+  - index memory 129.5 MiB before, 96.6 MiB after;
+  - CLI open 357-372 ms on both, over three alternating rounds: removing the node costs
+    about what pushing it did;
+  - GUI peak memory 452 MiB before, 420 MiB after; launch until loaded 1.05-1.09 s against
+    1.06 s, within noise;
+  - Format and Compact give the same bytes as before on the fixture and the corpus.
 - **Kept open:** D10 keeps the original bytes behind one type, so a mapped file can replace
   the `Vec` later without touching the views.
 

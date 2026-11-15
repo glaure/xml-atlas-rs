@@ -3,7 +3,7 @@
 //! [`Grid::build`] finds the rows and the columns once, when the selection changes. Cells are
 //! decoded on demand by [`Grid::cell`], so a view pays only for the rows it shows.
 
-use xml_atlas_xml::{NodeId, NodeKind};
+use xml_atlas_xml::{Folded, NodeId, NodeKind};
 
 use crate::{Document, truncate};
 
@@ -77,6 +77,9 @@ impl Grid {
                     _ => {}
                 }
             }
+            if idx.node(row).folded != Folded::No {
+                push_unique(&mut columns, Column::Text);
+            }
         }
         Self {
             parent,
@@ -117,10 +120,7 @@ impl Grid {
                 }
             }
             Column::Text => {
-                let has_text = idx
-                    .children(row)
-                    .any(|c| matches!(idx.node(c).kind, NodeKind::Text | NodeKind::CData));
-                if has_text {
+                if idx.has_text(row) {
                     Cell::Value(text(doc, row))
                 } else {
                     Cell::Absent
@@ -165,14 +165,7 @@ fn has_structure(doc: &Document, id: NodeId) -> bool {
 
 /// The text and CDATA children of an element, decoded, joined and cut at [`CELL_CHARS`].
 fn text(doc: &Document, id: NodeId) -> String {
-    let idx = &doc.index;
-    let mut s = String::new();
-    for c in idx.children(id) {
-        if matches!(idx.node(c).kind, NodeKind::Text | NodeKind::CData) {
-            s.push_str(&idx.text(&doc.src, c));
-        }
-    }
-    truncate(&s, CELL_CHARS)
+    truncate(&doc.index.element_text(&doc.src, id), CELL_CHARS)
 }
 
 #[cfg(test)]

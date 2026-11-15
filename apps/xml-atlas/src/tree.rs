@@ -275,6 +275,7 @@ pub fn select_row(open: &mut Open, row: Row) {
     match row {
         Row::Node(id) => open.focus(id),
         Row::Attribute { element, index } => open.mark_attribute(element, index),
+        Row::FoldedText(element) => open.mark_text(element),
     }
     open.tree.selected = Some(row);
     open.tree.scroll_to = None;

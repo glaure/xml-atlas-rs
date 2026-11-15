@@ -353,13 +353,9 @@ fn find(doc: &Document, element: &str) -> NodeId {
         .unwrap_or_else(|| panic!("no element {element}"))
 }
 
-/// The text and CDATA children of an element, decoded and joined.
+/// The text and CDATA of an element, folded or as children, decoded and joined.
 fn text(doc: &Document, id: NodeId) -> String {
-    doc.index
-        .children(id)
-        .filter(|&c| matches!(kind(doc, c), NodeKind::Text | NodeKind::CData))
-        .map(|c| doc.index.text(&doc.src, c).into_owned())
-        .collect()
+    doc.index.element_text(&doc.src, id).into_owned()
 }
 
 fn without_whitespace(bytes: &[u8]) -> Vec<u8> {

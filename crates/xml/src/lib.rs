@@ -40,6 +40,17 @@ pub enum NodeKind {
     DocType,
 }
 
+/// Text or CDATA kept inside its element instead of in a node of its own (D11).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Folded {
+    #[default]
+    No,
+    /// The element's whole content is one text node.
+    Text,
+    /// The element's whole content is one CDATA section.
+    CData,
+}
+
 /// Longest element name the index can hold, in bytes.
 pub const MAX_NAME_LEN: usize = u16::MAX as usize;
 
@@ -48,6 +59,10 @@ pub const MAX_NAME_LEN: usize = u16::MAX as usize;
 /// Nodes are stored in document order, so a node's subtree is the run of nodes right after
 /// it: the first child of `n` is `n + 1`, and the next sibling follows the subtree. Links,
 /// child counts and depth are derived from that (`docs/decisions.md`, D11).
+///
+/// An element whose whole content is one text or CDATA section (`<price>12.50</price>`) has no
+/// child node for it: [`Node::folded`] says so, and [`Index::text`] reads it. On typical
+/// documents that is a third of all nodes.
 #[derive(Clone, Copy, Debug)]
 pub struct Node {
     /// Start of the node (the `<` for markup).
@@ -62,6 +77,8 @@ pub struct Node {
     /// Length of the element name, which starts at `start + 1`. Zero for other kinds.
     pub name_len: u16,
     pub kind: NodeKind,
+    /// The element's content, when it is one text or CDATA section without a node.
+    pub folded: Folded,
 }
 
 // The index is the memory limit (D11): keep the node at 32 bytes.
@@ -248,15 +265,73 @@ impl Index {
         spans
     }
 
-    /// Text content of a text or CDATA node, unescaped.
+    /// Text content of a text or CDATA node, or the folded text of an element, unescaped.
     pub fn text<'s>(&self, src: &'s [u8], id: NodeId) -> Cow<'s, str> {
         let n = self.node(id);
-        let raw = &src[n.span()];
-        match n.kind {
+        let (kind, span) = match (n.kind, n.folded, self.folded_span(src, id)) {
+            (NodeKind::Element, Folded::Text, Some(span)) => (NodeKind::Text, span),
+            (NodeKind::Element, Folded::CData, Some(span)) => (NodeKind::CData, span),
+            (kind, _, _) => (kind, n.span()),
+        };
+        let raw = &src[span];
+        match kind {
             NodeKind::Text => unescape(raw),
             NodeKind::CData => String::from_utf8_lossy(&raw[9..raw.len() - 3]),
             _ => String::from_utf8_lossy(raw),
         }
+    }
+
+    /// Byte range of an element's folded text or CDATA section: everything between the start
+    /// tag and the end tag. `None` when nothing is folded.
+    pub fn folded_span(&self, src: &[u8], id: NodeId) -> Option<Range<usize>> {
+        let n = self.node(id);
+        if n.folded == Folded::No {
+            return None;
+        }
+        let start = n.start as usize + n.head_len as usize;
+        // Text holds no `<`, and a CDATA section ends before the end tag: the last `<` of the
+        // element starts its end tag.
+        let end = memchr::memrchr(b'<', &src[start..n.end as usize])? + start;
+        Some(start..end)
+    }
+
+    /// Whether element `id` holds text or CDATA, folded or as children.
+    pub fn has_text(&self, id: NodeId) -> bool {
+        self.node(id).folded != Folded::No
+            || self
+                .children(id)
+                .any(|c| matches!(self.node(c).kind, NodeKind::Text | NodeKind::CData))
+    }
+
+    /// Whether the only content of element `id` is one text or CDATA section.
+    pub fn is_text_only(&self, id: NodeId) -> bool {
+        let mut kids = self.children(id);
+        match (kids.next(), kids.next()) {
+            (None, _) => self.node(id).folded != Folded::No,
+            (Some(only), None) => {
+                matches!(self.node(only).kind, NodeKind::Text | NodeKind::CData)
+            }
+            _ => false,
+        }
+    }
+
+    /// The text of element `id`: its folded text, or its text and CDATA children joined.
+    pub fn element_text<'s>(&self, src: &'s [u8], id: NodeId) -> Cow<'s, str> {
+        if self.node(id).folded != Folded::No {
+            return self.text(src, id);
+        }
+        let mut out = Cow::Borrowed("");
+        for c in self.children(id) {
+            if matches!(self.node(c).kind, NodeKind::Text | NodeKind::CData) {
+                let t = self.text(src, c);
+                if out.is_empty() {
+                    out = t;
+                } else {
+                    out.to_mut().push_str(&t);
+                }
+            }
+        }
+        out
     }
 
     /// Path from the root element, e.g. `/catalog/book[3]/title`.
@@ -354,6 +429,7 @@ impl<'s> Builder<'s> {
             head_len: 0,
             name_len: 0,
             kind: NodeKind::Document,
+            folded: Folded::No,
         });
         let base = if src.starts_with(UTF8_BOM) {
             UTF8_BOM.len() as u64
@@ -405,6 +481,7 @@ impl<'s> Builder<'s> {
                         });
                     }
                     let open = self.stack.pop().expect("checked above");
+                    self.fold(open, start);
                     self.close(open, end);
                 }
                 Event::Text(t) => {
@@ -481,8 +558,28 @@ impl<'s> Builder<'s> {
             head_len: (end - start) as u32,
             name_len: name_len as u16,
             kind,
+            folded: Folded::No,
         });
         id
+    }
+
+    /// Folds the content of element `id` into it when that is one text or CDATA node filling
+    /// everything up to the end tag at `end_tag`. Runs before [`Builder::close`].
+    fn fold(&mut self, id: NodeId, end_tag: u64) {
+        if self.nodes.len() != id as usize + 2 {
+            return;
+        }
+        let e = self.nodes[id as usize];
+        let t = self.nodes[id as usize + 1];
+        let folded = match t.kind {
+            NodeKind::Text => Folded::Text,
+            NodeKind::CData => Folded::CData,
+            _ => return,
+        };
+        if t.start == e.start + e.head_len as u64 && t.end == end_tag {
+            self.nodes.pop();
+            self.nodes[id as usize].folded = folded;
+        }
     }
 
     /// Ends element `id` at byte `end`; its subtree is everything added since.
@@ -588,9 +685,9 @@ mod tests {
         let c = kids.next().unwrap();
         let k = idx.attribute_spans(src, c);
         assert_eq!(&src[k[0].clone()], b"k=\"v\"");
-        // A text node has no attributes.
-        let t = idx.children(c).next().unwrap();
-        assert!(idx.attribute_spans(src, t).is_empty());
+        // Folded text does not disturb the attributes.
+        assert_eq!(idx.node(c).folded, Folded::Text);
+        assert_eq!(idx.text(src, c), "t");
     }
 
     #[test]
@@ -618,9 +715,16 @@ mod tests {
         let idx = index(DOC);
         let book = idx.children(idx.root_element().unwrap()).next().unwrap();
         let title = idx.children(book).next().unwrap();
-        let text: Vec<_> = idx.children(title).collect();
-        assert_eq!(text.len(), 1);
-        assert_eq!(idx.text(DOC, text[0]), "Rust & XML");
+        assert_eq!(idx.children(title).count(), 0, "folded");
+        assert_eq!(idx.text(DOC, title), "Rust & XML");
+        // Not folded: mixed content keeps its nodes, merged around the entity.
+        let src = b"<p>a &amp; b<br/>c</p>";
+        let idx = index(src);
+        let p = idx.root_element().unwrap();
+        let kids: Vec<_> = idx.children(p).collect();
+        assert_eq!(kids.len(), 3);
+        assert_eq!(idx.text(src, kids[0]), "a & b");
+        assert_eq!(idx.element_text(src, p), "a & bc");
     }
 
     #[test]
@@ -640,9 +744,8 @@ mod tests {
         let idx = index(DOC);
         let root = idx.root_element().unwrap();
         let note = idx.children(root).nth(2).unwrap();
-        let cdata = idx.children(note).next().unwrap();
-        assert_eq!(idx.node(cdata).kind, NodeKind::CData);
-        assert_eq!(idx.text(DOC, cdata), "a < b");
+        assert_eq!(idx.node(note).folded, Folded::CData);
+        assert_eq!(idx.text(DOC, note), "a < b");
         let second_book = idx.children(root).nth(1).unwrap();
         assert_eq!(idx.path(DOC, second_book), "/catalog/book[2]");
         assert_eq!(idx.path(DOC, note), "/catalog/note");
@@ -673,7 +776,7 @@ mod tests {
             idx.attributes(src, b),
             vec![("id".to_string(), "1".to_string())]
         );
-        assert_eq!(idx.text(src, idx.children(b).next().unwrap()), "x");
+        assert_eq!(idx.text(src, b), "x");
     }
 
     #[test]
@@ -762,6 +865,44 @@ mod tests {
         assert!(err.message.contains("longer than"));
         // The tree up to the error is kept.
         assert_eq!(idx.name(long.as_bytes(), idx.root_element().unwrap()), b"r");
+    }
+
+    /// Only content that is exactly one text or CDATA section is folded; the text reads the
+    /// same either way.
+    #[test]
+    fn folds_only_whole_text_content() {
+        let src = "<r><a>Grüße &lt;3</a><b> <![CDATA[x</y>]]> </b><c><![CDATA[]]></c>\
+                   <d>t<!--c--></d><e/><f></f><g>  </g><h>x<i/></h></r>"
+            .as_bytes();
+        let idx = index(src);
+        assert!(idx.error.is_none(), "{:?}", idx.error);
+        let kids: Vec<_> = idx.children(idx.root_element().unwrap()).collect();
+        let folded: Vec<_> = kids.iter().map(|&k| idx.node(k).folded).collect();
+        use Folded::*;
+        assert_eq!(folded, [Text, No, CData, No, No, No, No, No]);
+        assert_eq!(idx.text(src, kids[0]), "Grüße <3");
+        assert_eq!(
+            &src[idx.folded_span(src, kids[0]).unwrap()],
+            "Grüße &lt;3".as_bytes()
+        );
+        assert_eq!(idx.element_text(src, kids[1]), "x</y>");
+        assert_eq!(idx.text(src, kids[2]), "");
+        assert_eq!(idx.element_text(src, kids[3]), "t");
+        let only: Vec<_> = kids.iter().map(|&k| idx.is_text_only(k)).collect();
+        assert_eq!(only, [true, true, true, false, false, false, false, false]);
+        let text: Vec<_> = kids.iter().map(|&k| idx.has_text(k)).collect();
+        assert_eq!(text, [true, true, true, true, false, false, false, true]);
+        assert_eq!(idx.folded_span(src, kids[1]), None);
+    }
+
+    /// An element cut short by an error keeps its text as a node.
+    #[test]
+    fn does_not_fold_at_an_error() {
+        let src = b"<r><a>text";
+        let idx = index(src);
+        let a = idx.children(idx.root_element().unwrap()).next().unwrap();
+        assert_eq!(idx.node(a).folded, Folded::No);
+        assert_eq!(idx.element_text(src, a), "text");
     }
 
     #[test]
