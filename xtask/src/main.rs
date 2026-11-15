@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod package;
+mod windows;
 
 #[derive(Parser)]
 struct Cli {
@@ -32,6 +33,19 @@ enum Command {
         #[arg(long)]
         skip_build: bool,
     },
+    /// Build the Windows MSI and zip into target/dist (PKG-10, PKG-12). Runs on Windows;
+    /// the MSI needs WiX 4 or later.
+    PackageWindows {
+        /// Use the executables already in target/x86_64-pc-windows-msvc/release.
+        #[arg(long)]
+        skip_build: bool,
+        /// Pack the executables in this folder instead, such as signed ones (PKG-14).
+        #[arg(long)]
+        bin_dir: Option<PathBuf>,
+        /// Write only the zip, without WiX.
+        #[arg(long)]
+        zip_only: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -42,6 +56,16 @@ fn main() -> anyhow::Result<()> {
                 .parent()
                 .expect("xtask is in the workspace");
             package::package(root, skip_build)
+        }
+        Command::PackageWindows {
+            skip_build,
+            bin_dir,
+            zip_only,
+        } => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("xtask is in the workspace");
+            windows::package(root, skip_build, bin_dir, zip_only)
         }
     }
 }

@@ -57,6 +57,16 @@ packaging/linux/install-test.sh # installs them in fresh containers (needs Docke
 The executables are built against glibc 2.34, so one package runs on RHEL 9, Ubuntu 22.04,
 Debian 12 and later (`docs/decisions.md`, D22).
 
+## Windows packages
+
+On Windows, with Rust (MSVC), the .NET SDK and WiX:
+
+```sh
+dotnet tool install --global wix
+wix extension add --global WixToolset.UI.wixext   # the same version as `wix --version`
+cargo xtask package-windows    # writes target/dist/*.msi and *-windows-x64.zip
+```
+
 ## Layout
 
 | Path                | Purpose                                                        |
@@ -65,9 +75,10 @@ Debian 12 and later (`docs/decisions.md`, D22).
 | `crates/engine`     | Document, line index and commands shared by every front end    |
 | `apps/xml-atlas`    | egui desktop app                                               |
 | `apps/xml-atlas-cli`| Command-line front end and benchmark tool                      |
-| `xtask`             | Project tasks: fixtures, Linux packages                        |
+| `xtask`             | Project tasks: fixtures, Linux and Windows packages            |
 | `docs/spec`         | Clean-room behaviour spec                                      |
 | `packaging/linux`   | Desktop entry, icon and metainfo the Linux packages install    |
+| `packaging/windows` | Installer source (WiX) and icon of the Windows packages        |
 
 ## License
 
