@@ -41,7 +41,7 @@ The order follows `docs/decisions.md`, D15.
       are edited
 - [x] Edit cells in the grid; rename, delete, duplicate and move elements in the tree
       (GRID-10, TREE-9)
-- [ ] Replace and Replace All (TEXT-14)
+- [x] Replace and Replace All (TEXT-14)
 - [x] The edits in the engine and the CLI: set text, set and remove attributes, rename,
       delete, duplicate, move (EDIT-5 to EDIT-10)
 - [x] Recent files (OPEN-12)

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
-use xml_atlas_engine::find::{Direction, FindOptions, Finder};
+use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
 use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
 
 #[derive(Parser)]
@@ -109,6 +109,23 @@ enum Command {
         /// Print at most this many matches; all are counted.
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    /// Replace every match of TEXT with WITH, as typed: in the whole file, or within one
+    /// element. Refused when the result would not be well-formed.
+    Replace {
+        file: PathBuf,
+        query: String,
+        with: String,
+        #[arg(long)]
+        match_case: bool,
+        #[arg(long)]
+        whole_word: bool,
+        /// Only inside this element (its tags included), by path: `/root/child[2]`.
+        #[arg(long, value_name = "PATH")]
+        within: Option<String>,
+        /// Output file (may be the input file); defaults to stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -215,7 +232,65 @@ fn main() -> anyhow::Result<()> {
             },
             limit,
         ),
+        Command::Replace {
+            file,
+            query,
+            with,
+            match_case,
+            whole_word,
+            within,
+            output,
+        } => replace(
+            &file,
+            &query,
+            &with,
+            FindOptions {
+                match_case,
+                whole_word,
+            },
+            within.as_deref(),
+            output,
+        ),
     }
+}
+
+/// Replace All (TEXT-14), the same as the GUI's.
+fn replace(
+    file: &PathBuf,
+    query: &str,
+    with: &str,
+    options: FindOptions,
+    within: Option<&str>,
+    output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let mut doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let finder = Finder::new(query, options)?;
+    let range = match within {
+        Some(path) => {
+            if let Some(e) = &doc.index.error {
+                anyhow::bail!("{} is not well-formed: {e}", file.display());
+            }
+            doc.index.node(command::resolve(&doc, path)?).span()
+        }
+        None => 0..doc.src.len(),
+    };
+    let was_broken = doc.index.error.is_some();
+    match find_text::replace_all(&finder, &doc.src, range, with) {
+        None => eprintln!("no matches"),
+        Some((edit, count)) => {
+            match doc.apply(edit) {
+                Ok(()) => eprintln!("replaced {count}"),
+                Err(xml_atlas_engine::EditError::Empty) => {
+                    eprintln!("{count} matches, all already as given: nothing to change")
+                }
+                Err(e) => return Err(e.into()),
+            }
+            if let (false, Some(e)) = (was_broken, &doc.index.error) {
+                anyhow::bail!("the replacement would leave the document not well-formed: {e}");
+            }
+        }
+    }
+    write_output(output, &doc.src)
 }
 
 /// Options of format and compact that change content, so both are off unless asked for.

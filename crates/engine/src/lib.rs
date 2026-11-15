@@ -34,6 +34,8 @@ pub struct Document {
     pub timings: Timings,
     /// Undo and redo, and whether the source differs from the file.
     pub history: History,
+    /// Counts changes to the source, so views can tell that what they computed is stale.
+    revision: u64,
 }
 
 /// How long each stage of opening took.
@@ -81,6 +83,7 @@ impl Document {
                 lines: lines_time,
             },
             history: History::new(),
+            revision: 0,
         }
     }
 
@@ -111,10 +114,16 @@ impl Document {
         self.history.is_modified()
     }
 
+    /// Goes up with every change to the source: an edit, an undo, a redo.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Brings the node and line index up to date after the source changed. A single change
     /// re-indexes only the element around it when it can (D9); anything else indexes the
     /// whole document.
     fn reindex(&mut self, splice: Option<Splice>) {
+        self.revision += 1;
         let t = Instant::now();
         let updated =
             splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
