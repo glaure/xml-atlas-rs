@@ -12,8 +12,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Baseline: XML Marker under wine on the same files (`docs/benchmarks.md`)
 - [ ] Baseline for the Qt XML Atlas (it needs a file argument first) and for interaction:
       scrolling, selecting, searching
-- [ ] Start-up: 0.59 s and 193 MiB with a tiny file, slower and heavier than XML Marker.
-      Measure where it goes (window, GPU renderer, fonts) and cut it
+- [x] Start-up: 0.59 s and 193 MiB with a tiny file, slower and heavier than XML Marker.
+      Now 0.30-0.33 s and 132 MiB with OpenGL instead of wgpu (D21)
 - [x] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
       huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
 - [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
