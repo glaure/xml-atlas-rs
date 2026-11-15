@@ -293,6 +293,12 @@ Still open, found by the same review:
   - No hidden offset rules such as the byte order mark.
 - **Decide by:** a prototype benchmarked against the current 300 MiB/s and checked against the
   corpus (D15). Keep quick-xml if the gain is small.
+- **Error recovery built without it (OPEN-10, 2026-11-15):** quick-xml 0.42 carries on after
+  malformed markup, so the rule above runs on quick-xml: the index matches end tags itself,
+  against the open names kept one after another in a buffer (reading them from the nodes and
+  the source cost 60 ms on the 100 MiB fixture; the buffer costs what quick-xml's own check
+  did). After a byte that is not UTF-8 a new reader starts at the next `<`. Without any end
+  tag check the index took 265 ms instead of 310 ms there: a hint for the prototype.
 
 ## D15: Order of work
 

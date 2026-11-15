@@ -28,7 +28,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (GRID-3)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [ ] Encodings other than UTF-8 (Latin-1 and Windows-1252 from the declaration, UTF-16)
-- [ ] Tokenizer prototype and decision (D14); error recovery after the first parse error
+- [ ] Tokenizer prototype and decision (D14)
+- [x] Error recovery after the first parse error (OPEN-10)
 - [x] Integer scrolling for very tall views (D16): the text view; tree and grid stay within
       a float's precision at 1.0's sizes
 - [x] Keyboard navigation in tree and grid (TREE-8, GRID-17); Drill Up and Drill Down (TREE-10)

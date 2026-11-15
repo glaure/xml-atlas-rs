@@ -199,12 +199,14 @@ fn whole_document_on_one_line() {
     assert_eq!(text(&doc, find(&doc, "d")), "ü");
 }
 
-/// OPEN-9: everything before the first error is there, and the error has a position.
+/// OPEN-9: everything before the first error is there, and the error has a position: the
+/// start tag of the element that is not closed.
 #[test]
 fn malformed_file_keeps_what_came_before_the_error() {
     let doc = open("malformed_unclosed.xml");
     let error = doc.index.error.as_ref().expect("an error");
-    assert_eq!(doc.line_of(error.offset), 5, "{error}");
+    assert_eq!(doc.line_of(error.offset), 4, "{error}");
+    assert!(error.message.contains("<order>"), "{error}");
     assert_eq!(
         &element_names(&doc)[..4],
         ["shop", "owner", "orders", "order"]
@@ -212,11 +214,22 @@ fn malformed_file_keeps_what_came_before_the_error() {
     assert_eq!(text(&doc, find(&doc, "owner")), "Müller");
 }
 
+/// OPEN-10: `</orders>` closes the `order` left open in it, and what follows is read as if
+/// nothing had happened.
 #[test]
-#[ignore = "OPEN-10: nothing after the first error is recovered yet"]
 fn malformed_file_recovers_after_the_error() {
     let doc = open("malformed_unclosed.xml");
-    assert!(element_names(&doc).contains(&"after".to_string()));
+    assert_eq!(
+        element_names(&doc),
+        ["shop", "owner", "orders", "order", "after"]
+    );
+    let after = find(&doc, "after");
+    assert_eq!(doc.index.node(after).parent, root(&doc));
+    assert_eq!(text(&doc, after), "not reached");
+    let order = find(&doc, "order");
+    let orders_end = String::from_utf8_lossy(&doc.src).find("</orders>").unwrap() as u64;
+    assert_eq!(doc.index.node(order).end, orders_end);
+    assert!(doc.index.more_errors.is_empty());
 }
 
 /// OPEN-13: the problems of each corpus file, by line.
@@ -226,8 +239,10 @@ fn problems_of_the_corpus() {
     let cases: &[(&str, &[(xml_atlas_engine::problems::Severity, usize)])] = &[
         ("utf8_bom_crlf.xml", &[]),
         ("namespaces.xml", &[]),
-        ("malformed_unclosed.xml", &[(Error, 5)]),
-        ("latin1.xml", &[(Warning, 0), (Error, 1)]),
+        ("malformed_unclosed.xml", &[(Error, 4)]),
+        // The first byte that is not UTF-8 is in `<n a="Äpfel">`, so that start tag is
+        // skipped and its end tag matches nothing (OPEN-10); OPEN-8 reads such files right.
+        ("latin1.xml", &[(Warning, 0), (Error, 1), (Error, 1)]),
         ("windows1252.xml", &[(Warning, 0), (Error, 1)]),
         ("utf16le_bom.xml", &[(Error, 0), (Error, 0)]),
     ];

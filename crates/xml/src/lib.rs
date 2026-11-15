@@ -54,6 +54,10 @@ pub enum Folded {
 /// Longest element name the index can hold, in bytes.
 pub const MAX_NAME_LEN: usize = u16::MAX as usize;
 
+/// Errors kept per document. Parsing goes on after the last one (OPEN-10); a file of noise
+/// does not fill memory with messages.
+pub const MAX_ERRORS: usize = 1000;
+
 /// One node. Offsets are byte positions in the source.
 ///
 /// Nodes are stored in document order, so a node's subtree is the run of nodes right after
@@ -141,7 +145,10 @@ impl NodeSplice {
 #[derive(Clone, Debug)]
 pub struct Index {
     pub nodes: Vec<Node>,
+    /// The first error. Parsing recovers after it (OPEN-10), so nodes after it are there too.
     pub error: Option<ParseError>,
+    /// The errors after the first, in document order, up to [`MAX_ERRORS`] in all.
+    pub more_errors: Vec<ParseError>,
     pub element_count: u32,
     /// Deepest element nesting; the root element is 1. After [`Index::update`] it can be
     /// higher than the document now has (an upper bound), until the next full index.
@@ -374,7 +381,7 @@ impl Index {
             }
             a = self.node(a).parent;
         }
-        if let Some(e) = &mut self.error {
+        for e in self.error.iter_mut().chain(self.more_errors.iter_mut()) {
             if e.offset >= old_end {
                 e.offset = e.offset.wrapping_add_signed(delta);
             } else if e.offset > at {
@@ -911,6 +918,11 @@ struct Builder<'s> {
     nodes: Vec<Node>,
     /// The open elements, innermost last; the document at the bottom.
     stack: Vec<NodeId>,
+    /// The names of the open elements one after another, and where each starts in it, in the
+    /// order of `stack` without the document. Matching an end tag here stays in cache;
+    /// reading the name from the node and the source misses it (OPEN-10).
+    names: Vec<u8>,
+    name_starts: Vec<usize>,
     element_count: u32,
     max_depth: u16,
 }
@@ -939,46 +951,84 @@ impl<'s> Builder<'s> {
             base,
             nodes,
             stack: vec![ROOT],
+            names: Vec::new(),
+            name_starts: Vec::new(),
             element_count: 0,
             max_depth: 0,
         }
     }
 
+    /// Indexes the source. After an error it goes on as far as it can (OPEN-10, D14): an end
+    /// tag closes the elements left open inside the element it matches, an end tag that
+    /// matches none is skipped, a byte that is not UTF-8 is skipped up to the next `<`, and
+    /// elements open at the end of the file end there. Each of these is an error.
     fn run(mut self) -> Index {
-        let base = self.base;
-        let mut reader = Reader::from_reader(&self.src[base as usize..]);
-        reader.config_mut().check_end_names = true;
-        let error = loop {
+        let mut errors = Vec::new();
+        let mut base = self.base;
+        let mut reader = Self::reader(&self.src[base as usize..]);
+        loop {
             let start = base + reader.buffer_position();
             let event = match reader.read_event() {
                 Ok(e) => e,
-                Err(e) => break Some(parse_error(e, start, base + reader.error_position())),
+                Err(e) => {
+                    let err = parse_error(e, start, base + reader.error_position());
+                    let utf8 = err.not_utf8;
+                    let at = err.offset;
+                    errors.push(err.error);
+                    if !utf8 {
+                        // Malformed markup: the reader has skipped it and goes on, or it ran
+                        // to the end of the file.
+                        continue;
+                    }
+                    if self.src.starts_with(b"\xFF\xFE") || self.src.starts_with(b"\xFE\xFF") {
+                        // UTF-16 cannot be read yet (OPEN-8): every byte after would fail too.
+                        break;
+                    }
+                    // Go on from the next `<` after the byte that is not UTF-8.
+                    let from = (at + 1).min(self.src.len() as u64) as usize;
+                    let Some(next) = memchr::memchr(b'<', &self.src[from..]) else {
+                        break;
+                    };
+                    base = (from + next) as u64;
+                    reader = Self::reader(&self.src[base as usize..]);
+                    continue;
+                }
             };
             let end = base + reader.buffer_position();
             match event {
                 Event::Start(e) => {
                     let name_len = e.name().as_ref().len();
                     if name_len > MAX_NAME_LEN {
-                        break Some(name_too_long(start));
+                        errors.push(name_too_long(start));
+                        continue;
                     }
                     let id = self.add(NodeKind::Element, start, end, name_len);
                     self.stack.push(id);
+                    self.name_starts.push(self.names.len());
+                    self.names.extend_from_slice(e.name().as_ref().as_bytes());
                 }
                 Event::Empty(e) => {
                     let name_len = e.name().as_ref().len();
                     if name_len > MAX_NAME_LEN {
-                        break Some(name_too_long(start));
+                        errors.push(name_too_long(start));
+                        continue;
                     }
                     self.add(NodeKind::Element, start, end, name_len);
                 }
-                Event::End(_) => {
-                    if self.stack.len() <= 1 {
-                        break Some(ParseError {
-                            offset: start,
-                            message: "unexpected end tag".into(),
-                        });
+                Event::End(e) => {
+                    let name = e.name();
+                    let name = name.as_ref().as_bytes();
+                    let Some(depth) = self.open_named(name) else {
+                        errors.push(unexpected_end(start, name));
+                        continue;
+                    };
+                    while self.stack.len() > depth + 1 {
+                        let open = self.pop();
+                        errors.push(self.not_closed(open));
+                        self.fold(open, start);
+                        self.close(open, start);
                     }
-                    let open = self.stack.pop().expect("checked above");
+                    let open = self.pop();
                     self.fold(open, start);
                     self.close(open, end);
                 }
@@ -1008,36 +1058,69 @@ impl<'s> Builder<'s> {
                 Event::DocType(_) => {
                     self.add(NodeKind::DocType, start, end, 0);
                 }
-                Event::Eof => {
-                    if self.stack.len() > 1 {
-                        let open = *self.stack.last().expect("len > 1");
-                        let name = String::from_utf8_lossy(
-                            &self.src[self.nodes[open as usize].name_span()],
-                        );
-                        break Some(ParseError {
-                            offset: end,
-                            message: format!("unclosed element <{name}>"),
-                        });
-                    }
-                    break None;
-                }
+                Event::Eof => break,
             }
-        };
-        // Close anything left open at the error so spans stay valid.
-        let stop = error.as_ref().map_or(self.src.len() as u64, |e| e.offset);
-        while self.stack.len() > 1 {
-            let open = self.stack.pop().expect("len > 1");
-            self.close(open, stop);
         }
-        self.close(ROOT, self.src.len() as u64);
+        // Elements still open end with the file.
+        let len = self.src.len() as u64;
+        while self.stack.len() > 1 {
+            let open = self.pop();
+            errors.push(self.not_closed(open));
+            self.close(open, len);
+        }
+        self.close(ROOT, len);
         // The capacity guess can overshoot by up to 2x after growth; give the slack back.
         self.nodes.shrink_to_fit();
+        // Unclosed elements are reported where they start, before what was read after them.
+        errors.sort_by_key(|e| e.offset);
+        errors.truncate(MAX_ERRORS);
+        let mut errors = errors.into_iter();
         Index {
             nodes: self.nodes,
-            error,
+            error: errors.next(),
+            more_errors: errors.collect(),
             element_count: self.element_count,
             max_depth: self.max_depth,
             last_splice: None,
+        }
+    }
+
+    /// A reader over `src`, which checks nothing that [`Builder::run`] checks itself.
+    fn reader(src: &'s [u8]) -> Reader<&'s [u8]> {
+        let mut reader = Reader::from_reader(src);
+        let config = reader.config_mut();
+        config.check_end_names = false;
+        config.allow_unmatched_ends = true;
+        reader
+    }
+
+    /// Where in `stack` the innermost open element named `name` is; `None` when no open
+    /// element has that name. Nearly always the innermost one.
+    fn open_named(&self, name: &[u8]) -> Option<usize> {
+        let mut end = self.names.len();
+        for (i, &from) in self.name_starts.iter().enumerate().rev() {
+            if &self.names[from..end] == name {
+                return Some(i + 1);
+            }
+            end = from;
+        }
+        None
+    }
+
+    /// Closes the innermost open element in `stack` and `names`; returns it.
+    fn pop(&mut self) -> NodeId {
+        let from = self.name_starts.pop().expect("an open element");
+        self.names.truncate(from);
+        self.stack.pop().expect("an open element")
+    }
+
+    /// The error for element `id`, open when it should have been closed.
+    fn not_closed(&self, id: NodeId) -> ParseError {
+        let n = &self.nodes[id as usize];
+        let name = String::from_utf8_lossy(&self.src[n.name_span()]);
+        ParseError {
+            offset: n.start,
+            message: format!("element <{name}> is not closed"),
         }
     }
 
@@ -1115,20 +1198,46 @@ fn name_too_long(offset: u64) -> ParseError {
     }
 }
 
-/// The error to report for `e`, which happened in the event that starts at byte `start`.
-/// `position` is quick-xml's error position. Kept out of the parse loop: it runs once.
+/// An end tag that matches no open element.
 #[cold]
 #[inline(never)]
-fn parse_error(e: quick_xml::Error, start: u64, position: u64) -> ParseError {
-    // quick-xml does not set the error position for bytes that are not UTF-8, but the error
-    // says how far into the failing event they were valid.
-    let offset = match &e {
-        quick_xml::Error::Encoding(EncodingError::Utf8(u)) => start + u.valid_up_to() as u64,
-        _ => position,
-    };
+fn unexpected_end(offset: u64, name: &[u8]) -> ParseError {
     ParseError {
         offset,
-        message: e.to_string(),
+        message: format!(
+            "end tag </{}> matches no open element",
+            String::from_utf8_lossy(name)
+        ),
+    }
+}
+
+/// A parse error, and whether its cause is a byte that is not UTF-8.
+struct Failed {
+    error: ParseError,
+    not_utf8: bool,
+    offset: u64,
+}
+
+/// The error to report for `e`, which happened in the event that starts at byte `start`.
+/// `position` is quick-xml's error position. Kept out of the parse loop: it runs rarely.
+#[cold]
+#[inline(never)]
+fn parse_error(e: quick_xml::Error, start: u64, position: u64) -> Failed {
+    // quick-xml does not set the error position for bytes that are not UTF-8, but the error
+    // says how far into the failing event they were valid.
+    let (offset, not_utf8) = match &e {
+        quick_xml::Error::Encoding(EncodingError::Utf8(u)) => {
+            (start + u.valid_up_to() as u64, true)
+        }
+        _ => (position, false),
+    };
+    Failed {
+        error: ParseError {
+            offset,
+            message: e.to_string(),
+        },
+        not_utf8,
+        offset,
     }
 }
 
@@ -1163,6 +1272,137 @@ mod tests {
             err.offset as usize,
             src.iter().position(|&b| b == 0xC4).unwrap()
         );
+    }
+
+    /// The element named `name`, the first in document order.
+    fn named(idx: &Index, src: &[u8], name: &str) -> NodeId {
+        (1..idx.len() as NodeId)
+            .find(|&id| {
+                idx.node(id).kind == NodeKind::Element && idx.name(src, id) == name.as_bytes()
+            })
+            .unwrap_or_else(|| panic!("no <{name}>"))
+    }
+
+    /// All errors, first to last.
+    fn errors(idx: &Index) -> Vec<(u64, String)> {
+        idx.error
+            .iter()
+            .chain(&idx.more_errors)
+            .map(|e| (e.offset, e.message.clone()))
+            .collect()
+    }
+
+    /// OPEN-10: an end tag closes the elements left open inside the element it matches, at
+    /// its `<`; each of them is an error where it starts. What follows is read as usual.
+    #[test]
+    fn end_tag_closes_what_was_left_open() {
+        let src = "\u{feff}<r>\r\n<ä><ö>x\r\n<ü/></ä>\r\n<c>Grüße</c>\r\n</r>\r\n".as_bytes();
+        let idx = index(src);
+        let at = |s: &str| {
+            src.windows(s.len())
+                .position(|w| w == s.as_bytes())
+                .unwrap() as u64
+        };
+        let (r, a, o, u, c) = (
+            named(&idx, src, "r"),
+            named(&idx, src, "ä"),
+            named(&idx, src, "ö"),
+            named(&idx, src, "ü"),
+            named(&idx, src, "c"),
+        );
+        assert_eq!(errors(&idx).len(), 1);
+        assert_eq!(idx.error.as_ref().unwrap().offset, at("<ö>"));
+        assert!(idx.error.as_ref().unwrap().message.contains("<ö>"));
+        assert_eq!(idx.node(o).end, at("</ä>"));
+        assert_eq!(idx.node(u).parent, o);
+        assert_eq!(idx.node(a).end, at("</ä>") + "</ä>".len() as u64);
+        assert_eq!(idx.node(c).parent, r);
+        assert_eq!(idx.text(src, c), "Grüße");
+        assert_eq!(idx.node(r).end, at("</r>") + 4);
+        assert_eq!(idx.node(r).descendants as usize, idx.len() - 2);
+    }
+
+    /// An end tag that matches no open element is an error and is skipped.
+    #[test]
+    fn stray_end_tag_is_skipped() {
+        let src = b"<r><a/></x><b/></r>";
+        let idx = index(src);
+        assert_eq!(errors(&idx).len(), 1);
+        let e = idx.error.as_ref().unwrap();
+        assert_eq!(e.offset, 7);
+        assert!(e.message.contains("</x>"), "{e}");
+        assert_eq!(
+            idx.node(named(&idx, src, "b")).parent,
+            named(&idx, src, "r")
+        );
+        assert_eq!(idx.node(named(&idx, src, "r")).end, src.len() as u64);
+    }
+
+    /// Elements open at the end of the file end with it: one error each, outermost first.
+    #[test]
+    fn open_elements_end_with_the_file() {
+        let src = "<r>\r\n<a>Maß".as_bytes();
+        let idx = index(src);
+        let len = src.len() as u64;
+        let (r, a) = (named(&idx, src, "r"), named(&idx, src, "a"));
+        assert_eq!((idx.node(r).end, idx.node(a).end), (len, len));
+        let errs = errors(&idx);
+        assert_eq!(errs.len(), 2);
+        assert_eq!((errs[0].0, errs[1].0), (0, 5));
+        assert!(
+            errs[0].1.contains("<r>") && errs[1].1.contains("<a>"),
+            "{errs:?}"
+        );
+    }
+
+    /// A byte that is not UTF-8 is an error; reading goes on from the next `<`, also after a
+    /// byte order mark.
+    #[test]
+    fn reading_goes_on_after_a_byte_that_is_not_utf8() {
+        let src = b"\xEF\xBB\xBF<r>\r\n<a>Gr\xFC\xDFe</a>\r\n<b>\xC3\xBC</b>\r\n</r>\r\n";
+        let idx = index(src);
+        let errs = errors(&idx);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert_eq!(errs[0].0, 13, "at the first byte that is not UTF-8");
+        let (r, a, b) = (
+            named(&idx, src, "r"),
+            named(&idx, src, "a"),
+            named(&idx, src, "b"),
+        );
+        assert_eq!(idx.node(a).end, 20, "closed by its own end tag");
+        assert_eq!(idx.node(b).parent, r);
+        assert_eq!(idx.text(src, b), "ü");
+        assert_eq!(idx.node(r).end, src.len() as u64 - 2);
+    }
+
+    /// Markup that is never closed runs to the end of the file: nothing after it is read,
+    /// what came before stays, and it is an error.
+    #[test]
+    fn unclosed_markup_runs_to_the_end() {
+        for src in [&b"<r><a/><b x=\"1></b><c/></r>"[..], b"<r><a/><!-- x </r>"] {
+            let idx = index(src);
+            named(&idx, src, "a");
+            assert!(
+                !(1..idx.len() as NodeId).any(|id| idx.name(src, id) == b"c"),
+                "{}",
+                String::from_utf8_lossy(src)
+            );
+            assert!(idx.error.is_some());
+            assert_eq!(idx.node(named(&idx, src, "r")).end, src.len() as u64);
+        }
+    }
+
+    /// No more than [`MAX_ERRORS`] errors are kept; reading goes on to the end.
+    #[test]
+    fn errors_are_capped() {
+        let mut src = String::from("<r>");
+        for _ in 0..MAX_ERRORS + 500 {
+            src.push_str("</x>");
+        }
+        src.push_str("<last/></r>");
+        let idx = index(src.as_bytes());
+        assert_eq!(errors(&idx).len(), MAX_ERRORS);
+        named(&idx, src.as_bytes(), "last");
     }
 
     #[test]
