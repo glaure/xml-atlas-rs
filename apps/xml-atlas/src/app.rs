@@ -107,6 +107,14 @@ pub struct Open {
     pub note: Option<Note>,
     /// What the pane beside the grid shows for the clicked cell (GRID-16).
     pub cell_pane: Option<crate::cell_pane::CellPane>,
+    /// The text cursor and selection (TEXT-16); `None` until the text is clicked.
+    pub text_sel: Option<xml_atlas_engine::text::Selection>,
+    /// The display column Up and Down keep, from where they started.
+    pub text_goal: Option<usize>,
+    /// Scroll the cursor into view on the next frame.
+    pub text_reveal: bool,
+    /// Lines the text view showed last frame.
+    pub text_rows: std::ops::Range<usize>,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -379,6 +387,10 @@ impl App {
             grid_edit: None,
             note: None,
             cell_pane: None,
+            text_sel: None,
+            text_goal: None,
+            text_reveal: false,
+            text_rows: 0..0,
         };
         open.problems = open.doc.problems();
         open.tree.set_attributes(self.settings.tree_attributes);
@@ -708,6 +720,7 @@ impl App {
             label = doc.undo();
             Ok(label.is_some())
         }) {
+            open.cursor_to_change();
             self.notice = label.map(|l| Note::info(format!("Undid {l}")));
         }
     }
@@ -722,6 +735,7 @@ impl App {
             label = doc.redo();
             Ok(label.is_some())
         }) {
+            open.cursor_to_change();
             self.notice = label.map(|l| Note::info(format!("Redid {l}")));
         }
     }
@@ -1264,6 +1278,7 @@ impl eframe::App for App {
                 ui.push_id(id, |ui| tree::show(ui, open));
             });
         let layout = self.settings.layout;
+        let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
@@ -1299,7 +1314,7 @@ impl eframe::App for App {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }
             egui::CentralPanel::default().show(ui, |ui| {
-                ui.push_id(open.id, |ui| crate::text_view::show(ui, open));
+                ui.push_id(open.id, |ui| crate::text_view::show(ui, open, &format));
             });
         });
         if let Some(note) = open.note.take() {
@@ -1443,6 +1458,20 @@ impl Open {
             }
         }
         Ok(true)
+    }
+
+    /// After undo or redo, the text cursor goes where the change was, behind what it put back
+    /// (TEXT-20). Only when the text has a cursor already.
+    pub fn cursor_to_change(&mut self) {
+        if self.text_sel.is_none() {
+            return;
+        }
+        if let Some(c) = self.doc.last_change() {
+            self.text_sel = Some(xml_atlas_engine::text::Selection::cursor(c.at + c.inserted));
+            self.text_goal = None;
+            self.text_reveal = true;
+            self.scroll_text_to = None;
+        }
     }
 
     /// Makes `id` the selected element: grid shows its children, tree reveals it, text scrolls.

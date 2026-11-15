@@ -125,6 +125,12 @@ impl TreeState {
     }
 
     /// Scrolls just enough to show `row`, if it is off screen.
+    /// Leaves the tree scrolled where it is, after an edit re-selected the same element
+    /// (TREE-12: typing does not move the tree).
+    pub fn keep_scroll(&mut self) {
+        self.scroll_to = None;
+    }
+
     pub fn keep_visible(&mut self, row: Row) {
         let Some(i) = self.rows.iter().position(|&r| r == row) else {
             return;

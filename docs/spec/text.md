@@ -30,7 +30,7 @@ of it.
   grid row are drawn in the error colour, and the problems list (OPEN-13) says where the
   error is. Structured edits stay refused until the text is well-formed again (EDIT-5 to
   EDIT-10). Typing on in the broken part works as anywhere else.
-- **TEXT-16** `[planned]` Cursor and keys. A click puts the cursor where it was clicked, and
+- **TEXT-16** `[done]` Cursor and keys. A click puts the cursor where it was clicked, and
   still selects the element there (TEXT-7, TREE-12). Left and Right move by one character,
   Ctrl+Left and Ctrl+Right by one word; Up and Down by one line, keeping the column they
   started from; Home goes to the first non-blank character of the line, again to the start;
@@ -38,8 +38,9 @@ of it.
   Page Up and Page Down by what fits on screen. Shift with any of them extends the selection.
   The view scrolls to keep the cursor visible. Moving the cursor with the keys does not move
   tree or grid (TREE-12).
-- **TEXT-17** `[planned]` Selection and typing. Dragging selects; Shift+click extends;
-  double-click selects a word, triple-click the line; Ctrl+A selects all. Typing replaces the
+- **TEXT-17** `[done]` Selection and typing. Dragging selects; Shift+click extends;
+  double-click selects a word, triple-click the line; Ctrl+A selects all (with the clipboard,
+  TEXT-18). Typing replaces the
   selection, or inserts at the cursor. Backspace and Delete remove the selection, or one
   character; Ctrl+Backspace and Ctrl+Delete one word. Enter inserts the file's line ending
   (CRLF in a CRLF file, as EDIT-5), followed by the indentation of the line it was pressed on.
@@ -52,13 +53,13 @@ of it.
 - **TEXT-19** `[planned]` Input methods: dead keys, compose sequences and input method
   editors (Chinese, Japanese, Korean) work. While composing, the text being composed is shown
   underlined at the cursor; only what is committed goes into the document, as one change.
-- **TEXT-20** `[planned]` Undo while typing goes word by word (EDIT-1): a word typed after a
+- **TEXT-20** `[done]` Undo while typing goes word by word (EDIT-1): a word typed after a
   space or punctuation starts a new undo step, so `Grüße, Welt` is undone as `Welt`, then
   `Grüße, `. A run of Backspace or Delete is one step. A step also ends when the cursor is
   moved by a click or a key, when typing turns into deleting or back, after a pause of one
   second, when the document is saved, and before any other command (Format, Replace, a
   structured edit). Undo and redo put the cursor where the change was.
-- **TEXT-21** `[planned]` Bytes are kept. Only the bytes typed, deleted or pasted change
+- **TEXT-21** `[done]` Bytes are kept. Only the bytes typed, deleted or pasted change
   (`AGENTS.md`, rule 7). The cursor is never inside a UTF-8 character, never between the CR
   and LF of a CRLF line ending, and never before a byte order mark. A byte that is not valid
   UTF-8 is shown as `�`, counts as one character, and stays as it was unless it is deleted.
@@ -68,7 +69,10 @@ of it.
   last good state (TEXT-10) and the whole document is read again after a pause in typing of
   half a second, off the UI thread for large files. Measured before building (D19): a typed
   letter 0.7 ms on 10 MiB and 15 ms on 100 MiB; a typed `<`, which breaks the element, 16 ms
-  and 167 ms if it were read again at once.
+  and 167 ms if it were read again at once. Today, in the app, a typed letter takes 2 ms on
+  10 MiB and 35 ms on 100 MiB, because tree, grid and the problems list are rebuilt on every
+  key, and a key that breaks or mends an element reads the whole file at once (31 ms and
+  317 ms); D19 steps 5 and 6 remove both.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).

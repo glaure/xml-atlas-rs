@@ -78,6 +78,54 @@ pub fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+/// The nearest character boundary at or before `at` (TEXT-21): for a position that another
+/// edit left inside a character or a CRLF.
+pub fn snap(src: &[u8], at: usize) -> usize {
+    let start = text_start(src);
+    let at = at.min(src.len());
+    if at <= start {
+        return start;
+    }
+    if src[at - 1] == b'\r' && src.get(at) == Some(&b'\n') {
+        return at - 1;
+    }
+    (1..=3)
+        .filter(|&k| at >= start + k)
+        .find(|&k| char_len(src, at - k) > k)
+        .map_or(at, |k| at - k)
+}
+
+/// The word at `at`, for a double-click: a run of word characters, of spaces, or of other
+/// characters. Empty at the end of the text or at a line break.
+pub fn word_at(src: &[u8], at: usize) -> Range<usize> {
+    let at = snap(src, at);
+    if at >= src.len() || matches!(src[at], b'\r' | b'\n') {
+        return at..at;
+    }
+    let kind = class(src, at);
+    let same = |p: usize| !matches!(src[p], b'\r' | b'\n') && class(src, p) == kind;
+    let start_of_text = text_start(src);
+    let mut a = at;
+    while a > start_of_text && same(prev_char(src, a)) {
+        a = prev_char(src, a);
+    }
+    let mut b = at;
+    while b < src.len() && same(b) {
+        b = next_char(src, b);
+    }
+    a..b
+}
+
+/// The whole line that holds `at`, with its line ending, for a triple-click.
+pub fn line_at(doc: &Document, at: usize) -> Range<usize> {
+    let line = doc.line_of(at as u64);
+    let end = doc
+        .line_starts
+        .get(line + 1)
+        .map_or(doc.src.len(), |&s| s as usize);
+    line_start(doc, at)..end
+}
+
 /// Where the text starts: after the byte order mark, if there is one.
 pub fn text_start(src: &[u8]) -> usize {
     if src.starts_with(BOM) { BOM.len() } else { 0 }
@@ -649,5 +697,45 @@ mod tests {
         h.undo(&mut src);
         assert!(!h.is_modified());
         assert_eq!(&src[at..at + 2], b"x<");
+    }
+
+    #[test]
+    fn snap_word_and_line() {
+        let d = doc();
+        let src = &d.src;
+        // Inside `ü`, between CR and LF, inside the byte order mark: the boundary before.
+        let u = find(&d, "ü");
+        assert_eq!(snap(src, u + 1), u);
+        assert_eq!(snap(src, 7), 6);
+        assert_eq!(snap(src, 1), 3);
+        assert_eq!(snap(src, 999), src.len());
+        for &b in &boundaries(src) {
+            assert_eq!(snap(src, b), b);
+        }
+        // A double-click on `ü` takes `Grüße`; on the space, the space; on `<`, `</`.
+        let gr = find(&d, "Gr");
+        assert_eq!(word_at(src, u), gr..find(&d, " 日"));
+        assert_eq!(
+            word_at(src, find(&d, " 日")),
+            find(&d, " 日")..find(&d, "日")
+        );
+        let end = find(&d, "</a>");
+        assert_eq!(word_at(src, end), end..end + 2);
+        assert_eq!(word_at(src, 6), 6..6, "a line break");
+        // A triple-click takes the line with its CRLF.
+        let line1 = find(&d, "\t<a");
+        assert_eq!(line_at(&d, gr), line1..find(&d, "</r>"));
+        assert_eq!(line_at(&d, 4), 3..line1);
+    }
+
+    #[test]
+    fn the_last_change_is_known() {
+        let mut d = doc();
+        let sel = apply(&mut d, |d| insert(d, Selection::cursor(3), "ä"));
+        let c = d.last_change().unwrap();
+        assert_eq!((c.at, c.at + c.inserted), (3, sel.head));
+        d.undo();
+        let c = d.last_change().unwrap();
+        assert_eq!((c.at, c.inserted, c.removed), (3, 0, 2));
     }
 }

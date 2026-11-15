@@ -1,7 +1,7 @@
 //! Keyboard navigation (`docs/spec/tree.md`, TREE-8 and TREE-10).
 //!
 //! The arrow keys go to the tree or the grid, whichever was clicked last; nothing is taken
-//! while a text field has the keyboard. Alt+Up and Alt+Down drill up and down from anywhere.
+//! while a text field or the text view has the keyboard. Alt+Up and Alt+Down drill up and down from anywhere.
 //! The edit keys (TREE-9, GRID-10) act on the tree's or the grid's marked row.
 
 use egui::{Key, Modifiers};
@@ -38,7 +38,11 @@ const GRID_KEYS: [(Key, GridKey); 10] = [
 ];
 
 pub fn handle(ctx: &egui::Context, open: &mut Open) {
-    if ctx.memory(|m| m.focused().is_some()) {
+    // While the text view has the keyboard, only the drill keys work from here (TREE-10);
+    // a text field (Find) keeps them all.
+    let focused = ctx.memory(|m| m.focused());
+    let in_text = focused == Some(crate::text_view::focus_id(open.id));
+    if focused.is_some() && !in_text {
         return;
     }
     let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
@@ -62,6 +66,9 @@ pub fn handle(ctx: &egui::Context, open: &mut Open) {
     }
     if pressed(Modifiers::ALT, Key::ArrowDown) {
         drill_down(open);
+        return;
+    }
+    if in_text {
         return;
     }
     match open.keys {

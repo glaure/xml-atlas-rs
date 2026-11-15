@@ -41,6 +41,8 @@ pub struct Document {
     revision: u64,
     /// The file as it was when last read or written; `None` when there was none (OPEN-14).
     disk: Option<FileStamp>,
+    /// Where the last edit, undo or redo landed, so the text cursor can go there (TEXT-20).
+    last_change: Option<Splice>,
 }
 
 /// How long each stage of opening took.
@@ -95,6 +97,7 @@ impl Document {
             history: History::new(),
             revision: 0,
             disk: None,
+            last_change: None,
         }
     }
 
@@ -125,6 +128,11 @@ impl Document {
         self.history.is_modified()
     }
 
+    /// Where the last edit, undo or redo landed: the bytes it removed and inserted.
+    pub fn last_change(&self) -> Option<Splice> {
+        self.last_change
+    }
+
     /// Goes up with every change to the source: an edit, an undo, a redo.
     pub fn revision(&self) -> u64 {
         self.revision
@@ -135,6 +143,7 @@ impl Document {
     /// whole document.
     fn reindex(&mut self, splice: Option<Splice>) {
         self.revision += 1;
+        self.last_change = splice;
         let t = Instant::now();
         let updated =
             splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
