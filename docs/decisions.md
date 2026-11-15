@@ -359,8 +359,9 @@ Still open, found by the same review:
 
 ## D19: The text editor is our own view, and the index waits while the text is broken
 
-Proposed (2026-11-15), for the owner to agree before code is written. Rules: TEXT-9, TEXT-10,
-TEXT-16 to TEXT-22 in `docs/spec/text.md`.
+Agreed with the owner (2026-11-15), with the answers in `docs/spec/text.md` ("Decided"):
+undo word by word, Tab from the Format options, editable from the start. Rules: TEXT-9,
+TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 
 - **Measured first** (release build, one edit in the middle of the file, `Document::apply`
   with today's index update):
@@ -391,7 +392,8 @@ TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      non-ASCII text and bytes that are not UTF-8. The view only maps keys to them.
   4. **Undo groups typing in `History`.** An edit can be marked as typing; it joins the
      previous step when that step was typing of the same kind at the same place less than a
-     second ago (TEXT-20). One step stays one entry, so EDIT-1 to EDIT-3 hold as they are.
+     second ago, and a word typed after a space or punctuation starts a new step, so undo goes
+     word by word (TEXT-20). One step stays one entry, so EDIT-1 to EDIT-3 hold as they are.
   5. **The index while typing.** Each edit updates the buffer and the line index at once.
      Then:
      - The local update of D9 is tried. When it works (the element is still well-formed),
@@ -415,6 +417,8 @@ TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     Page Down must reach every line of a 300 MiB file, which float offsets do not guarantee.
 - **Order of pull requests:**
   1. Engine: cursor movement, the editing commands and undo grouping, with tests. No GUI.
+     **Built (2026-11-15):** `crates/engine/src/text.rs` and `Typing` in `edit.rs`; a typed
+     letter still costs 0.7 ms on 10 MiB and 15 ms on 100 MiB.
   2. Text view: cursor, keys, mouse selection, typing, Backspace, Delete, Enter, Tab; the index
      as in 5, on the UI thread.
   3. Clipboard and Select All; Replace's *In selection* uses the text selection (TEXT-14).

@@ -43,7 +43,8 @@ of it.
   selection, or inserts at the cursor. Backspace and Delete remove the selection, or one
   character; Ctrl+Backspace and Ctrl+Delete one word. Enter inserts the file's line ending
   (CRLF in a CRLF file, as EDIT-5), followed by the indentation of the line it was pressed on.
-  Tab inserts one indent as the Format options (FMT-10, FMT-15) give it: a tab, or spaces.
+  Tab inserts one indent as the Format options (FMT-10, FMT-15) give it: spaces, or a tab
+  only when the options say to indent with tabs.
 - **TEXT-18** `[planned]` Clipboard: Edit > Cut, Copy and Paste, also Ctrl+X, Ctrl+C and
   Ctrl+V. Copy takes the selected text as UTF-8, with the file's line endings. Paste inserts
   the clipboard text with each line break written as the file's line ending. Cut and Paste
@@ -51,9 +52,11 @@ of it.
 - **TEXT-19** `[planned]` Input methods: dead keys, compose sequences and input method
   editors (Chinese, Japanese, Korean) work. While composing, the text being composed is shown
   underlined at the cursor; only what is committed goes into the document, as one change.
-- **TEXT-20** `[planned]` Undo while typing: a run of typing is one undo step (EDIT-1). The
-  step ends when the cursor is moved by a click or a key, when typing turns into deleting or
-  back, after a pause of one second, and before any other command (Format, Replace, a
+- **TEXT-20** `[planned]` Undo while typing goes word by word (EDIT-1): a word typed after a
+  space or punctuation starts a new undo step, so `Grüße, Welt` is undone as `Welt`, then
+  `Grüße, `. A run of Backspace or Delete is one step. A step also ends when the cursor is
+  moved by a click or a key, when typing turns into deleting or back, after a pause of one
+  second, when the document is saved, and before any other command (Format, Replace, a
   structured edit). Undo and redo put the cursor where the change was.
 - **TEXT-21** `[planned]` Bytes are kept. Only the bytes typed, deleted or pasted change
   (`AGENTS.md`, rule 7). The cursor is never inside a UTF-8 character, never between the CR
@@ -147,18 +150,12 @@ Details and limits in `reference.md`.
 - Exact-extent highlight (TEXT-6) and a second highlight for the grid (TEXT-11).
 - Find and Replace as in XML Marker first, more later (TEXT-12).
 - Word wrap (TEXT-13).
-- Daily editing is plain: type, cut, copy, paste. Cut, copy and paste are wanted in 0.2. The
-  structural commands of XM-45 are not needed.
-
-## Questions
-
-1. The roadmap puts the editable text view in 0.3. Does "cut, copy and paste in 0.2" mean
-   cutting, copying and pasting whole elements from the tree and grid, or should the text view
-   become editable in 0.2?
-2. Enter keeps the indentation of its line, and Tab inserts one indent from the Format options
-   (TEXT-17). Is that what you want, or should Tab always insert a tab character?
-3. Should the text be editable as soon as a file opens, as in XML Marker, or only after
-   switching editing on (a read-only mode protects large files from a stray key)? The draft
-   assumes editable, with Ctrl+Z as the safety net.
-4. A run of typing is one undo step, ended by a pause of one second (TEXT-20). Would you rather
-   undo word by word?
+- Daily editing is plain: type, cut, copy, paste. The structural commands of XM-45 are not
+  needed.
+- Cut, copy and paste are those of the text view, as in XML Marker; copying whole elements in
+  tree and grid may come later. (Owner, 2026-11-15.)
+- Enter keeps the line's indentation; Tab inserts one indent from the Format options, not a
+  tab character. (Owner, 2026-11-15.)
+- The text is editable as soon as a file opens; there is no read-only mode. (Owner,
+  2026-11-15.)
+- Undo goes word by word while typing (TEXT-20), as code editors do. (Owner, 2026-11-15.)

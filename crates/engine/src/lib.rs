@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use xml_atlas_xml::{Index, NodeId, UTF8_BOM};
 
 pub use disk::{DiskChange, FileStamp};
-pub use edit::{Edit, EditError, History, Splice};
+pub use edit::{Edit, EditError, History, Splice, Typing};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
 };
@@ -24,6 +24,7 @@ pub mod find;
 pub mod format;
 pub mod grid;
 pub mod problems;
+pub mod text;
 pub mod tree;
 
 /// An open XML document: the source bytes, its node index and a line index.
