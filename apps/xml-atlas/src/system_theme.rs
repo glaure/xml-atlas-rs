@@ -18,6 +18,7 @@ pub fn watch(repaint: egui::Context) -> Option<Receiver<Theme>> {
 }
 
 /// The portal's `color-scheme` value: 1 prefers dark, 2 prefers light, 0 has no preference.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn theme_of(color_scheme: u32) -> Option<Theme> {
     match color_scheme {
         1 => Some(Theme::Dark),

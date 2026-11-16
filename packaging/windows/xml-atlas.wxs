@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Windows installer (docs/spec/install.md, PKG-10, PKG-11). Built by
+  `cargo xtask package-windows` with WiX 5.0.2, which passes:
+    Version     the workspace version, such as 0.1.0
+    SourceDir   the folder with the executables and license texts
+    IconFile    packaging/windows/xml-atlas.ico
+    LicenseRtf  the license text shown by the installer
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!--
+    The upgrade code is XML Atlas's own and never changes: every version replaces the one
+    before in place (PKG-5). It is not the Qt XML Atlas's (PKG-11).
+    Scope perUserOrMachine: the installer asks whether to install for the current user (no
+    administrator rights) or for all users (PKG-10).
+  -->
+  <Package Name="XML Atlas"
+           Manufacturer="Gunther Laure"
+           Version="$(Version)"
+           UpgradeCode="7DA64DFB-4246-4B3A-B6E3-9860CABB8C81"
+           Scope="perUserOrMachine"
+           Compressed="yes">
+    <SummaryInformation Description="XML Atlas $(Version), fast viewer and editor for large XML files" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of XML Atlas is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Windows Installer saves the icon under its Id, and the shell reads it by that file's
+         extension: without .ico the Start menu entry shows a blank page. -->
+    <Icon Id="XmlAtlas.ico" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="XmlAtlas.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/glaure/xml-atlas-rs" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/glaure/xml-atlas-rs/issues" />
+
+    <!-- The dialogs, with the choice between the current user and all users. -->
+    <Property Id="ApplicationFolderName" Value="XML Atlas" />
+    <Property Id="WixAppFolder" Value="WixPerUserFolder" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+    <ui:WixUI Id="WixUI_Advanced" />
+
+    <!--
+      The install folder for each choice. WixUI_Advanced takes the all-users folder from
+      ProgramFilesFolder before the choice is made, while the install is still per user, so
+      Windows Installer has already redirected it to %LocalAppData%\Programs (and it would be
+      the 32-bit folder). ProgramW6432 is the 64-bit Program Files whatever the scope.
+      Without the dialog (msiexec /qn) the package installs per user unless ALLUSERS=1 is
+      given; WixUI_Advanced would then pick the all-users folder for an administrator, so the
+      per-user folder is set first.
+    -->
+    <SetProperty Id="WixPerMachineFolder" Value="[%ProgramW6432]\[ApplicationFolderName]\"
+                 After="WixSetDefaultPerMachineFolder" Sequence="both" />
+    <SetProperty Id="WixPerUserFolder" Value="[LocalAppDataFolder]Programs\[ApplicationFolderName]\"
+                 After="WixSetDefaultPerUserFolder" Sequence="both" />
+    <SetProperty Id="APPLICATIONFOLDER" Value="[WixPerUserFolder]"
+                 After="SetWixPerMachineFolder" Sequence="both"
+                 Condition="ACTION=&quot;INSTALL&quot; AND APPLICATIONFOLDER=&quot;&quot; AND ALLUSERS=2 AND MSIINSTALLPERUSER=1" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="APPLICATIONFOLDER" Name="XML Atlas" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="XML Atlas" Level="1" AllowAbsent="no"
+             Description="The window and the command line, with the Start menu entry and Open with for XML files.">
+      <ComponentGroupRef Id="Program" />
+      <ComponentRef Id="OpenWith" />
+    </Feature>
+
+    <!-- Off unless chosen (PKG-10): Customize in the installer, or ADDLOCAL=AddToPath. -->
+    <Feature Id="AddToPath" Title="Add xml-atlas-cli to the PATH" Level="1000"
+             Description="Lets xml-atlas-cli be run from any command prompt.">
+      <ComponentRef Id="PathForUser" />
+      <ComponentRef Id="PathForAllUsers" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="Program" Directory="APPLICATIONFOLDER">
+      <Component>
+        <File Source="$(SourceDir)\xml-atlas.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="XML Atlas"
+                    Description="View and edit large XML files"
+                    WorkingDirectory="APPLICATIONFOLDER" Icon="XmlAtlas.ico" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\xml-atlas-cli.exe" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(IconFile)" Name="xml-atlas.ico" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\LICENSE-MIT" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\LICENSE-APACHE" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\THIRD-PARTY-LICENSES.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <!--
+    Open with for .xml (PKG-4): a ProgId of XML Atlas's own, listed under the extension's
+    OpenWithProgids, and the application's entry. The default program for .xml is left as it
+    is; Settings > Default apps can choose XML Atlas through RegisteredApplications.
+    HKMU is HKEY_CURRENT_USER for a per-user install, HKEY_LOCAL_MACHINE for all users.
+  -->
+  <Fragment>
+    <Component Id="OpenWith" Directory="APPLICATIONFOLDER">
+      <RegistryValue Root="HKMU" Key="Software\Classes\.xml\OpenWithProgids"
+                     Name="XmlAtlas.xml" Type="string" Value="" KeyPath="yes" />
+      <RegistryKey Root="HKMU" Key="Software\Classes\XmlAtlas.xml">
+        <RegistryValue Type="string" Value="XML document" />
+        <RegistryValue Name="FriendlyTypeName" Type="string" Value="XML document" />
+        <RegistryKey Key="DefaultIcon">
+          <RegistryValue Type="string" Value="[APPLICATIONFOLDER]xml-atlas.ico" />
+        </RegistryKey>
+        <RegistryKey Key="shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[APPLICATIONFOLDER]xml-atlas.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKMU" Key="Software\Classes\Applications\xml-atlas.exe">
+        <RegistryValue Name="FriendlyAppName" Type="string" Value="XML Atlas" />
+        <RegistryKey Key="SupportedTypes">
+          <RegistryValue Name=".xml" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Key="shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[APPLICATIONFOLDER]xml-atlas.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKMU" Key="Software\XML Atlas\Capabilities">
+        <RegistryValue Name="ApplicationName" Type="string" Value="XML Atlas" />
+        <RegistryValue Name="ApplicationDescription" Type="string" Value="View and edit large XML files" />
+        <RegistryKey Key="FileAssociations">
+          <RegistryValue Name=".xml" Type="string" Value="XmlAtlas.xml" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryValue Root="HKMU" Key="Software\RegisteredApplications" Name="XML Atlas"
+                     Type="string" Value="Software\XML Atlas\Capabilities" />
+    </Component>
+  </Fragment>
+
+  <!-- The install folder at the end of the PATH: the user's for a per-user install, the
+       system's for all users. Removed again on uninstall. -->
+  <Fragment>
+    <Component Id="PathForUser" Directory="APPLICATIONFOLDER" Condition="NOT ALLUSERS">
+      <Environment Id="PathUser" Name="PATH" Value="[APPLICATIONFOLDER]" Part="last"
+                   Action="set" System="no" Permanent="no" />
+      <RegistryValue Root="HKMU" Key="Software\XML Atlas" Name="PathForUser" Type="integer"
+                     Value="1" KeyPath="yes" />
+    </Component>
+    <Component Id="PathForAllUsers" Directory="APPLICATIONFOLDER" Condition="ALLUSERS=1">
+      <Environment Id="PathMachine" Name="PATH" Value="[APPLICATIONFOLDER]" Part="last"
+                   Action="set" System="yes" Permanent="no" />
+      <RegistryValue Root="HKMU" Key="Software\XML Atlas" Name="PathForAllUsers" Type="integer"
+                     Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

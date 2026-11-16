@@ -19,7 +19,7 @@ use serde_json::Value;
 const APP_ID: &str = "io.github.glaure.XmlAtlas";
 
 /// The package's name in both formats.
-const NAME: &str = "xml-atlas";
+pub(crate) const NAME: &str = "xml-atlas";
 
 const SUMMARY: &str = "Fast viewer and editor for large XML files";
 
@@ -38,7 +38,7 @@ const TARGET: &str = "x86_64-unknown-linux-gnu";
 const GLIBC: (u32, u32) = (2, 34);
 
 /// The executables, from `target/<TARGET>/release`.
-const BINARIES: [&str; 2] = ["xml-atlas", "xml-atlas-cli"];
+pub(crate) const BINARIES: [&str; 2] = ["xml-atlas", "xml-atlas-cli"];
 
 /// The libraries the window loads at run time, by Debian package. None is linked, so
 /// neither package manager can find them by itself. EGL and Wayland under Wayland; GLX, X11
@@ -104,7 +104,7 @@ enum Kind {
 }
 
 pub fn package(root: &Path, skip_build: bool) -> anyhow::Result<()> {
-    let meta = metadata(root)?;
+    let meta = metadata(root, TARGET)?;
     let version = version(&meta)?;
     if !skip_build {
         build(root)?;
@@ -167,8 +167,8 @@ pub fn package(root: &Path, skip_build: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `cargo metadata` for Linux on x86-64.
-fn metadata(root: &Path) -> anyhow::Result<Value> {
+/// `cargo metadata` for `target`, a target triple: Linux or Windows on x86-64.
+pub(crate) fn metadata(root: &Path, target: &str) -> anyhow::Result<Value> {
     let out = Command::new(env!("CARGO"))
         .current_dir(root)
         .args([
@@ -176,7 +176,7 @@ fn metadata(root: &Path) -> anyhow::Result<Value> {
             "--format-version",
             "1",
             "--filter-platform",
-            TARGET,
+            target,
         ])
         .output()
         .context("running cargo metadata")?;
@@ -187,7 +187,7 @@ fn metadata(root: &Path) -> anyhow::Result<Value> {
 }
 
 /// The version of the `xml-atlas` package, the workspace's.
-fn version(meta: &Value) -> anyhow::Result<String> {
+pub(crate) fn version(meta: &Value) -> anyhow::Result<String> {
     packages(meta)
         .find(|p| p["name"] == NAME && p["source"].is_null())
         .and_then(|p| p["version"].as_str())
@@ -264,7 +264,7 @@ fn glibc_versions(exe: &[u8]) -> BTreeSet<(u32, u32)> {
 /// The licenses of every library compiled into the two programs (PKG-2): what each crate
 /// ships as its license file, each text once, with the crates that ship it. Build-time
 /// crates (build scripts, procedural macros) are not compiled in and are left out.
-fn third_party_licenses(meta: &Value) -> anyhow::Result<String> {
+pub(crate) fn third_party_licenses(meta: &Value) -> anyhow::Result<String> {
     let by_id: BTreeMap<&str, &Value> = packages(meta)
         .filter_map(|p| Some((p["id"].as_str()?, p)))
         .collect();

@@ -1,0 +1,3 @@
+// The program's icon, for Explorer and for shortcuts that point at the program file
+// (docs/spec/install.md, PKG-10). Compiled by build.rs for Windows only.
+1 ICON "../../packaging/windows/xml-atlas.ico"

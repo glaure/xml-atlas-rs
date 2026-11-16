@@ -24,6 +24,10 @@ const RENDERER_VAR: &str = "XML_ATLAS_RENDERER";
 /// (PKG-33), so that the desktop shows the window with them.
 const APP_ID: &str = "io.github.glaure.XmlAtlas";
 
+/// The window's icon, for the taskbar on Windows and X11; drawn like
+/// `packaging/linux/io.github.glaure.XmlAtlas.svg`. Wayland takes the desktop entry's.
+const ICON_PNG: &[u8] = include_bytes!("../assets/icon-64.png");
+
 fn main() -> eframe::Result {
     env_logger::init();
     // Each file named opens in its own tab (OPEN-1, OPEN-5).
@@ -32,10 +36,15 @@ fn main() -> eframe::Result {
         .map(std::path::PathBuf::from)
         .collect();
     let wgpu = std::env::var(RENDERER_VAR).is_ok_and(|v| v.eq_ignore_ascii_case("wgpu"));
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("XML Atlas")
+        .with_app_id(APP_ID);
+    match eframe::icon_data::from_png_bytes(ICON_PNG) {
+        Ok(icon) => viewport = viewport.with_icon(icon),
+        Err(e) => log::warn!("window icon: {e}"),
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("XML Atlas")
-            .with_app_id(APP_ID)
+        viewport: viewport
             .with_inner_size([1280.0, 820.0])
             .with_drag_and_drop(true),
         // OpenGL starts in about half the time and memory of wgpu (D21).
