@@ -26,11 +26,14 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
 
-  # Linux only: Windows and macOS minutes count double and tenfold against the private
-  # repository's included minutes. Test those locally until packages are built (PKG-1).
+  # Every platform: the repository is public, so its Actions minutes are not limited.
   test:
-    name: test
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
