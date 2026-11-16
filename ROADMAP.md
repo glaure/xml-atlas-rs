@@ -28,7 +28,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (GRID-3)
 - [x] Text: highlight the element's exact extent (TEXT-6) and the clicked grid item (TEXT-11)
 - [x] Encodings other than UTF-8: converted at open, saved back in their own (OPEN-8, D23)
-- [ ] Tokenizer prototype and decision (D14)
+- [x] Tokenizer prototype and decision (D14): a `memchr` scanner for well-formed UTF-8,
+      quick-xml for the rest; opening 300 MiB 17 % faster
 - [x] Error recovery after the first parse error (OPEN-10)
 - [x] Integer scrolling for very tall views (D16): the text view; tree and grid stay within
       a float's precision at 1.0's sizes
