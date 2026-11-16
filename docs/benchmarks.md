@@ -160,15 +160,30 @@ What this says:
 
 Problems in XML Atlas that this found, to look into before the tokenizer (D14):
 
-- **It does not always go idle on large files.** While the grid's columns are not all known,
-  every frame spends up to 3 ms looking at more rows (GRID-3) and asks for the next frame.
-  At 100 MiB one search settled only after 15 s; at 300 MiB one search settled after 77 s,
-  one after 0.8 s, and in two further runs the program was still busy after 240 s and
-  300 s. Looking at 633,000 rows in 3 ms slices should take seconds, so something makes it
-  start again or take far longer; a core stays busy, which drains a laptop's battery.
+- **It does not always go idle on large files.** At 100 MiB one search settled only after
+  15 s; at 300 MiB one search settled after 77 s, one after 0.8 s, and in two further runs
+  the program was still busy after 240 s and 300 s, at about 30 % of a core.
+  *Fixed (2026-11-16):* not the grid's column scan, as first suspected, but egui's spring
+  back from past the end of a scroll area. Revealing one of the last rows scrolls the tree
+  past its end; above 2^23 points (the tree of the 300 MiB file is about 13 million) an
+  `f32` offset moves in whole points, so the spring never came closer than one point to the
+  edge and asked for frames forever. Scroll areas now stop at the edge instead
+  (`stop_at_the_edge` in `apps/xml-atlas/src/app.rs`). The search, before and after, median
+  of three runs (settled):
+
+  | File    | Before                              | After  |
+  |---------|-------------------------------------|--------|
+  | 10 MiB  | 1.16 s                              | 0.16 s |
+  | 100 MiB | 0.56 s (one run 15 s)               | 0.14 s |
+  | 300 MiB | 0.8 s, 77 s, twice over the limit   | 0.33 s |
+
+  The tree actions did not change (215-234 ms at every size), so their time is not this
+  spring.
 - **Tree Home and text Page Down cost more as the file grows**, against rule 2 (per-frame
   work scales with what is on screen).
-- **Animations** make a tree action take about 200 ms where XML Marker takes one frame.
+- **A tree action takes about 220 ms at every file size** where XML Marker takes one frame.
+  It does not grow with the file, so it is probably a fixed-length animation; which one is
+  not known yet.
 
 What this does not say:
 

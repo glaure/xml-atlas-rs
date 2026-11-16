@@ -241,6 +241,7 @@ pub enum Pane {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
+        stop_at_the_edge(&cc.egui_ctx);
         let settings = Settings::load();
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);
@@ -1961,9 +1962,65 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Scroll areas stop at the edge instead of springing back from past it.
+///
+/// The tree and the grid scroll past the end when they show one of the last rows, and egui
+/// springs back with an `f32` offset. Past 2^23 points (the tree of a 300 MiB file) an `f32`
+/// moves in whole points, so the spring never gets closer than one point to the edge and
+/// asks for a new frame forever: a core stays busy (docs/benchmarks.md, Windows).
+fn stop_at_the_edge(ctx: &egui::Context) {
+    ctx.all_styles_mut(|style| style.spacing.scroll.kinetic.rubber_band = false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A list as tall as the tree of a 300 MiB file (633,000 orders), scrolled past its end
+    /// as revealing one of the last rows does, stops at the end in the same frame. Left past
+    /// it, egui's spring back may never arrive (see [`stop_at_the_edge`]); whether it does
+    /// depends on rounding, so the test checks for the overscroll itself.
+    #[test]
+    fn scrolling_past_the_end_of_a_tall_list_stops_at_the_end() {
+        let ctx = egui::Context::default();
+        stop_at_the_edge(&ctx);
+        let rows = 633_000;
+        let row_h = 21.0;
+        // (offset, largest valid offset) after a frame.
+        let frame = |offset: Option<f32>| {
+            let mut result = (0.0, 0.0);
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                // Rows touch, as in the tree.
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let mut area = egui::ScrollArea::vertical().auto_shrink(false);
+                if let Some(o) = offset {
+                    area = area.vertical_scroll_offset(o);
+                }
+                let shown = area.show_rows(ui, row_h, rows, |ui, range| {
+                    for _ in range {
+                        ui.allocate_exact_size(egui::vec2(100.0, row_h), egui::Sense::hover());
+                    }
+                });
+                let max = shown.content_size.y - shown.inner_rect.height();
+                result = (shown.state.unclamped_offset().y, max);
+            });
+            // No renderer here takes the font atlas.
+            out.textures_delta.clear();
+            result
+        };
+        // The first frame learns the size; the second scrolls past the end.
+        frame(None);
+        let (offset, max) = frame(Some((rows - 3) as f32 * row_h));
+        assert!(
+            max > 2f32.powi(23),
+            "not tall enough to need whole points: {max}"
+        );
+        assert!(
+            offset <= max,
+            "scrolled {} points past the end",
+            offset - max
+        );
+    }
 
     #[test]
     fn shifts_follow_the_moved_elements() {
