@@ -148,10 +148,13 @@ impl Grid {
     /// [`COLUMN_SAMPLE`] rows; [`Grid::scan`] finds the rest.
     pub fn start(doc: &Document, parent: NodeId) -> Self {
         let idx = &doc.index;
-        let mut rows: Vec<NodeId> = idx
-            .children(parent)
-            .filter(|&c| idx.node(c).kind == NodeKind::Element)
-            .collect();
+        let mut rows: Vec<NodeId> = match idx.child_elements(&doc.src, parent) {
+            Some(list) => list.ids.clone(),
+            None => idx
+                .children(parent)
+                .filter(|&c| idx.node(c).kind == NodeKind::Element)
+                .collect(),
+        };
         let scan = if rows.is_empty() {
             rows.push(parent);
             None

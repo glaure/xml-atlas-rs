@@ -10,7 +10,9 @@
 //! error, and [`Index::error`] says where and why parsing stopped.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use quick_xml::Reader;
 use quick_xml::encoding::EncodingError;
@@ -57,6 +59,10 @@ pub const MAX_NAME_LEN: usize = u16::MAX as usize;
 /// Errors kept per document. Parsing goes on after the last one (OPEN-10); a file of noise
 /// does not fill memory with messages.
 pub const MAX_ERRORS: usize = 1000;
+
+/// A parent with at least this many nodes below it keeps a list of its child elements
+/// ([`Index::child_elements`], D24): walking its children reads one far-apart node each.
+pub const WIDE_DESCENDANTS: u32 = 10_000;
 
 /// One node. Offsets are byte positions in the source.
 ///
@@ -141,6 +147,25 @@ impl NodeSplice {
     }
 }
 
+/// The child elements of a wide parent, in document order (D24).
+#[derive(Debug, PartialEq, Eq)]
+pub struct ChildElements {
+    pub ids: Vec<NodeId>,
+    /// Whether every child element has the same name.
+    pub one_name: bool,
+}
+
+/// [`ChildElements`] by parent, made on demand and dropped whenever the nodes change. A
+/// clone starts empty.
+#[derive(Debug, Default)]
+struct WideChildren(Mutex<HashMap<NodeId, Arc<ChildElements>>>);
+
+impl Clone for WideChildren {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 /// Result of [`index`].
 #[derive(Clone, Debug)]
 pub struct Index {
@@ -157,6 +182,7 @@ pub struct Index {
     /// `None` for a fresh index. Callers clear it before a change to tell whether that
     /// change was local.
     pub last_splice: Option<NodeSplice>,
+    wide: WideChildren,
 }
 
 /// Builds the index for `src`. Never fails; see [`Index::error`].
@@ -179,6 +205,7 @@ impl Index {
     /// sides, or the new bytes do not parse on their own. The caller then indexes the whole
     /// document.
     pub fn update(&mut self, src: &[u8], at: usize, removed: usize, inserted: usize) -> bool {
+        self.wide = WideChildren::default();
         if self.error.is_some() {
             return false;
         }
@@ -310,6 +337,7 @@ impl Index {
         inserted: usize,
         stale: Option<NodeId>,
     ) -> NodeId {
+        self.wide = WideChildren::default();
         let (at, old_end) = (at as u64, (at + removed) as u64);
         let new_change_end = at + inserted as u64;
         let delta = inserted as i64 - removed as i64;
@@ -568,6 +596,26 @@ impl Index {
         }
     }
 
+    /// The child elements of `parent` when it has at least [`WIDE_DESCENDANTS`] nodes below
+    /// it, else `None` (D24). The first call walks the children; later calls reuse the list
+    /// until the nodes change ([`Index::update`], [`Index::keep_stale`]).
+    pub fn child_elements(&self, src: &[u8], parent: NodeId) -> Option<Arc<ChildElements>> {
+        if self.node(parent).descendants < WIDE_DESCENDANTS {
+            return None;
+        }
+        let mut lists = self.wide.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let list = lists.entry(parent).or_insert_with(|| {
+            let ids: Vec<NodeId> = self
+                .children(parent)
+                .filter(|&c| self.node(c).kind == NodeKind::Element)
+                .collect();
+            let first = ids.first().map(|&c| self.name(src, c));
+            let one_name = ids.iter().all(|&c| Some(self.name(src, c)) == first);
+            Arc::new(ChildElements { ids, one_name })
+        });
+        Some(Arc::clone(list))
+    }
+
     /// Number of children of `id`. Walks them.
     pub fn child_count(&self, id: NodeId) -> usize {
         self.children(id).count()
@@ -790,7 +838,8 @@ impl Index {
 
     /// Path from the root element, e.g. `/catalog/book[3]/title`.
     ///
-    /// Walks the siblings before `id` at every level, so it costs time on wide parents.
+    /// Walks the siblings before `id` at every level, so it costs time on wide parents,
+    /// except under a parent whose child elements all have one name (D24).
     /// Call it when the selection changes, not once per frame.
     pub fn path(&self, src: &[u8], id: NodeId) -> String {
         let mut parts = Vec::new();
@@ -799,22 +848,13 @@ impl Index {
             let n = self.node(cur);
             if n.kind == NodeKind::Element {
                 let name = self.name(src, cur);
-                // Position among same-named siblings. Stops one sibling after `cur`: that is
-                // enough to know whether an index is needed at all.
-                let mut before = 0usize;
-                let mut others = false;
-                let mut passed = false;
-                for s in self.children(n.parent) {
-                    if s == cur {
-                        passed = true;
-                    } else if self.node(s).kind == NodeKind::Element && self.name(src, s) == name {
-                        others = true;
-                        if passed {
-                            break;
-                        }
-                        before += 1;
+                let (before, others) = match self.child_elements(src, n.parent) {
+                    // Ids increase in document order.
+                    Some(list) if list.one_name => {
+                        (list.ids.partition_point(|&s| s < cur), list.ids.len() > 1)
                     }
-                }
+                    _ => self.same_name_before(src, cur, name),
+                };
                 let mut part = String::from_utf8_lossy(name).into_owned();
                 if others {
                     part.push_str(&format!("[{}]", before + 1));
@@ -825,6 +865,27 @@ impl Index {
         }
         parts.reverse();
         format!("/{}", parts.join("/"))
+    }
+
+    /// The number of sibling elements before `id` named `name`, and whether it has any
+    /// sibling of that name at all. Walks the siblings, and stops one after `id`: that is
+    /// enough to know whether a path needs a position.
+    fn same_name_before(&self, src: &[u8], id: NodeId, name: &[u8]) -> (usize, bool) {
+        let mut before = 0usize;
+        let mut others = false;
+        let mut passed = false;
+        for s in self.children(self.node(id).parent) {
+            if s == id {
+                passed = true;
+            } else if self.node(s).kind == NodeKind::Element && self.name(src, s) == name {
+                others = true;
+                if passed {
+                    break;
+                }
+                before += 1;
+            }
+        }
+        (before, others)
     }
 }
 
@@ -1082,6 +1143,7 @@ impl<'s> Builder<'s> {
             element_count: self.element_count,
             max_depth: self.max_depth,
             last_splice: None,
+            wide: WideChildren::default(),
         }
     }
 
@@ -1569,6 +1631,96 @@ mod tests {
         assert_eq!(idx.path(src, kids[1]), "/r/y");
         assert_eq!(idx.path(src, kids[2]), "/r/x[2]");
         assert_eq!(idx.path(src, kids[3]), "/r/x[3]");
+    }
+
+    /// A root with `n` children, each named by `name(i)`, separated by text.
+    fn wide(n: usize, name: impl Fn(usize) -> &'static str) -> Vec<u8> {
+        let mut src = b"<r>".to_vec();
+        for i in 0..n {
+            src.extend_from_slice(format!("\n<{}/>", name(i)).as_bytes());
+        }
+        src.extend_from_slice(b"\n</r>");
+        src
+    }
+
+    /// The path a walk over every sibling gives, as before D24.
+    fn walked_path(idx: &Index, src: &[u8], id: NodeId) -> String {
+        let name = idx.name(src, id);
+        let (before, others) = idx.same_name_before(src, id, name);
+        let name = String::from_utf8_lossy(name);
+        if others {
+            format!("/r/{name}[{}]", before + 1)
+        } else {
+            format!("/r/{name}")
+        }
+    }
+
+    #[test]
+    fn wide_parent_with_one_name_lists_its_children() {
+        let n = WIDE_DESCENDANTS as usize;
+        let src = wide(n, |_| "a");
+        let idx = index(&src);
+        let root = idx.root_element().unwrap();
+        let list = idx.child_elements(&src, root).expect("wide");
+        assert!(list.one_name);
+        let kids: Vec<NodeId> = idx
+            .children(root)
+            .filter(|&c| idx.node(c).kind == NodeKind::Element)
+            .collect();
+        assert_eq!(list.ids, kids);
+        for &k in [kids[0], kids[1], kids[n / 2], kids[n - 1]].iter() {
+            assert_eq!(idx.path(&src, k), walked_path(&idx, &src, k));
+        }
+        assert_eq!(idx.path(&src, kids[n - 1]), format!("/r/a[{n}]"));
+        // A narrow parent has no list.
+        assert!(idx.child_elements(&src, kids[0]).is_none());
+        assert!(
+            index(b"<r><a/></r>")
+                .child_elements(b"<r><a/></r>", 1)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn wide_parent_with_mixed_names_walks_for_the_path() {
+        let n = WIDE_DESCENDANTS as usize;
+        let src = wide(n, |i| if i % 3 == 0 { "b" } else { "a" });
+        let idx = index(&src);
+        let root = idx.root_element().unwrap();
+        assert!(!idx.child_elements(&src, root).expect("wide").one_name);
+        let kids: Vec<NodeId> = idx
+            .children(root)
+            .filter(|&c| idx.name(&src, c) != b"")
+            .collect();
+        for &k in [kids[0], kids[1], kids[2], kids[n - 1]].iter() {
+            assert_eq!(idx.path(&src, k), walked_path(&idx, &src, k));
+        }
+        assert_eq!(idx.path(&src, kids[3]), "/r/b[2]");
+    }
+
+    #[test]
+    fn wide_children_follow_an_update() {
+        let n = WIDE_DESCENDANTS as usize;
+        let src = wide(n, |_| "a");
+        let mut idx = index(&src);
+        let root = idx.root_element().unwrap();
+        assert_eq!(idx.child_elements(&src, root).unwrap().ids.len(), n);
+        // One more child before the end tag.
+        let at = src.len() - b"\n</r>".len();
+        let mut new = src.clone();
+        new.splice(at..at, b"\n<a/>".iter().copied());
+        assert!(idx.update(&new, at, 0, 5));
+        let list = idx.child_elements(&new, root).unwrap();
+        assert_eq!(list.ids.len(), n + 1);
+        let last = *list.ids.last().unwrap();
+        assert_eq!(idx.path(&new, last), format!("/r/a[{}]", n + 1));
+        // A name that differs is seen too.
+        let mut renamed = new.clone();
+        let b = renamed.len() - b"/>\n</r>".len() - 1;
+        renamed[b] = b'b';
+        assert!(idx.update(&renamed, b, 1, 1));
+        assert!(!idx.child_elements(&renamed, root).unwrap().one_name);
+        assert_eq!(idx.path(&renamed, last), "/r/b");
     }
 
     /// Children, siblings and depth derived from subtree sizes agree with the parent links,
