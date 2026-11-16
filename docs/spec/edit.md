@@ -62,7 +62,12 @@ the structured edits behind grid cells (GRID-10), the tree (TREE-9) and the CLI.
 
 - XML Marker has Edit > Undo and Redo (XM-1), but Indent cannot be undone (XM-57).
 
+## Decided
+
+- The undo history does not survive closing the file. (Owner, 2026-11-16.)
+- Undo keeps up to 512 MiB of old text (EDIT-3), not a limit that follows the file size,
+  for now. (Owner, 2026-11-16.)
+
 ## Questions
 
-1. Should the undo history survive closing the file? Today it does not.
-2. Is 512 MiB the right limit, or should it follow the file size?
+None open.
