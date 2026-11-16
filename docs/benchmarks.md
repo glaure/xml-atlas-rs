@@ -123,6 +123,26 @@ Memory is the peak working set. Natively, XML Marker needs far less memory with 
 than under wine (22 MiB against 59 MiB) but is not faster to open large ones: 15.6 s against
 10.7 s for 100 MiB on the Linux machine.
 
+*Since (2026-11-16, XML Atlas 0.1.1):* everything merged that day, above all the scanner
+tuning (D14) and the index on several threads with the line starts alongside (D25). Same
+method, median of three runs; the tiny file is a two-element document:
+
+| File                  | XML Marker 1.1    | XML Atlas 0.1    | XML Atlas 0.1.1  |
+|-----------------------|-------------------|------------------|------------------|
+| tiny (start-up only)  | 0.53 s, 22 MiB    | 0.50 s, 111 MiB  | 0.42 s, 103 MiB  |
+| 10 MiB                | 1.48 s, 62 MiB    | 0.78 s, 131 MiB  | 0.36 s, 128 MiB  |
+| 100 MiB               | 15.6 s, 438 MiB   | 1.14 s, 307 MiB  | 0.52 s, 374 MiB  |
+| 300 MiB               | 56.5 s, 1271 MiB  | 2.56 s, 700 MiB  | 0.80 s, 913 MiB  |
+
+The peak memory at 100 and 300 MiB is higher by about what D25 predicts: the nodes are held
+twice while the index is built. The memory once the file is open is the same as before.
+
+At 10 MiB the index takes only about 4 ms less (D25), so most of the gain from 0.78 to 0.36 s
+comes from elsewhere. The "ready" rule waits for the program to go idle, and that day also
+removed egui's animations and the scroll spring that kept large files busy. These runs do
+not tell the changes apart. Start-up alone varies by about 0.1 s between runs on this laptop
+(0.35 to 0.45 s for the tiny file here).
+
 ### Once the file is open
 
 How long the program is busy after each action, in milliseconds. *First* ends at the
