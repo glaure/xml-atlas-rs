@@ -9,7 +9,7 @@
 
 use memchr::{memchr2, memmem};
 
-use crate::{Builder, MAX_NAME_LEN, NodeKind};
+use crate::{Builder, MAX_NAME_LEN, NodeKind, parallel};
 
 /// Bytes looked at one by one before a search hands over to `memchr`. Most gaps in markup
 /// are a few bytes (a name, a value, the indentation), where a call to `memchr` costs more
@@ -49,23 +49,28 @@ impl Builder<'_> {
         if std::str::from_utf8(&src[base..]).is_err() {
             return false;
         }
+        // An element left open is an error.
+        self.scan_range(base, src.len()) == Some(src.len()) && self.stack.len() == 1
+    }
+
+    /// Reads from `from`, which is outside any markup, up to `to`, which is a `<` or the end
+    /// of the source. Returns where the reading ended: `to`, or later when markup that began
+    /// before `to` runs past it. `None` at the first doubt.
+    pub(crate) fn scan_range(&mut self, from: usize, to: usize) -> Option<usize> {
+        let src = self.src;
         let len = src.len();
-        let mut at = base;
-        while at < len {
+        let mut at = from;
+        while at < to {
             let lt = find(b'<', &src[at..]).map_or(len, |k| at + k);
             if lt > at && !self.scan_text(at, lt) {
-                return false;
+                return None;
             }
-            if lt == len {
-                break;
+            if lt >= to {
+                return Some(lt);
             }
-            match self.scan_markup(lt) {
-                Some(end) => at = end,
-                None => return false,
-            }
+            at = self.scan_markup(lt)?;
         }
-        // An element left open is an error.
-        self.stack.len() == 1
+        Some(at)
     }
 
     /// The text between two pieces of markup. quick-xml splits it around entity references
@@ -184,7 +189,11 @@ impl Builder<'_> {
         if name.is_empty() || name.iter().any(|b| b.is_ascii_whitespace()) {
             return None;
         }
-        let from = *self.name_starts.last()?;
+        let Some(&from) = self.name_starts.last() else {
+            // No element open in this chunk: the end tag closes one opened before it (D25).
+            let name = lt + 2..lt + 2 + name.len();
+            return self.close_outer(name, gt + 1);
+        };
         if self.names[from..] != *name {
             return None;
         }
@@ -192,6 +201,22 @@ impl Builder<'_> {
         self.fold(open, lt as u64);
         self.close(open, gt as u64 + 1);
         Some(gt + 1)
+    }
+
+    /// An end tag, at `name` up to `end`, of an element opened before this chunk (D25): it is
+    /// recorded for stitching, and the chunk's top-level nodes after it get the parent one
+    /// level further out. `None` when the builder is not reading a chunk.
+    fn close_outer(&mut self, name: std::ops::Range<usize>, end: usize) -> Option<usize> {
+        let outer = self.outer.as_mut()?;
+        outer.depths.push(self.max_depth);
+        self.max_depth = 0;
+        outer.closes.push(parallel::OuterClose {
+            name,
+            before: self.nodes.len(),
+            end: end as u64,
+        });
+        self.stack[0] = parallel::outer_parent(outer.closes.len())?;
+        Some(end)
     }
 }
 

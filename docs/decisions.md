@@ -755,6 +755,39 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     300 MiB, together with peak memory.
   - Kept if the index at 300 MiB takes at most half as long, and nothing is slower at
     10 MiB.
+- **Prototype (2026-11-16, Windows, 8 threads):** `crates/xml/src/parallel.rs`, as proposed,
+  with these details:
+  - Cuts are at a start tag whose previous byte other than whitespace is `>`, so a cut
+    inside a quoted value or text is rarer. A cut that still falls inside markup is
+    noticed, and the next chunk is read again from where the chunk before ended. One case
+    is refused instead (the document then goes to one thread): an element opened before a
+    chunk whose end tag comes after exactly one node in the chunk that is not an element.
+    Its text may need folding across chunks. A cut at a true start tag never gives this.
+  - The final array is filled on a thread of its own while the chunks are read (sized by
+    the builder's guess of one node per 40 bytes, then cut to size). Making it after the
+    chunks took 90-110 ms at 300 MiB, writing every node twice; now the copy takes about
+    10 ms.
+  - Same index: the nodes, element count and depth equal the one-thread scanner's on the
+    three fixtures, the corpus, and the scanner's edge cases. With chunks from 1 byte up,
+    so that cuts fall inside comments, CDATA, processing instructions and quoted values,
+    every reading equals it or is refused. Every document the scanner refuses is refused.
+  - `xml-atlas-cli stats`, three alternating rounds against `main`, best of five each.
+    The line starts are found alongside the index in the new build:
+
+    | Fixture | Index, `main` | Index, D25 | Open, `main` | Open, D25 |
+    |---|---|---|---|---|
+    | 300 MiB | 336-367 ms | 142-168 ms | 496-543 ms | 250-274 ms |
+    | 100 MiB | 115-121 ms | 43-54 ms | 171-185 ms | 76-86 ms |
+    | 10 MiB | 10.8-12.1 ms | 7.0-10.3 ms | 16.3-18.4 ms | 10.9-13.8 ms |
+
+    Finding the line starts alongside the index alone: 300 MiB open 530-549 to
+    462-465 ms. In the new build the line starts take longer while the chunks are read
+    (up to 126 ms at 300 MiB) but still end before the index.
+  - Peak working set while opening, sampled every 5 ms: 300 MiB 573 to 814 MiB, 100 MiB 194
+    to 275 MiB. That is the nodes held twice, as expected. The index afterwards is the
+    same size.
+  - Met: the index at 300 MiB takes 42-46 % of the time, and 10 MiB is faster, not slower.
+- **Decided (owner, 2026-11-16):** kept as built.
 
 ## Open questions
 

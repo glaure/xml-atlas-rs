@@ -18,6 +18,7 @@ use quick_xml::Reader;
 use quick_xml::encoding::EncodingError;
 use quick_xml::events::{BytesStart, Event};
 
+mod parallel;
 mod scan;
 
 /// Index of a node in [`Index::nodes`].
@@ -191,9 +192,13 @@ pub struct Index {
 
 /// Builds the index for `src`. Never fails; see [`Index::error`].
 ///
-/// A well-formed UTF-8 document is read by the byte scanner of D14; anything it is not sure
-/// of, including every error, by quick-xml from the start.
+/// A well-formed UTF-8 document is read by the byte scanner of D14, in chunks on several
+/// threads from 4 MiB on (D25); anything it is not sure of, including every error, by
+/// quick-xml from the start.
 pub fn index(src: &[u8]) -> Index {
+    if let Some(index) = parallel::index(src) {
+        return index;
+    }
     let mut fast = Builder::new(src);
     if fast.scan() {
         return fast.finish(Vec::new());
@@ -1006,6 +1011,8 @@ struct Builder<'s> {
     name_starts: Vec<usize>,
     element_count: u32,
     max_depth: u16,
+    /// When reading one chunk of several (D25): the end tags of elements opened before it.
+    outer: Option<parallel::Outer>,
 }
 
 impl<'s> Builder<'s> {
@@ -1036,6 +1043,7 @@ impl<'s> Builder<'s> {
             name_starts: Vec::new(),
             element_count: 0,
             max_depth: 0,
+            outer: None,
         }
     }
 

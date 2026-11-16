@@ -112,6 +112,9 @@ pub struct Timings {
     pub decode: Duration,
     pub index: Duration,
     pub lines: Duration,
+    /// When the index and the line starts were found at the same time, on two threads (on
+    /// open, D25): how long both took. `None` when one came after the other.
+    pub together: Option<Duration>,
 }
 
 impl ReparseJob {
@@ -129,7 +132,7 @@ impl ReparseJob {
 
 impl Timings {
     pub fn total(&self) -> Duration {
-        self.read + self.decode + self.index + self.lines
+        self.read + self.decode + self.together.unwrap_or(self.index + self.lines)
     }
 }
 
@@ -157,12 +160,19 @@ impl Document {
         let t = Instant::now();
         let (src, opened) = encoding::decode(file);
         let decode_time = t.elapsed();
+        // The line starts are found on a thread of their own while the index is built; both
+        // only read the source (D25).
         let t = Instant::now();
-        let index = xml_atlas_xml::index(&src);
-        let index_time = t.elapsed();
-        let t = Instant::now();
-        let line_starts = line_starts(&src);
-        let lines_time = t.elapsed();
+        let ((index, index_time), (line_starts, lines_time)) = std::thread::scope(|s| {
+            let lines = s.spawn(|| {
+                let t = Instant::now();
+                (line_starts(&src), t.elapsed())
+            });
+            let t = Instant::now();
+            let index = (xml_atlas_xml::index(&src), t.elapsed());
+            (index, lines.join().expect("finding line starts"))
+        });
+        let together = t.elapsed();
         let newline = newline_style(&src);
         Self {
             path: None,
@@ -174,6 +184,7 @@ impl Document {
                 decode: decode_time,
                 index: index_time,
                 lines: lines_time,
+                together: Some(together),
             },
             history: History::new(),
             revision: 0,
@@ -310,6 +321,7 @@ impl Document {
             });
         }
         self.timings.index = done.took;
+        self.timings.together = None;
         true
     }
 
@@ -387,6 +399,7 @@ impl Document {
             None => self.line_starts = line_starts(&self.src),
         }
         self.timings.lines = t.elapsed();
+        self.timings.together = None;
         self.timings.read = Duration::ZERO;
         if self.line_starts.len() > 1 {
             self.newline = newline_style(&self.src);
