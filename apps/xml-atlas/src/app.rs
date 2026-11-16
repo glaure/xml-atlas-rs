@@ -242,6 +242,7 @@ pub enum Pane {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
         stop_at_the_edge(&cc.egui_ctx);
+        no_animations(&cc.egui_ctx);
         let settings = Settings::load();
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);
@@ -1972,9 +1973,48 @@ fn stop_at_the_edge(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| style.spacing.scroll.kinetic.rubber_band = false);
 }
 
+/// Changes show at once, without egui's animations.
+///
+/// The grid's scroll areas belong to the element shown, so every new selection starts with
+/// hidden scroll bars that egui faded in over about 15 frames: 220 ms of frames after every
+/// tree key, click or Page Down, at any file size (docs/benchmarks.md, Windows). Expanding
+/// sections and menus open at once too.
+fn no_animations(ctx: &egui::Context) {
+    ctx.all_styles_mut(|style| style.animation_time = 0.0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scroll bar that appears, as on every new selection in the grid, is there at once and
+    /// asks for no further frames.
+    #[test]
+    fn scroll_bars_appear_without_animation() {
+        let ctx = egui::Context::default();
+        no_animations(&ctx);
+        // (shown, delay before the next frame) for a bar that should be `show`n.
+        let frame = |show: bool| {
+            let mut shown = 0.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                shown = ui
+                    .ctx()
+                    .animate_bool_responsive(ui.scope_id().with("bar"), show);
+            });
+            // No renderer here takes the font atlas.
+            out.textures_delta.clear();
+            (
+                shown,
+                out.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+            )
+        };
+        // Hidden first, as in a new grid; a new context also asks for a second frame.
+        frame(false);
+        frame(false);
+        let (shown, delay) = frame(true);
+        assert_eq!(shown, 1.0);
+        assert!(!delay.is_zero(), "asked for another frame");
+    }
 
     /// A list as tall as the tree of a 300 MiB file (633,000 orders), scrolled past its end
     /// as revealing one of the last rows does, stops at the end in the same frame. Left past
