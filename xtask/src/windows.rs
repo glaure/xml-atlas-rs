@@ -22,6 +22,9 @@ use crate::package::{BINARIES, NAME, metadata, third_party_licenses, version};
 
 const TARGET: &str = "x86_64-pc-windows-msvc";
 
+/// The program's icon: in the installer, and in `xml-atlas.exe` through its `build.rs`.
+const ICON: &str = "packaging/windows/xml-atlas.ico";
+
 /// The WiX version the MSI is built with; the UI extension must be the same version.
 const WIX_VERSION: &str = "5.0.2";
 
@@ -55,6 +58,14 @@ pub fn package(
         let from = bin_dir.join(&name);
         fs::copy(&from, stage.join(&name)).with_context(|| from.display().to_string())?;
         files.push(name);
+    }
+    let exe = fs::read(stage.join("xml-atlas.exe"))?;
+    let ico = fs::read(root.join(ICON))?;
+    if !has_icon(&exe, &ico) {
+        bail!(
+            "xml-atlas.exe has no icon: its build needs RC.EXE from the Windows SDK \
+             (see the `no icon` warning of cargo build)"
+        );
     }
     for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
         fs::copy(root.join(name), stage.join(name))?;
@@ -104,7 +115,7 @@ fn msi_build(
     out: &Path,
 ) -> anyhow::Result<()> {
     let wxs = root.join("packaging/windows/xml-atlas.wxs");
-    let icon = root.join("packaging/windows/xml-atlas.ico");
+    let icon = root.join(ICON);
     let define = |name: &str, value: &Path| format!("{name}={}", value.display());
     let status = Command::new("wix")
         .arg("build")
@@ -222,6 +233,29 @@ fn rtf(text: &str) -> String {
     out
 }
 
+/// Whether every image of the `.ico` file is in the executable. The resource compiler copies
+/// each image unchanged into an icon resource; only the directory in front of them changes.
+fn has_icon(exe: &[u8], ico: &[u8]) -> bool {
+    let u16_at = |at: usize| {
+        ico.get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let u32_at = |at: usize| {
+        ico.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let Some(count) = u16_at(4).filter(|&n| n > 0) else {
+        return false;
+    };
+    (0..usize::from(count)).all(|i| {
+        let entry = 6 + 16 * i;
+        let image = u32_at(entry + 8)
+            .zip(u32_at(entry + 12))
+            .and_then(|(len, offset)| ico.get(offset..offset + len));
+        image.is_some_and(|image| exe.windows(image.len()).any(|w| w == image))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +347,23 @@ mod tests {
         assert!(user.contains("Value=\"[LocalAppDataFolder]Programs\\[ApplicationFolderName]\\\""));
         assert!(user.contains("After=\"WixSetDefaultPerUserFolder\""));
         assert!(set("APPLICATIONFOLDER").contains("MSIINSTALLPERUSER=1"));
+    }
+
+    #[test]
+    fn icon_is_found_in_the_executable() {
+        // An .ico with two images, "AB" and "CDE", after the 6-byte header and two
+        // 16-byte entries (length at +8, offset at +12).
+        let mut ico = vec![0, 0, 1, 0, 2, 0];
+        for (len, offset) in [(2u32, 38u32), (3, 40)] {
+            ico.extend_from_slice(&[16, 16, 0, 0, 1, 0, 32, 0]);
+            ico.extend_from_slice(&len.to_le_bytes());
+            ico.extend_from_slice(&offset.to_le_bytes());
+        }
+        ico.extend_from_slice(b"ABCDE");
+        assert!(has_icon(b"MZ..AB..CDE..", &ico));
+        assert!(!has_icon(b"MZ..AB..CD..", &ico));
+        assert!(!has_icon(b"MZ", &[0, 0, 1, 0, 0, 0]));
+        assert!(!has_icon(b"MZ", b"not an icon"));
     }
 
     #[test]

@@ -19,6 +19,10 @@ env_logger.workspace = true
 [lints]
 workspace = true
 
+# Puts the icon into xml-atlas.exe (build.rs), so Explorer shows it for the program file.
+[build-dependencies]
+embed-resource = "3.0.12"
+
 # The desktop's light or dark preference (system_theme.rs). Already in the build through the
 # accessibility support; its blocking API is part of its default features.
 [target.'cfg(target_os = "linux")'.dependencies]
