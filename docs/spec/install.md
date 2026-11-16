@@ -38,7 +38,7 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 ### Windows
 
-- **PKG-10** `[built]` An MSI installer for Windows 10 and 11. It offers to install for the
+- **PKG-10** `[done]` An MSI installer for Windows 10 and 11. It offers to install for the
   current user (no administrator rights needed) or for all users. It adds a Start menu entry
   "XML Atlas", an entry in Settings > Apps for uninstalling, and *Open with* for `.xml`
   (PKG-4). A checkbox, off by default, adds `xml-atlas-cli` to the PATH.
@@ -47,15 +47,21 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   the current user or all users; the PATH is a feature under Customize, off unless chosen
   (`ADDLOCAL=AddToPath` on the command line). *Open with* comes from a ProgId of its own
   under `.xml`'s OpenWithProgids, and Settings > Default apps can choose it through
-  RegisteredApplications; the default program stays as it was. Written on Linux and not yet
-  built: the first build and install on Windows are still to do.
-- **PKG-11** `[built]` The MSI has an upgrade code of its own, not the Qt XML Atlas's
+  RegisteredApplications; the default program stays as it was. It installs to
+  `%LocalAppData%\Programs\XML Atlas` for the current user and to `C:\Program Files\XML Atlas`
+  for all users. The icon is built into `xml-atlas.exe` too, for Explorer. On the owner's
+  Windows 11 (2026-11-16): installed for the current user and for all users, the Start menu
+  entry, the taskbar and Explorer show the icon, *Open with* opens an XML file, the PATH
+  feature puts `xml-atlas-cli` on the PATH, the window also starts with
+  `XML_ATLAS_RENDERER=wgpu`, and uninstalling works. Not yet tried: an upgrade over an older
+  version (PKG-5). The MSI is not signed yet (PKG-13).
+- **PKG-11** `[done]` The MSI has an upgrade code of its own, not the Qt XML Atlas's
   (QT-13): the Qt version has no install base to carry over, so the two are separate
   programs to Windows. Ours is `7DA64DFB-4246-4B3A-B6E3-9860CABB8C81`; it never changes.
 - **PKG-12** `[built]` A zip with the two executables, for use without installing
   ("portable"). It stores settings in the usual place, not next to the program. The same
-  command writes it, with the license texts, in a folder named after the version; it is
-  checked on Linux with stand-in executables.
+  command writes it, with the license texts, in a folder named after the version. Built on
+  Windows and its five files checked; not yet run from the unpacked zip.
 - **PKG-13** `[planned]` The executables and the MSI are signed with the owner's employer's
   code-signing certificate, so Windows does not warn that the publisher is unknown.
 - **PKG-14** `[planned]` Signing for Windows is a manual step, because the certificate stays

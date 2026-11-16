@@ -84,8 +84,9 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL, Fedora): `cargo xtask package`, built
       against glibc 2.34 (D22), installed and started on Ubuntu 22.04/24.04, Debian 12,
       Rocky Linux 9 and Fedora 43 by `packaging/linux/install-test.sh`
-- [ ] Windows MSI and zip: `cargo xtask package-windows` (PKG-10 to PKG-12), written; first
-      build and install on Windows still to do
+- [x] Windows MSI and zip: `cargo xtask package-windows` (PKG-10 to PKG-12) with WiX 5.0.2,
+      installed for the current user and for all users on Windows 11; an upgrade over an
+      older version still to try
 - [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): the Linux
       and Windows packages above, with the manual signing step for Windows (PKG-14)
 - [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
