@@ -205,6 +205,15 @@ Problems in XML Atlas that this found, to look into before the tokenizer (D14):
   of the root's child elements instead of walking them. Text Page Down at 300 MiB was the
   selections near the end of the file paying for the path, and is down from 185 to 62 ms;
   tree End from 100 to 33 ms. Expanding the root and tree Home are unchanged.
+  *Since (2026-11-16):* expanding or collapsing an element changes only the rows under it,
+  and a wide parent's rows come from the same list of child elements, instead of every row
+  of the tree being made again. In the engine, expanding the root at 300 MiB went from
+  54-64 to 4-5 ms, and expanding one order while the root is expanded from 54-64 ms to
+  under 0.03 ms. In the window, median of three runs at 300 MiB: expanding the root
+  101 -> 47 ms, about what it takes at 10 and 100 MiB. A click near the end is down from
+  140 to 58 ms since the table above, but that run came before D24 too, so the two changes
+  cannot be told apart.
+  Tree Home is unchanged (634 -> 694 ms, within the noise): it is the grid's column scan.
 
 What this does not say:
 

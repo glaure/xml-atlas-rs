@@ -106,11 +106,18 @@ impl Row {
 pub fn children(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
     let idx = &doc.index;
     let mut rows = own_rows(doc, id, options);
-    rows.extend(
-        idx.children(id)
-            .filter(|&c| is_row(doc, c, id))
-            .map(Row::Node),
-    );
+    match idx.child_elements(&doc.src, id) {
+        // A wide parent keeps a list of its child elements (D24); they are its rows unless
+        // it has text between them.
+        Some(list) if !list.text || id == ROOT => {
+            rows.extend(list.ids.iter().map(|&c| Row::Node(c)));
+        }
+        _ => rows.extend(
+            idx.children(id)
+                .filter(|&c| is_row(doc, c, id))
+                .map(Row::Node),
+        ),
+    }
     rows
 }
 
@@ -131,6 +138,52 @@ pub fn has_children(doc: &Document, row: Row, options: TreeOptions) -> bool {
 pub fn visible_rows(doc: &Document, expanded: &[bool], options: TreeOptions, out: &mut Vec<Row>) {
     out.clear();
     push_rows(doc, children(doc, ROOT, options), expanded, options, out);
+}
+
+/// Expands or collapses the element `id`, changing only the rows under it: `expanded` and
+/// `rows` become what [`visible_rows`] makes for the new state. So the cost follows the rows
+/// that come or go, not the rows of the whole tree.
+pub fn set_expanded(
+    doc: &Document,
+    id: NodeId,
+    on: bool,
+    expanded: &mut [bool],
+    options: TreeOptions,
+    rows: &mut Vec<Row>,
+) {
+    let Some(e) = expanded.get_mut(id as usize) else {
+        return;
+    };
+    if *e == on {
+        return;
+    }
+    *e = on;
+    if doc.index.node(id).kind != NodeKind::Element {
+        return;
+    }
+    // Rows never go down in id ([`Row::id`]), and an element's own row comes first among
+    // those filed under it.
+    let at = rows.partition_point(|r| r.id() < id);
+    if rows.get(at) != Some(&Row::Node(id)) {
+        return; // Not shown: an ancestor is collapsed.
+    }
+    if on && at + 1 == rows.len() {
+        push_rows(doc, children(doc, id, options), expanded, options, rows);
+    } else if on {
+        let mut made = Vec::new();
+        push_rows(
+            doc,
+            children(doc, id, options),
+            expanded,
+            options,
+            &mut made,
+        );
+        rows.splice(at + 1..at + 1, made);
+    } else {
+        let last = id + doc.index.node(id).descendants;
+        let end = rows.partition_point(|r| r.id() <= last);
+        rows.drain(at + 1..end);
+    }
 }
 
 /// Follows a change that replaced nodes ([`NodeSplice`], D19) in the tree's state, instead
@@ -562,6 +615,79 @@ mod tests {
             // Read again now and then, as the editor does after a pause.
             if rng.below(5) == 0 {
                 doc.reparse();
+            }
+        }
+    }
+
+    /// Random expanding and collapsing: the rows are what a rebuild gives.
+    fn check_toggles(src: Vec<u8>, seed: u64, rounds: usize) {
+        let mut rng = Lcg(seed);
+        let doc = Document::from_bytes(src);
+        let options = TreeOptions {
+            attributes: rng.below(4) != 0,
+        };
+        let elements: Vec<NodeId> = (0..doc.index.len() as NodeId)
+            .filter(|&id| doc.index.node(id).kind == NodeKind::Element)
+            .collect();
+        let mut expanded = vec![false; doc.index.len()];
+        for &id in &elements {
+            expanded[id as usize] = rng.below(3) == 0;
+        }
+        let mut rows = Vec::new();
+        visible_rows(&doc, &expanded, options, &mut rows);
+        let mut fresh = Vec::new();
+        for _ in 0..rounds {
+            // Mostly elements near the top, so the wide root is toggled often.
+            let pick = if rng.below(2) == 0 { 4 } else { elements.len() };
+            let id = elements[rng.below(pick.min(elements.len()))];
+            let on = !expanded[id as usize];
+            set_expanded(&doc, id, on, &mut expanded, options, &mut rows);
+            assert_eq!(expanded[id as usize], on);
+            visible_rows(&doc, &expanded, options, &mut fresh);
+            assert_eq!(rows, fresh, "seed {seed}: node {id} to {on}");
+        }
+    }
+
+    #[test]
+    fn expanding_and_collapsing_equals_a_rebuild() {
+        let sample = "\u{FEFF}<?xml version=\"1.0\"?>\r\n<r a=\"1\">\r\n  <b c=\"2\">Grüße</b>\r\n  <!--x-->\r\n  <d><e/><e f=\"3\">t</e>text<![CDATA[<]]></d>\r\n</r>\r\n";
+        for seed in 0..40 {
+            check_toggles(sample.as_bytes().to_vec(), seed, 60);
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/corpus");
+        for (i, entry) in std::fs::read_dir(dir).expect("corpus").enumerate() {
+            let src = std::fs::read(entry.expect("entry").path()).expect("read");
+            check_toggles(src, 1000 + i as u64, 40);
+        }
+    }
+
+    /// A wide parent's rows come from its list of child elements (D24), and its text rows
+    /// are still there when it has text.
+    #[test]
+    fn wide_parent_rows() {
+        let n = xml_atlas_xml::WIDE_DESCENDANTS as usize;
+        for between in ["", "Grüße"] {
+            let mut src = "<r>\r\n".to_string();
+            for i in 0..n {
+                src.push_str(&format!("  <ä i=\"{i}\"><b>{i}</b></ä>\r\n"));
+                if i == n / 2 {
+                    src.push_str(between);
+                }
+            }
+            src.push_str("</r>\r\n");
+            let d = Document::from_bytes(src.into_bytes());
+            let root = d.index.root_element().unwrap();
+            let rows = children(&d, root, TreeOptions::default());
+            let walked: Vec<Row> = d
+                .index
+                .children(root)
+                .filter(|&c| is_row(&d, c, root))
+                .map(Row::Node)
+                .collect();
+            assert_eq!(rows, walked, "{between:?}");
+            assert_eq!(rows.len(), n + usize::from(!between.is_empty()));
+            for seed in 0..4 {
+                check_toggles(d.src.to_vec(), seed, 30);
             }
         }
     }
