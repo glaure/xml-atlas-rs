@@ -321,6 +321,21 @@ Still open, found by the same review:
     broken near its end opens up to about 1.75 times slower than before.
 - **Decided (owner, 2026-11-16):** the scanner is kept as built; quick-xml stays for every
   document it gives up on. Tuning the scanner's per-token work is a later step.
+- **Tuned (2026-11-16):** the 11 ms above was `memchr`'s count of the `<`, which has a
+  routine of its own; stepping from one `<` to the next costs about 10 ns each, 141 ms with
+  `memchr_iter` and 175 ms with a call per tag on 300 MiB, because most gaps are a few bytes.
+  The scanner now looks at the first 32 bytes of every search with a plain loop and calls
+  `memchr` only beyond them. Walking all 14.1 M tags of the 300 MiB fixture, best of five in
+  one process: 495 ms with `memchr` for every search, 205 ms with the loop first, 379 ms
+  testing eight bytes at a time in a `u64`. Packing 64 byte comparisons into a bit mask is not
+  vectorized by the compiler (0.9-1.2 s).
+  - `xml-atlas-cli stats`, 300 MiB, three alternating rounds against `main`, best of each
+    round: index 712, 798, 562 ms before; 684, 469, 463 ms after. The machine was slower
+    than when the prototype was measured, and noisy.
+  - Left: writing the 7.0 M nodes (about 225 MB) costs about 150-200 ms, and it is the
+    memory traffic, not page faults (touching the pages first on 8 threads took 13-24 ms
+    and saved about 35 ms). The rest of the time goes to the searches (about 210 ms),
+    reading text and names a second time (about 65 ms) and the UTF-8 check (about 20 ms).
 
 ## D15: Order of work
 

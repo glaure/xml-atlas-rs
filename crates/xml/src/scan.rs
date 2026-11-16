@@ -1,14 +1,42 @@
 //! A scanner over the raw bytes for well-formed UTF-8 documents (`docs/decisions.md`, D14).
 //!
-//! It finds markup with `memchr` instead of reading an event per token, and builds the same
+//! It finds markup by searching the bytes (a short loop, then `memchr`) instead of reading
+//! an event per token, and builds the same
 //! nodes as the quick-xml path through the builder's own steps. At the first thing it is
 //! not sure to read as quick-xml does (an error of any kind, a byte that is not UTF-8, a
 //! DOCTYPE with an internal subset, an empty name) it gives up, and the caller indexes the
 //! document with quick-xml, which reports the error and goes on after it (OPEN-10).
 
-use memchr::{memchr, memchr2, memchr3, memmem};
+use memchr::{memchr2, memmem};
 
 use crate::{Builder, MAX_NAME_LEN, NodeKind};
+
+/// Bytes looked at one by one before a search hands over to `memchr`. Most gaps in markup
+/// are a few bytes (a name, a value, the indentation), where a call to `memchr` costs more
+/// than the loop.
+const SHORT: usize = 32;
+
+/// Where the first `a` in `hay` is.
+#[inline]
+fn find(a: u8, hay: &[u8]) -> Option<usize> {
+    let head = &hay[..hay.len().min(SHORT)];
+    match head.iter().position(|&b| b == a) {
+        Some(k) => Some(k),
+        None if hay.len() > SHORT => memchr::memchr(a, &hay[SHORT..]).map(|k| SHORT + k),
+        None => None,
+    }
+}
+
+/// Where the first `a`, `b` or `c` in `hay` is.
+#[inline]
+fn find3(a: u8, b: u8, c: u8, hay: &[u8]) -> Option<usize> {
+    let head = &hay[..hay.len().min(SHORT)];
+    match head.iter().position(|&x| x == a || x == b || x == c) {
+        Some(k) => Some(k),
+        None if hay.len() > SHORT => memchr::memchr3(a, b, c, &hay[SHORT..]).map(|k| SHORT + k),
+        None => None,
+    }
+}
 
 impl Builder<'_> {
     /// Indexes the whole source if it is a well-formed UTF-8 document the scanner reads as
@@ -24,7 +52,7 @@ impl Builder<'_> {
         let len = src.len();
         let mut at = base;
         while at < len {
-            let lt = memchr(b'<', &src[at..]).map_or(len, |k| at + k);
+            let lt = find(b'<', &src[at..]).map_or(len, |k| at + k);
             if lt > at && !self.scan_text(at, lt) {
                 return false;
             }
@@ -51,9 +79,9 @@ impl Builder<'_> {
         };
         // Every `&` starts a reference that ends with `;` before the markup.
         let mut from = 0;
-        while let Some(amp) = memchr(b'&', &text[from..]) {
+        while let Some(amp) = find(b'&', &text[from..]) {
             let amp = from + amp;
-            match memchr(b';', &text[amp..]) {
+            match find(b';', &text[amp..]) {
                 Some(semi) if semi > 1 => from = amp + semi + 1,
                 _ => return false,
             }
@@ -122,10 +150,10 @@ impl Builder<'_> {
         let rest = &self.src[lt..];
         let mut from = 1;
         let gt = loop {
-            let k = from + memchr3(b'>', b'"', b'\'', &rest[from..])?;
+            let k = from + find3(b'>', b'"', b'\'', &rest[from..])?;
             match rest[k] {
                 b'>' => break k,
-                quote => from = k + 1 + memchr(quote, &rest[k + 1..])? + 1,
+                quote => from = k + 1 + find(quote, &rest[k + 1..])? + 1,
             }
         };
         let tag = &rest[1..gt];
@@ -151,7 +179,7 @@ impl Builder<'_> {
     /// An end tag at `lt`; it must close the innermost open element.
     fn scan_end_tag(&mut self, lt: usize) -> Option<usize> {
         let src = self.src;
-        let gt = lt + memchr(b'>', &src[lt..])?;
+        let gt = lt + find(b'>', &src[lt..])?;
         let name = src[lt + 2..gt].trim_ascii_end();
         if name.is_empty() || name.iter().any(|b| b.is_ascii_whitespace()) {
             return None;
@@ -164,5 +192,37 @@ impl Builder<'_> {
         self.fold(open, lt as u64);
         self.close(open, gt as u64 + 1);
         Some(gt + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The searches agree with `memchr` wherever the byte is: in the bytes looked at one by
+    /// one, at the handover and after it, also among non-ASCII bytes.
+    #[test]
+    fn short_searches_agree_with_memchr() {
+        for len in 0..3 * SHORT {
+            for at in 0..=len {
+                let mut hay: Vec<u8> = "ä ü\r\n".bytes().cycle().take(len).collect();
+                if at < len {
+                    hay[at] = b'<';
+                }
+                if at + 3 < len {
+                    hay[at + 3] = b'"';
+                }
+                assert_eq!(find(b'<', &hay), memchr::memchr(b'<', &hay), "{len} {at}");
+                assert_eq!(
+                    find3(b'>', b'"', b'<', &hay),
+                    memchr::memchr3(b'>', b'"', b'<', &hay),
+                    "{len} {at}"
+                );
+                assert_eq!(
+                    find3(b'>', b'"', b'\'', &hay),
+                    memchr::memchr3(b'>', b'"', b'\'', &hay)
+                );
+            }
+        }
     }
 }
