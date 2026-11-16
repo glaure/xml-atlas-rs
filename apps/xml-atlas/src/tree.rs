@@ -185,8 +185,7 @@ impl TreeState {
             TreeKey::Right => match row {
                 Row::Node(id) if tree::has_children(doc, row, self.options) => {
                     if !self.expanded[id as usize] {
-                        self.expanded[id as usize] = true;
-                        self.dirty = true;
+                        self.set_expanded(doc, id, true);
                         return None;
                     }
                     (cur + 1).min(last)
@@ -198,8 +197,7 @@ impl TreeState {
                     && self.expanded[id as usize]
                     && tree::has_children(doc, row, self.options)
                 {
-                    self.expanded[id as usize] = false;
-                    self.dirty = true;
+                    self.set_expanded(doc, id, false);
                     return None;
                 }
                 let parent = match row {
@@ -231,6 +229,25 @@ impl TreeState {
                 self.selected = Some(Row::Node(element));
             }
             self.dirty = true;
+        }
+    }
+
+    /// Expands or collapses `id`, changing only the rows under it.
+    fn set_expanded(&mut self, doc: &Document, id: NodeId, on: bool) {
+        if self.dirty {
+            // The rows are made again anyway.
+            if let Some(e) = self.expanded.get_mut(id as usize) {
+                *e = on;
+            }
+        } else {
+            tree::set_expanded(
+                doc,
+                id,
+                on,
+                &mut self.expanded,
+                self.options,
+                &mut self.rows,
+            );
         }
     }
 
@@ -357,9 +374,8 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         open.keys = crate::app::Pane::Tree;
     }
     if let Some(id) = toggle {
-        let e = &mut open.tree.expanded[id as usize];
-        *e = !*e;
-        open.tree.dirty = true;
+        let on = !open.tree.expanded[id as usize];
+        open.tree.set_expanded(&open.doc, id, on);
     }
     if let Some(row) = clicked {
         select_row(open, row);

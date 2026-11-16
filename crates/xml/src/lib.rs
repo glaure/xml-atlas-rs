@@ -155,6 +155,8 @@ pub struct ChildElements {
     pub ids: Vec<NodeId>,
     /// Whether every child element has the same name.
     pub one_name: bool,
+    /// Whether any child is text or CDATA (mixed content).
+    pub text: bool,
 }
 
 /// [`ChildElements`] by parent, made on demand and dropped whenever the nodes change. A
@@ -614,13 +616,22 @@ impl Index {
         }
         let mut lists = self.wide.0.lock().unwrap_or_else(PoisonError::into_inner);
         let list = lists.entry(parent).or_insert_with(|| {
-            let ids: Vec<NodeId> = self
-                .children(parent)
-                .filter(|&c| self.node(c).kind == NodeKind::Element)
-                .collect();
+            let mut ids = Vec::new();
+            let mut text = false;
+            for c in self.children(parent) {
+                match self.node(c).kind {
+                    NodeKind::Element => ids.push(c),
+                    NodeKind::Text | NodeKind::CData => text = true,
+                    _ => {}
+                }
+            }
             let first = ids.first().map(|&c| self.name(src, c));
             let one_name = ids.iter().all(|&c| Some(self.name(src, c)) == first);
-            Arc::new(ChildElements { ids, one_name })
+            Arc::new(ChildElements {
+                ids,
+                one_name,
+                text,
+            })
         });
         Some(Arc::clone(list))
     }
@@ -1678,6 +1689,7 @@ mod tests {
         let root = idx.root_element().unwrap();
         let list = idx.child_elements(&src, root).expect("wide");
         assert!(list.one_name);
+        assert!(!list.text, "whitespace between the children is not text");
         let kids: Vec<NodeId> = idx
             .children(root)
             .filter(|&c| idx.node(c).kind == NodeKind::Element)
@@ -1711,6 +1723,20 @@ mod tests {
             assert_eq!(idx.path(&src, k), walked_path(&idx, &src, k));
         }
         assert_eq!(idx.path(&src, kids[3]), "/r/b[2]");
+    }
+
+    #[test]
+    fn wide_parent_with_text_says_so() {
+        let n = WIDE_DESCENDANTS as usize;
+        for between in ["Grüße", "<![CDATA[<]]>"] {
+            let mut src = wide(n, |_| "a");
+            let at = src.len() - b"</r>".len();
+            src.splice(at..at, between.bytes());
+            let idx = index(&src);
+            let list = idx.child_elements(&src, 1).expect("wide");
+            assert!(list.text, "{between}");
+            assert_eq!(list.ids.len(), n);
+        }
     }
 
     #[test]
