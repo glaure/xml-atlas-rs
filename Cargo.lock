@@ -4796,7 +4796,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xml-atlas"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eframe",
  "egui",
@@ -4811,7 +4811,7 @@ dependencies = [
 
 [[package]]
 name = "xml-atlas-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4821,7 +4821,7 @@ dependencies = [
 
 [[package]]
 name = "xml-atlas-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "encoding_rs",
  "log",
@@ -4833,7 +4833,7 @@ dependencies = [
 
 [[package]]
 name = "xml-atlas-xml"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "memchr",
  "quick-xml 0.42.0",
@@ -4848,7 +4848,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
