@@ -10,14 +10,16 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Format that changes only layout whitespace (D12), atomic save (D13)
 - [x] CLI stats and format, fixture generator
 - [x] Baseline: XML Marker under wine on the same files (`docs/benchmarks.md`)
-- [ ] Baseline for the Qt XML Atlas (it needs a file argument first) and for interaction:
-      scrolling, selecting, searching
+- [x] Baseline for interaction: scrolling, selecting, searching, against XML Marker on
+      Windows (`docs/benchmarks.md`). No baseline for the Qt XML Atlas: it was much slower
+      than XML Marker, so XML Marker is the one to beat (owner, 2026-11-16)
 - [x] Start-up: 0.59 s and 193 MiB with a tiny file, slower and heavier than XML Marker.
       Now 0.30-0.33 s and 132 MiB with OpenGL instead of wgpu (D21)
 - [x] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
       huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
 - [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
-      (`docs/spec/reference.md`), decisions for the owner open
+      (`docs/spec/reference.md`); for the owner, two questions about the grid are left
+      (`docs/spec/grid.md`)
 - [x] Find: match case, whole word, direction, F3 (TEXT-12); also `xml-atlas-cli find`
 - [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
@@ -77,7 +79,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 
 - [ ] XPath query panel
 - [ ] Schema (XSD) validation
-- [ ] Import other XML files (what it means is still open, `docs/spec/open.md`)
+- [ ] Import other XML files: follow XInclude references (`docs/spec/open.md`)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 
 ## Distribution and automation

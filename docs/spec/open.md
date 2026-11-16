@@ -165,8 +165,9 @@ Details and limits in `reference.md`.
 - Other encodings are converted to UTF-8 on open and back on save. A character the encoding
   cannot hold refuses the save and offers Save as UTF-8, rather than writing `&#N;`. (Owner,
   2026-11-15.)
+- "Import other XML files" (after 1.0) means following XInclude references, not inserting
+  another file's elements into this document. (Owner, 2026-11-16.)
 
 ## Questions
 
-1. "Import other XML files" is wanted later. What should it do: insert another file's
-   elements into this document, follow XInclude references, or something else?
+None open.

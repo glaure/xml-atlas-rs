@@ -52,7 +52,9 @@ How the views are laid out, and how the window looks.
 
 - Both layouts, switchable: today's and XML Marker's (WIN-1). (Owner, 2026-11-14.)
 - Theme support: light, dark, and following the system (WIN-2). (Owner, 2026-11-14.)
+- The default layout, until the user changes it: tree on the left, text at the top right,
+  the grid below the text. (Owner, 2026-11-16.)
 
 ## Questions
 
-1. Which layout should be the default once settings are remembered?
+None open.
