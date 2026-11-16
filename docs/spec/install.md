@@ -23,10 +23,13 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   file manager: *Open with* lists it for `.xml` files (and for `application/xml` and
   `text/xml` on Linux). Installing does not make XML Atlas the default program for `.xml`;
   the user chooses that.
-- **PKG-5** `[planned]` Installing a newer version replaces the older one in place, and
+- **PKG-5** `[built]` Installing a newer version replaces the older one in place, and
   keeps the user's settings and recent files (WIN-3). Uninstalling removes the program,
   its shortcuts and its file associations, and leaves the settings file, so a later install
-  finds it again.
+  finds it again. On the owner's Windows 11 (2026-11-16) the 0.1.1 MSI installed over
+  0.1.0: one XML Atlas in the installed apps, `xml-atlas-cli --version` prints 0.1.1, the
+  Start menu shortcut works, and a changed setting and the recent files were kept. Not yet
+  tried: an upgrade of the `.deb` and `.rpm` (PKG-30, PKG-31).
 - **PKG-6** `[planned]` 64-bit x86 on every platform; 64-bit ARM on macOS (Apple silicon)
   and on Windows and Linux where CI can build it.
 - **PKG-7** `[planned]` The program can tell the user that a newer version exists: at most
@@ -53,8 +56,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   Windows 11 (2026-11-16): installed for the current user and for all users, the Start menu
   entry, the taskbar and Explorer show the icon, *Open with* opens an XML file, the PATH
   feature puts `xml-atlas-cli` on the PATH, the window also starts with
-  `XML_ATLAS_RENDERER=wgpu`, and uninstalling works. Not yet tried: an upgrade over an older
-  version (PKG-5). The MSI is not signed yet (PKG-13).
+  `XML_ATLAS_RENDERER=wgpu`, and uninstalling works. The 0.1.1 MSI installed over 0.1.0
+  replaces it in place and keeps the settings and recent files (PKG-5, 2026-11-16). The MSI
+  is not signed yet (PKG-13).
 - **PKG-11** `[done]` The MSI has an upgrade code of its own, not the Qt XML Atlas's
   (QT-13): the Qt version has no install base to carry over, so the two are separate
   programs to Windows. Ours is `7DA64DFB-4246-4B3A-B6E3-9860CABB8C81`; it never changes.
