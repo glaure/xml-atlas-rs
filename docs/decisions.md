@@ -280,7 +280,7 @@ Still open, found by the same review:
 - **Limit:** needs free space for a second copy. Ownership and extended attributes are not
   copied. Not yet tested on Windows or macOS.
 
-## D14: Evaluate our own tokenizer (proposed, not decided)
+## D14: Our own scanner for well-formed UTF-8, quick-xml for the rest
 
 - **Idea:** replace quick-xml in `crates/xml` with a scanner over raw bytes built on `memchr`
   (which is SIMD inside and safe to call, so the `unsafe` ban stays).
@@ -299,6 +299,28 @@ Still open, found by the same review:
   the source cost 60 ms on the 100 MiB fixture; the buffer costs what quick-xml's own check
   did). After a byte that is not UTF-8 a new reader starts at the next `<`. Without any end
   tag check the index took 265 ms instead of 310 ms there: a hint for the prototype.
+- **Prototype (2026-11-16, Windows):** `crates/xml/src/scan.rs` reads a well-formed UTF-8
+  document with `memchr` and builds its nodes through the builder's own steps, so the index
+  is the same. At the first doubt (any error, a byte that is not UTF-8, a DOCTYPE with an
+  internal subset, an empty name, an `&` without `;`) it gives up and quick-xml indexes the
+  document from the start, with its errors and recovery as before. The whole source is
+  checked for UTF-8 first (15 ms for 300 MiB).
+  - Same index: the nodes, element count and depth equal quick-xml's on the three
+    fixtures, on every well-formed UTF-8 file of the corpus, and on 18 edge cases
+    (entities between whitespace, `>` inside quoted values, CDATA, PIs, DOCTYPE, text
+    outside the root, byte order mark, CRLF). Ten broken or unusual inputs go to quick-xml.
+  - In one process, best of five: 300 MiB 534-563 ms with quick-xml, 403-420 ms with the
+    scanner (533-562 against 714-745 MiB/s); 100 MiB 173-182 against 132-141 ms.
+  - `xml-atlas-cli stats`, three alternating rounds against `main`: 300 MiB index
+    718-728 ms before, 559-588 ms after; open 929-951 ms before, 779-799 ms after. 100 MiB
+    index 238 ms before, 198 ms after in the quietest round.
+  - Room left: on 300 MiB, finding every `<` takes 11 ms and pushing its 7.0 M nodes
+    61 ms; with the UTF-8 check that is about 90 ms of the scanner's 403 ms. The rest is
+    per-token work (about 57 ns a node), not tuned yet.
+  - Cost: a document the scanner gives up on is read twice up to that point, so a file
+    broken near its end opens up to about 1.75 times slower than before.
+- **Decided (owner, 2026-11-16):** the scanner is kept as built; quick-xml stays for every
+  document it gives up on. Tuning the scanner's per-token work is a later step.
 
 ## D15: Order of work
 
@@ -655,7 +677,8 @@ D10, memory mapping in D11, roadmap order in D15, slow spots in the review notes
 
 New ones:
 
-1. Does the tokenizer of D14 pay for itself?
+1. Does the tokenizer of D14 pay for itself? Answered: yes for well-formed UTF-8, 17 % off
+   opening 300 MiB as built (D14).
 2. How should node identity survive a full re-index (after Format, or when a splice fails)?
    Paths of child positions are one option.
 3. Which encodings do the owner's real files use? Answered: UTF-8. Other encodings are in

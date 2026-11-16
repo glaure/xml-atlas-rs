@@ -18,6 +18,8 @@ use quick_xml::Reader;
 use quick_xml::encoding::EncodingError;
 use quick_xml::events::{BytesStart, Event};
 
+mod scan;
+
 /// Index of a node in [`Index::nodes`].
 pub type NodeId = u32;
 
@@ -186,7 +188,14 @@ pub struct Index {
 }
 
 /// Builds the index for `src`. Never fails; see [`Index::error`].
+///
+/// A well-formed UTF-8 document is read by the byte scanner of D14; anything it is not sure
+/// of, including every error, by quick-xml from the start.
 pub fn index(src: &[u8]) -> Index {
+    let mut fast = Builder::new(src);
+    if fast.scan() {
+        return fast.finish(Vec::new());
+    }
     Builder::new(src).run()
 }
 
@@ -1129,6 +1138,12 @@ impl<'s> Builder<'s> {
             errors.push(self.not_closed(open));
             self.close(open, len);
         }
+        self.finish(errors)
+    }
+
+    /// Closes the document node and makes the index, with `errors` in any order.
+    fn finish(mut self, mut errors: Vec<ParseError>) -> Index {
+        let len = self.src.len() as u64;
         self.close(ROOT, len);
         // The capacity guess can overshoot by up to 2x after growth; give the slack back.
         self.nodes.shrink_to_fit();
@@ -1776,6 +1791,104 @@ mod tests {
             n += 1;
         }
         assert!(n > 5, "corpus not found");
+    }
+
+    /// The scanner's index of `src` (D14), or `None` where it leaves `src` to quick-xml;
+    /// when it reads it, the index equals quick-xml's.
+    fn scanned_like_quick_xml(src: &[u8]) -> Option<Index> {
+        let mut fast = Builder::new(src);
+        if !fast.scan() {
+            return None;
+        }
+        let fast = fast.finish(Vec::new());
+        let slow = Builder::new(src).run();
+        let show = String::from_utf8_lossy(&src[..src.len().min(200)]);
+        assert!(
+            slow.error.is_none(),
+            "scanned, but quick-xml finds an error: {show}"
+        );
+        assert_eq!(fast.nodes, slow.nodes, "{show}");
+        assert_eq!(fast.element_count, slow.element_count, "{show}");
+        assert_eq!(fast.max_depth, slow.max_depth, "{show}");
+        Some(fast)
+    }
+
+    #[test]
+    fn scanner_reads_what_quick_xml_reads() {
+        let cases: &[&[u8]] = &[
+            DOC,
+            b"<r/>",
+            b"\xEF\xBB\xBF<r>\r\n  <a x=\"1\">t</a>\r\n</r>\r\n",
+            b"<?xml version=\"1.0\"?>\n<!-- c -->\n<?pi data?>\n<r/>\n<!-- after -->\n",
+            b"<!DOCTYPE r SYSTEM \"r.dtd\">\n<r/>",
+            b"<r>  &amp;  </r>",
+            b"<r>  x &amp; y  </r>",
+            b"<r>&#x41;&#66;</r>",
+            b"<r>a<b/>c<![CDATA[ d ]]>e</r>",
+            b"<r><![CDATA[x]]></r>",
+            b"<r> <![CDATA[x]]> </r>",
+            b"<r><a x='>' y=\"'>'\">gt</a></r>",
+            b"<r><a/><a /><a x=\"/\"/></r>",
+            b"<r>\n  <a>1</a >\n</r >",
+            b"<r>caf\xC3\xA9 \xE2\x82\xAC</r>",
+            b"<r>\t\n </r>",
+            b"text before <r/> text after",
+            b"<r><x:y xmlns:x=\"u\"/></r>",
+        ];
+        for &src in cases {
+            assert!(
+                scanned_like_quick_xml(src).is_some(),
+                "not scanned: {:?}",
+                String::from_utf8_lossy(src)
+            );
+        }
+        // Errors and what the scanner leaves to quick-xml.
+        let left: &[&[u8]] = &[
+            b"<r><a></r>",
+            b"<r>",
+            b"<r></a>",
+            b"<r>a & b</r>",
+            b"<r>\xFF</r>",
+            b"<!DOCTYPE r [<!ENTITY e \"x\">]><r>&e;</r>",
+            b"<r><</r>",
+            b"<r><!-- open </r>",
+            b"< r/>",
+            b"<?XML version=\"1.0\"?><r/>",
+        ];
+        for &src in left {
+            assert!(
+                scanned_like_quick_xml(src).is_none(),
+                "scanned: {:?}",
+                String::from_utf8_lossy(src)
+            );
+            assert_eq!(index(src).nodes, Builder::new(src).run().nodes);
+        }
+    }
+
+    #[test]
+    fn scanner_reads_the_corpus_like_quick_xml() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/corpus");
+        let mut scanned = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("corpus") {
+            let path = entry.expect("entry").path();
+            let src = std::fs::read(&path).expect("read");
+            if scanned_like_quick_xml(&src).is_some() {
+                scanned.push(path.file_name().unwrap().to_string_lossy().into_owned());
+            }
+        }
+        scanned.sort();
+        // Every well-formed UTF-8 file; not UTF-16, Latin-1, Windows-1252, the broken one,
+        // or the DOCTYPE with an internal subset.
+        assert_eq!(
+            scanned,
+            [
+                "namespaces.xml",
+                "one_line.xml",
+                "tabs_and_mixed_content.xml",
+                "utf8_bom_crlf.xml",
+                "utf8_no_declaration.xml",
+            ]
+        );
     }
 
     #[test]
