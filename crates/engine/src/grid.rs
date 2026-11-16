@@ -8,6 +8,7 @@
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use xml_atlas_xml::{Folded, NONE, NodeId, NodeKind, NodeSplice};
 
@@ -24,6 +25,19 @@ pub const COLUMN_SAMPLE: usize = 1000;
 /// is built again. 10,000 rows take about a millisecond.
 pub const FOLLOW_RESCAN_ROWS: usize = 10_000;
 
+/// Fewest rows a thread is given when a wide parent's rows are examined on several threads.
+const PARALLEL_ROWS: usize = 2048;
+
+/// Threads that examine a wide parent's rows for columns: the processor's, up to 8.
+pub fn scan_threads() -> usize {
+    static THREADS: OnceLock<usize> = OnceLock::new();
+    *THREADS.get_or_init(|| {
+        std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(8)
+    })
+}
+
 /// Columns found while scanning are searched one by one up to this many, then hashed.
 const SEEN_LIST: usize = 16;
 
@@ -31,7 +45,7 @@ const SEEN_LIST: usize = 16;
 pub const CELL_CHARS: usize = 200;
 
 /// One column of the grid, in the order it was first met (GRID-2).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Column {
     /// An attribute of the row element.
     Attribute(String),
@@ -171,6 +185,15 @@ impl Grid {
     pub fn scan(&mut self, doc: &Document, children: usize) -> bool {
         let Some(from) = self.scan else { return true };
         let idx = &doc.index;
+        if let Some(list) = idx.child_elements(&doc.src, self.parent) {
+            // A wide parent (D24): its child elements are listed, and the rows can be
+            // examined on several threads.
+            let at = list.ids.partition_point(|&r| r < from);
+            let to = at.saturating_add(children).min(list.ids.len());
+            self.add_columns_parallel(doc, &list.ids[at..to]);
+            self.scan = list.ids.get(to).copied();
+            return self.scan.is_none();
+        }
         let end = self.parent as u64 + 1 + idx.node(self.parent).descendants as u64;
         let mut next = from as u64;
         let mut left = children;
@@ -188,6 +211,40 @@ impl Grid {
         add_columns(doc, &mut self.columns, rows);
         self.scan = (next < end).then_some(next as NodeId);
         self.scan.is_none()
+    }
+
+    /// [`add_columns`] for `rows`, split over up to [`scan_threads`] threads. The columns
+    /// come out in the order one thread would find them: each chunk's new columns follow
+    /// those of the chunks before it.
+    fn add_columns_parallel(&mut self, doc: &Document, rows: &[NodeId]) {
+        let threads = scan_threads().min(rows.len() / PARALLEL_ROWS).max(1);
+        if threads == 1 {
+            add_columns(doc, &mut self.columns, rows.iter().copied());
+            return;
+        }
+        let known = &self.columns;
+        let found: Vec<Vec<Column>> = std::thread::scope(|s| {
+            let chunks: Vec<_> = rows
+                .chunks(rows.len().div_ceil(threads))
+                .map(|chunk| {
+                    s.spawn(move || {
+                        let mut columns = known.clone();
+                        add_columns(doc, &mut columns, chunk.iter().copied());
+                        columns.split_off(known.len())
+                    })
+                })
+                .collect();
+            chunks
+                .into_iter()
+                .map(|h| h.join().expect("column scan"))
+                .collect()
+        });
+        let mut have: HashSet<Column> = self.columns.iter().cloned().collect();
+        for c in found.into_iter().flatten() {
+            if have.insert(c.clone()) {
+                self.columns.push(c);
+            }
+        }
     }
 
     /// Whether every row has been examined for columns.
@@ -1197,6 +1254,45 @@ mod tests {
         let late = grid.rows[2 * COLUMN_SAMPLE + 7];
         assert_eq!(grid.cell(&doc, late, &attr("größe")), value("groß"));
         assert_eq!(grid.cell(&doc, late, &child("später")), value("ä"));
+    }
+
+    /// A wide list is examined on several threads; the columns are those one pass in document
+    /// order finds, in the same order, also when a column is first met in a later chunk and
+    /// again in an earlier one.
+    #[test]
+    fn a_wide_list_is_examined_like_one_pass() {
+        let n: usize = 40_000;
+        let mut src = String::from("\u{feff}<liste>\r\n");
+        for i in 0..n {
+            let a = (i * 7919) % 97;
+            let c = (i * 104_729) % 61;
+            // Rows near the end bring columns no earlier row has.
+            let late = if i > n - 50 {
+                format!(" spät{i}=\"\"")
+            } else {
+                String::new()
+            };
+            let text = if i % 5000 == 4999 { "Grüße" } else { "" };
+            src.push_str(&format!(
+                "<zeile nr=\"{i}\" ä{a}=\"x\"{late}><kind{c}>ö</kind{c}>{text}</zeile>\r\n"
+            ));
+        }
+        src.push_str("</liste>\r\n");
+        let doc = Document::from_bytes(src.into_bytes());
+        let list = doc.index.root_element().unwrap();
+        assert!(doc.index.child_elements(&doc.src, list).is_some(), "wide");
+        let rows: Vec<NodeId> = doc
+            .index
+            .children(list)
+            .filter(|&c| doc.index.node(c).kind == NodeKind::Element)
+            .collect();
+        let mut one_pass = Vec::new();
+        add_columns(&doc, &mut one_pass, rows.iter().copied());
+        assert!(one_pass.len() > 97 + 61 + 40, "{}", one_pass.len());
+        assert_eq!(Grid::build(&doc, list).columns, one_pass);
+        let mut grid = Grid::start(&doc, list);
+        while !grid.scan(&doc, 7000) {}
+        assert_eq!(grid.columns, one_pass);
     }
 
     /// In a list longer than [`FOLLOW_RESCAN_ROWS`], typing a new attribute or child into a

@@ -21,10 +21,11 @@ use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
 
 /// Time a frame spends looking at a long grid's rows for columns (GRID-3).
-const GRID_SCAN_TIME: Duration = Duration::from_millis(3);
+const GRID_SCAN_TIME: Duration = Duration::from_millis(6);
 
-/// Children of the grid's element looked at between checks of [`GRID_SCAN_TIME`]: about
-/// half a millisecond.
+/// Children of the grid's element looked at between checks of [`GRID_SCAN_TIME`], per thread
+/// that looks ([`xml_atlas_engine::grid::scan_threads`]): about half a millisecond on one
+/// thread, 1 to 2 ms on eight at 300 MiB.
 const GRID_SCAN_CHILDREN: usize = 4096;
 
 pub struct App {
@@ -1801,7 +1802,8 @@ impl Open {
             return;
         }
         let t = Instant::now();
-        while !grid.scan(&self.doc, GRID_SCAN_CHILDREN) {
+        let children = GRID_SCAN_CHILDREN * xml_atlas_engine::grid::scan_threads();
+        while !grid.scan(&self.doc, children) {
             if t.elapsed() >= GRID_SCAN_TIME {
                 ctx.request_repaint();
                 return;
