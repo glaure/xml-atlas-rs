@@ -685,6 +685,77 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Decided (owner, 2026-11-16):** kept for the path and the grid as built. The tree is a
   separate step.
 
+## D25: Index on several threads
+
+- **Problem (measured 2026-11-16, Windows, `xml-atlas-cli stats`, 300 MiB fixture):**
+  opening takes about 700 ms at best: read 126-152 ms, index 463-469 ms, lines 82-110 ms.
+  The index runs on one thread while the machine has eight. After the tuning in D14 its time
+  is the searches (about 210 ms), writing 7.0 M nodes (150-200 ms of memory traffic),
+  reading text and names a second time (about 65 ms) and the UTF-8 check (about 20 ms). No
+  cheap single-thread fix is left without `unsafe`.
+- **Proposal:** for a document the scanner reads (well-formed UTF-8, D14) and of at least
+  4 MiB (a first guess), split the source into chunks, scan the chunks on several threads,
+  then stitch their nodes into the one flat array of D2. Everything else stays: the nodes
+  are the same, quick-xml still reads every document the scanner gives up on, and edits
+  still re-read only the changed element (D9).
+  - **Chunks:** more chunks than threads (about four per thread, up to 8 threads), taken
+    from a shared counter, so a slow core (this laptop has efficiency cores) does not hold
+    up the rest. Each boundary is moved forward to the next `<` followed by a name, the
+    start of a start tag. A start tag at the boundary means no element whose content is one
+    text can span two chunks, so folding (D11) stays inside a chunk.
+  - **A chunk's scan** starts with an empty stack. It keeps its nodes in its own array, with
+    parents inside the chunk as chunk-local ids. It also records the end tags that close
+    elements opened in earlier chunks (name, position, and how many nodes came before),
+    the elements still open at its end, and, for each node at its top level, how many outer
+    elements were closed before it. Each chunk checks its own bytes for UTF-8; a boundary
+    is always at an ASCII `<`, so that is the same check as today's.
+  - **Checking a boundary:** the scan of a chunk must end exactly where the next chunk
+    begins. When a boundary fell inside a comment, a CDATA section, a processing
+    instruction or a quoted attribute value, the chunk before it runs past the boundary.
+    Then the next chunk's nodes are thrown away and that chunk is scanned again from where
+    the chunk before it ended, on the stitching thread. Such boundaries should be rare in
+    real files.
+  - **Stitching**, in order, on one thread: a global stack of open elements and their
+    names. Each outer end tag must match the top of that stack, or the whole document goes
+    to quick-xml as today. The end and subtree size of an outer element are set when its
+    end tag comes. A node at a chunk's top level gets as parent the element left on the
+    stack after the outer end tags before it. The element count and maximum depth are added
+    up from the chunks. This is work per chunk and per outer element, not per node.
+  - **Copying:** the final array is allocated once, at the total size. Each chunk's nodes
+    are copied into their own part of it in parallel, adding the chunk's offset to the ids
+    (`split_at_mut`, scoped threads, no `unsafe`).
+  - **Also:** the line starts (82-110 ms) are found on a thread of their own while the
+    index is built, since both only read the source. This is a smaller step that can come
+    first.
+- **Expected, not measured:** the searches and the second reads (about 300 ms) should
+  shrink with the threads. Writing the nodes is memory traffic and gains less, and the
+  copy adds some. A guess: index 463 ms to 150-200 ms, opening 700 ms to about 350 ms
+  together with the line starts. At 10 MiB, the owner's typical size, the index (about
+  20 ms) gains little that anyone can see.
+- **Cost:**
+  - Memory: while the index is built, every node exists twice, once in its chunk and once
+    in the final array: about 225 MB more at 300 MiB, for well under a second. The index
+    itself stays the same size.
+  - Code: a second way to build the index, next to the one-thread scanner and quick-xml.
+    It must give exactly their nodes.
+- **Not chosen:**
+  - A SIMD scanner like simdjson: needs `unsafe` (see Code style in `AGENTS.md`), and the
+    node writes stay.
+  - Two passes, the first counting each chunk's nodes so that the second writes straight
+    into the final array: no doubled memory, but every chunk is scanned twice.
+  - Boundaries at any `<`: an element whose only content is text could then span two
+    chunks, and folding would have to remove a node across them.
+  - Reading the file and indexing it at the same time: the read is about 130 ms and could
+    overlap the index, but a stream changes the open path more. Possible later.
+- **Decide by:** a prototype.
+  - Its index must equal the one-thread scanner's on the three fixtures, on the corpus,
+    and with tiny chunks (so that boundaries fall everywhere, inside comments, CDATA and
+    quoted values too) on the scanner's edge cases and the corpus.
+  - Measured with `xml-atlas-cli stats`, alternating against `main`, at 10, 100 and
+    300 MiB, together with peak memory.
+  - Kept if the index at 300 MiB takes at most half as long, and nothing is slower at
+    10 MiB.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
