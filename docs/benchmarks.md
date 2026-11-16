@@ -214,6 +214,10 @@ Problems in XML Atlas that this found, to look into before the tokenizer (D14):
   140 to 58 ms since the table above, but that run came before D24 too, so the two changes
   cannot be told apart.
   Tree Home is unchanged (634 -> 694 ms, within the noise): it is the grid's column scan.
+  *Since (2026-11-16):* the grid examines a wide parent's rows on up to 8 threads, and a
+  frame spends 6 ms on it instead of 3 (GRID-3). The 633,506 orders at 300 MiB take 22-25 ms
+  instead of 80 ms in the engine, a few frames instead of about 27. Tree Home, median of
+  three runs: 234 -> 80 ms at 100 MiB, 694 -> 196 ms at 300 MiB.
 
 What this does not say:
 

@@ -11,10 +11,12 @@ this file needs the most observation.
   each attribute (`@name`), one for each child element name (its name), and `text()` for the
   row's own text. Columns appear in the order they are first met.
 - **GRID-3** `[done]` Every attribute and child of every row has a column. The first 1,000
-  rows are examined when the grid is shown, the rest over the next frames, about 3 ms each, so
+  rows are examined when the grid is shown, the rest over the next frames, about 6 ms each, so
   a column met only far down appears at the end shortly after. Examining reads names only:
-  about 130 ns a row, so the 211,383 orders of the 100 MiB fixture take about 27 ms spread over
-  some frames. While typing in a list of more than 10,000 rows, only the changed rows are
+  about 130 ns a row on one thread, so the 211,383 orders of the 100 MiB fixture take about
+  27 ms spread over some frames. The rows of an element with at least 10,000 nodes below it
+  are examined on up to 8 threads: the 633,506 orders of the 300 MiB fixture in 22 to 25 ms
+  instead of 80 ms. While typing in a list of more than 10,000 rows, only the changed rows are
   examined: a new column is added at the end, and one no row has any more stays until the grid
   is shown again.
 - **GRID-4** `[built]` A cell shows the attribute value or the text with entities decoded, cut
