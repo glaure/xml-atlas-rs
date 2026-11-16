@@ -182,8 +182,25 @@ Problems in XML Atlas that this found, to look into before the tokenizer (D14):
 - **Tree Home and text Page Down cost more as the file grows**, against rule 2 (per-frame
   work scales with what is on screen).
 - **A tree action takes about 220 ms at every file size** where XML Marker takes one frame.
-  It does not grow with the file, so it is probably a fixed-length animation; which one is
-  not known yet.
+  *Fixed (2026-11-16):* the grid's scroll areas belong to the element shown, so every new
+  selection started with hidden scroll bars that egui faded in over about 15 frames. egui's
+  animations are now off (`no_animations` in `apps/xml-atlas/src/app.rs`). Before and
+  after, median of three runs (settled):
+
+  | Action                          | 10 MiB       | 100 MiB      | 300 MiB      |
+  |---------------------------------|--------------|--------------|--------------|
+  | tree: expand the root           | 232 -> 41 ms | 231 -> 47 ms | 230 -> 101 ms |
+  | tree: End                       | 217 -> 29 ms | 215 -> 50 ms | 216 -> 100 ms |
+  | tree: Home                      | 49 -> 29 ms  | 218 -> 234 ms | 648 -> 634 ms |
+  | tree: 20 x Page Down            | 227 -> 49 ms | 232 -> 46 ms | 234 -> 79 ms |
+  | tree: click a row near the end  | 233 -> 59 ms | 217 -> 45 ms | 220 -> 140 ms |
+  | text: 20 x Page Down            | 49 -> 62 ms  | 96 -> 65 ms  | 184 -> 185 ms |
+
+  What is left grows with the file, and is work rather than animation: tree Home selects
+  the root, whose grid lists every order and then looks at them for columns over about 36
+  frames (GRID-3); the path of an element near the end counts all its siblings
+  (`Index::path`, 66 ms for the last of 633,000 orders); collapsing or expanding the root
+  rebuilds the tree's rows (71 ms); and text Page Down at 300 MiB is not explained yet.
 
 What this does not say:
 
