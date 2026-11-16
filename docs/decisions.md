@@ -589,6 +589,65 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Offsets:** problems, find results and the CLI's positions count bytes of the UTF-8
   text, not of the file.
 
+## D24: A list of the child elements of wide parents
+
+- **Problem (measured 2026-11-16, Windows, 300 MiB fixture, `docs/benchmarks.md`):** what
+  is still slow on large files is a walk over the children of one wide element, the 633,506
+  orders under the root:
+  - `Index::path` of the last order: 38 ms, of which walking the siblings alone is 36 ms
+    and comparing their names 2 ms. Selecting an order near the end costs 53-63 ms in all.
+  - `Grid::start` for the root, which lists every child element: 37-73 ms.
+  - Collapsing or expanding the root, which rebuilds the tree's rows: a 71 ms frame
+    (from the order of the log, not timed on its own).
+
+  A step from one child to the next skips that child's subtree in the node array (about
+  350 bytes per order), so every step reads new memory: about 57 ns each. Tuning the code
+  does not change that; only not walking does.
+- **Proposal:** the document keeps, on demand, the ids of the child elements of any parent
+  with at least 10,000 children (a first guess, to be set from the prototype), in document
+  order, and whether they all have the same name.
+  - Built by the first caller that needs it: one walk, the cost of today.
+  - Dropped whenever the document changes (its revision), and built again on the next
+    demand. An edit does not have to keep it up to date (D9, D19).
+  - `path`: with one name for all children, the position is a binary search in the list
+    (ids increase). With mixed names it walks the list, comparing names as today.
+  - `Grid::start`: copies the list instead of walking (633,506 ids, under a millisecond).
+  - The tree: takes a wide parent's children from the list. Its rows are still built one
+    per visible child, so collapse and expand gain less.
+- **Cost:** 4 bytes per child of a wide parent: 2.5 MiB for the 300 MiB fixture, whose index
+  is about 700 MiB (D11).
+- **Not chosen:**
+  - A next-sibling link in every node: 4 more bytes per node on every file, against the
+    32-byte node of D11, and kept up to date on every splice.
+  - A cache in each of the grid, the tree and `path`: three lists of the same ids, each
+    with its own invalidation.
+  - Computing the path in the background: helps only the path, and the grid header shows
+    it a moment later.
+- **Decide by:** a prototype measured on the 300 MiB fixture before and after: the path of
+  the last order, the grid of the root, and collapsing and expanding the root, each to
+  within one frame (16 ms), with `xml-atlas-cli stats` and the open time unchanged.
+- **Prototype (2026-11-16), for `path` and the grid only:** `Index::child_elements` keeps
+  the list for parents with at least 10,000 nodes below them (`WIDE_DESCENDANTS`; counting
+  children would itself need the walk); `Index::update` and `Index::keep_stale` drop it, a
+  new or cloned index starts without. The tree is unchanged: it filters every child with
+  `is_row`, which reads the child's node, so a list of element ids would not spare it the
+  walk. Measured on the 300 MiB fixture:
+  - In the engine, one session: the path of the last order 72-79 ms before, 5-8 µs after;
+    the first call after opening or an edit builds the list, 92 ms. The grid of the root
+    68-98 ms before, 1.1-2.7 ms after; the grid of the last order 68-83 ms before, under
+    15 µs after (it was the path).
+  - `xml-atlas-cli stats` on 100 MiB, six alternating rounds: the same within noise (index
+    best 227.4 against 226.1 ms and 227.3 against 227.2 ms in the two quiet rounds; this
+    laptop swings between 227 and 349 ms).
+  - The window (`tools/bench_windows.py`, median of three, settled): tree End 100 -> 33 ms,
+    a click near the end of the tree 140 -> 60 ms, text 20 x Page Down 185 -> 62 ms, the
+    search for the last order 263 -> 198 ms. Unchanged: expanding the root (101-131 ms,
+    the tree) and tree Home (about 630 ms, the grid's column scan over 36 frames, GRID-3).
+  - Met: the path and the grid of the root. Not met: collapsing and expanding the root,
+    which needs a list of the tree's rows rather than of element ids.
+- **Decided (owner, 2026-11-16):** kept for the path and the grid as built. The tree is a
+  separate step.
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in

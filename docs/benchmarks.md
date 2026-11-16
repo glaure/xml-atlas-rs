@@ -201,6 +201,10 @@ Problems in XML Atlas that this found, to look into before the tokenizer (D14):
   frames (GRID-3); the path of an element near the end counts all its siblings
   (`Index::path`, 66 ms for the last of 633,000 orders); collapsing or expanding the root
   rebuilds the tree's rows (71 ms); and text Page Down at 300 MiB is not explained yet.
+  *Since (2026-11-16, `docs/decisions.md`, D24):* the path and the root's grid take a list
+  of the root's child elements instead of walking them. Text Page Down at 300 MiB was the
+  selections near the end of the file paying for the path, and is down from 185 to 62 ms;
+  tree End from 100 to 33 ms. Expanding the root and tree Home are unchanged.
 
 What this does not say:
 
