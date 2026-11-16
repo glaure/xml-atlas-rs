@@ -399,14 +399,25 @@ fn stats(file: &PathBuf, repeat: u32) -> anyhow::Result<()> {
     runs.sort_by_key(|t| t.total());
     let best = runs[0];
     let median = runs[runs.len() / 2];
-    println!(
-        "open (best)   {:>9} total = read {} + decode {} + index {} + lines {}",
-        ms(best.total()),
-        ms(best.read),
-        ms(best.decode),
-        ms(best.index),
-        ms(best.lines)
-    );
+    match best.together {
+        Some(together) => println!(
+            "open (best)   {:>9} total = read {} + decode {} + {} for index {} alongside lines {}",
+            ms(best.total()),
+            ms(best.read),
+            ms(best.decode),
+            ms(together),
+            ms(best.index),
+            ms(best.lines)
+        ),
+        None => println!(
+            "open (best)   {:>9} total = read {} + decode {} + index {} + lines {}",
+            ms(best.total()),
+            ms(best.read),
+            ms(best.decode),
+            ms(best.index),
+            ms(best.lines)
+        ),
+    }
     if repeat > 1 {
         println!("open (median) {:>9} over {repeat} runs", ms(median.total()));
     }
