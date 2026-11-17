@@ -908,10 +908,10 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   mcp`, initializes, lists the tools and calls `open`, `find`, `set_text`, `save` on a
   copy of a corpus file, and checks the saved bytes change only where asked (rule 7).
   Then once with Claude Code as the client.
-- **Owner's questions:**
-  1. Is `rmcp` with `tokio` in the CLI acceptable, or should the server be our own?
-  2. May an agent save without asking? Proposed: yes through `save`, as it is the agent's
-     user who started it; MCP clients ask the user before each tool call by default.
+- **Decided (owner, 2026-11-17):** as proposed, with `rmcp`; `tokio` in the CLI is no
+  concern, as it costs build time and the CLI's size but nothing in the window, the engine
+  or opening. An agent may save through `save` without being asked again; MCP clients ask
+  their user before tool calls.
 
 ## Open questions
 
