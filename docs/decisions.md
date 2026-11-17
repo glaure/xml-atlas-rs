@@ -791,12 +791,14 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 
 ## Open questions
 
-None is open.
+None.
 
-The five questions asked before the review are answered: index updates in D9, rope or not in
-D10, memory mapping in D11, roadmap order in D15, slow spots in the review notes and D16.
+## Answered questions
 
-New ones:
+The five questions asked before the review: index updates in D9, rope or not in D10, memory
+mapping in D11, roadmap order in D15, slow spots in the review notes and D16.
+
+Asked later:
 
 1. Does the tokenizer of D14 pay for itself? Answered: yes for well-formed UTF-8, 17 % off
    opening 300 MiB as built (D14).
