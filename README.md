@@ -61,6 +61,17 @@ cargo run --release -p xml-atlas-cli -- stats file.xml --repeat 5   # timings, m
 cargo run --release -p xml-atlas-cli -- format file.xml -o out.xml
 ```
 
+## For AI agents (MCP)
+
+`xml-atlas-cli mcp` serves XML Atlas's tools over the Model Context Protocol: open a file,
+read elements, child rows, text and problems, find and replace, edit elements, format, undo
+and save. Changes stay in memory until `save`, which changes nothing else in the file. For
+Claude Code:
+
+```sh
+claude mcp add xml-atlas -- xml-atlas-cli mcp
+```
+
 ## Benchmarks
 
 ```sh
@@ -105,6 +116,7 @@ cargo xtask package-macos      # writes target/dist/*-macos-universal.dmg
 |---------------------|----------------------------------------------------------------|
 | `crates/xml`        | Tokenizer → flat span-based node index (no DOM, lazy decoding) |
 | `crates/engine`     | Document, line index and commands shared by every front end    |
+| `crates/mcp`        | The MCP tools over the engine, for `xml-atlas-cli mcp`         |
 | `apps/xml-atlas`    | egui desktop app                                               |
 | `apps/xml-atlas-cli`| Command-line front end and benchmark tool                      |
 | `xtask`             | Project tasks: fixtures, Linux, Windows and macOS packages     |

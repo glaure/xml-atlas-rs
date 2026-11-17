@@ -4,6 +4,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod mcp;
+
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
@@ -127,6 +129,9 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Serve the tools to an AI agent over the Model Context Protocol, on standard input and
+    /// output (D27). Add it to Claude Code with `claude mcp add xml-atlas -- xml-atlas-cli mcp`.
+    Mcp,
 }
 
 /// The element an edit command works on, and where the result goes.
@@ -151,6 +156,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     match Cli::parse().command {
         Command::Stats { file, repeat } => stats(&file, repeat.max(1)),
+        Command::Mcp => mcp::run(),
         Command::Format {
             file,
             indent,
