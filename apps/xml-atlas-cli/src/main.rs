@@ -131,7 +131,12 @@ enum Command {
     },
     /// Serve the tools to an AI agent over the Model Context Protocol, on standard input and
     /// output (D27). Add it to Claude Code with `claude mcp add xml-atlas -- xml-atlas-cli mcp`.
-    Mcp,
+    Mcp {
+        /// Work in the open XML Atlas window, on its tabs, instead of on files (D28). The
+        /// window must allow it: View > Allow AI agents (MCP).
+        #[arg(long)]
+        window: bool,
+    },
 }
 
 /// The element an edit command works on, and where the result goes.
@@ -156,7 +161,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     match Cli::parse().command {
         Command::Stats { file, repeat } => stats(&file, repeat.max(1)),
-        Command::Mcp => mcp::run(),
+        Command::Mcp { window } => mcp::run(window),
         Command::Format {
             file,
             indent,

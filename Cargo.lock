@@ -5128,8 +5128,10 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "rfd",
+ "serde_json",
  "skrifa",
  "xml-atlas-engine",
+ "xml-atlas-mcp",
  "zbus",
 ]
 
@@ -5164,6 +5166,8 @@ dependencies = [
 name = "xml-atlas-mcp"
 version = "1.0.0"
 dependencies = [
+ "getrandom 0.3.4",
+ "log",
  "serde_json",
  "thiserror 2.0.21",
  "xml-atlas-engine",

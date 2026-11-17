@@ -21,6 +21,8 @@ use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::xml::{NodeId, NodeKind};
 use xml_atlas_engine::{Document, Edit, EditError, FormatOptions};
 
+pub mod bridge;
+
 /// Longest text a tool returns, in bytes; longer ones are cut and their length given.
 pub const MAX_TEXT: usize = 64 * 1024;
 
@@ -61,12 +63,18 @@ pub enum ToolError {
 pub trait Documents {
     /// Opens the file at `path` and returns its number.
     fn open(&mut self, path: &Path) -> std::io::Result<u64>;
-    /// Closes a document, unsaved changes and all; `false` when there is none of that number.
-    fn close(&mut self, id: u64) -> bool;
+    /// Closes a document. The window refuses one with unsaved changes (D28).
+    fn close(&mut self, id: u64) -> Result<(), ToolError>;
     /// The open documents' numbers, in the order they were opened.
     fn ids(&self) -> Vec<u64>;
     fn get(&self, id: u64) -> Option<&Document>;
     fn get_mut(&mut self, id: u64) -> Option<&mut Document>;
+
+    /// Runs `f`, a change, on a document; `None` when there is none of that number. The
+    /// window runs it through its own edit path, so that its views follow (D28).
+    fn change<R>(&mut self, id: u64, f: impl FnOnce(&mut Document) -> R) -> Option<R> {
+        self.get_mut(id).map(f)
+    }
 }
 
 /// Documents kept in memory for one session of `xml-atlas-cli mcp` (step 1).
@@ -84,8 +92,11 @@ impl Documents for Files {
         Ok(self.next)
     }
 
-    fn close(&mut self, id: u64) -> bool {
-        self.docs.remove(&id).is_some()
+    fn close(&mut self, id: u64) -> Result<(), ToolError> {
+        match self.docs.remove(&id) {
+            Some(_) => Ok(()),
+            None => Err(ToolError::NoDocument(id)),
+        }
     }
 
     fn ids(&self) -> Vec<u64> {
@@ -376,11 +387,8 @@ pub fn call(
         )),
         "close" => {
             let id = number(args, "document")?;
-            if docs.close(id) {
-                Ok(json!({"closed": id}))
-            } else {
-                Err(ToolError::NoDocument(id))
-            }
+            docs.close(id)?;
+            Ok(json!({"closed": id}))
         }
         "element" => {
             let d = doc(docs, number(args, "document")?)?;
@@ -460,11 +468,14 @@ pub fn call(
         "format" | "compact" => format(docs, args, name == "format"),
         "undo" | "redo" => {
             let id = number(args, "document")?;
-            let d = doc_mut(docs, id)?;
-            let done = if name == "undo" { d.undo() } else { d.redo() };
-            Ok(
-                json!({ if name == "undo" { "undone" } else { "redone" }: done, "modified": d.is_modified() }),
-            )
+            let undo = name == "undo";
+            let (done, modified) = docs
+                .change(id, |d| {
+                    let done = if undo { d.undo() } else { d.redo() };
+                    (done, d.is_modified())
+                })
+                .ok_or(ToolError::NoDocument(id))?;
+            Ok(json!({ if undo { "undone" } else { "redone" }: done, "modified": modified }))
         }
         "save" => {
             let id = number(args, "document")?;
@@ -652,7 +663,7 @@ fn structured(
     make: impl FnOnce(&Document, NodeId) -> Result<Edit, CommandError>,
 ) -> Result<Value, ToolError> {
     let id = number(args, "document")?;
-    let d = doc_mut(docs, id)?;
+    let d = doc(docs, id)?;
     if let Some(e) = &d.index.error {
         return Err(ToolError::Refused(format!(
             "the document is not well-formed: {e}"
@@ -661,12 +672,12 @@ fn structured(
     let target = command::resolve(d, string(args, "path")?)?;
     let edit = make(d, target)?;
     let label = edit.label().to_string();
-    apply_whole(d, edit, &label)
+    apply(docs, id, edit, &label)
 }
 
 fn replace(docs: &mut impl Documents, args: &Map<String, Value>) -> Result<Value, ToolError> {
     let id = number(args, "document")?;
-    let d = doc_mut(docs, id)?;
+    let d = doc(docs, id)?;
     let finder = Finder::new(string(args, "query")?, find_options(args))
         .map_err(|e| ToolError::Refused(e.to_string()))?;
     let range = match args.get("within").and_then(Value::as_str) {
@@ -683,7 +694,7 @@ fn replace(docs: &mut impl Documents, args: &Map<String, Value>) -> Result<Value
     match find_text::replace_all(&finder, &d.src, range, string(args, "with")?) {
         None => Ok(json!({"replaced": 0})),
         Some((edit, count)) => {
-            let mut done = apply_whole(d, edit, "Replace All")?;
+            let mut done = apply(docs, id, edit, "Replace All")?;
             done["replaced"] = json!(count);
             Ok(done)
         }
@@ -696,7 +707,7 @@ fn format(
     indent: bool,
 ) -> Result<Value, ToolError> {
     let id = number(args, "document")?;
-    let d = doc_mut(docs, id)?;
+    let d = doc(docs, id)?;
     let flag = |k| args.get(k).and_then(Value::as_bool).unwrap_or(false);
     let base = FormatOptions {
         indent_size: optional_number(args, "indent").map_or(4, |n| n as usize),
@@ -713,7 +724,13 @@ fn format(
     };
     let out = result.map_err(|e| ToolError::Refused(e.to_string()))?;
     let edit = Edit::whole(label, d.src.len(), out);
-    apply_whole(d, edit, label)
+    apply(docs, id, edit, label)
+}
+
+/// [`apply_whole`] through [`Documents::change`].
+fn apply(docs: &mut impl Documents, id: u64, edit: Edit, label: &str) -> Result<Value, ToolError> {
+    docs.change(id, |d| apply_whole(d, edit, label))
+        .ok_or(ToolError::NoDocument(id))?
 }
 
 /// Applies `edit` as one undo step; undoes it when it would leave a well-formed document

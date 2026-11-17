@@ -104,5 +104,5 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       files from Finder, signing (PKG-21), Homebrew cask (PKG-22)
 - [ ] Notice when a newer version is released (PKG-7)
 - [x] MCP server on files: `xml-atlas-cli mcp` (D27, step 1)
-- [ ] MCP on the documents open in the window (D27, step 2)
+- [x] MCP on the documents open in the window: `xml-atlas-cli mcp --window` (D28)
 - [ ] Web build (WebAssembly)

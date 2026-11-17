@@ -56,6 +56,8 @@ pub struct App {
     help: crate::help::Help,
     /// View > Font… while it is open (TEXT-25).
     font_dialog: Option<crate::fonts::FontDialog>,
+    /// Agents' calls, while View > Allow AI agents (MCP) is on (D28).
+    agent: Option<xml_atlas_mcp::bridge::Listener>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<Note>,
@@ -93,6 +95,8 @@ struct Loading {
 /// A document plus everything the views remember about it.
 pub struct Open {
     pub doc: Document,
+    /// The tab's number for agents (D28); 0 until the tab is added.
+    pub number: u64,
     /// Tells this document's views apart from another tab's, so that each keeps its own
     /// scroll positions.
     pub id: egui::Id,
@@ -282,6 +286,7 @@ impl App {
             opened,
             help: Default::default(),
             font_dialog: None,
+            agent: None,
             message: None,
             notice: None,
             format_dialog: None,
@@ -446,13 +451,66 @@ impl App {
 
     /// Shows `doc` in a new tab.
     fn add_document(&mut self, doc: Document) {
-        self.next_id += 1;
-        let mut open = Open::new(doc, egui::Id::unique(("document", self.next_id)));
-        open.tree.set_attributes(self.settings.tree_attributes);
-        if let Some(root) = open.doc.index.root_element() {
-            open.select(root);
+        crate::agent::add_tab(
+            &mut self.docs,
+            &mut self.next_id,
+            self.settings.tree_attributes,
+            doc,
+        );
+    }
+
+    /// Lets agents in while View > Allow AI agents (MCP) is on, and runs their calls on the
+    /// tabs (D28).
+    fn serve_agents(&mut self, ctx: &egui::Context) {
+        if self.settings.agents != self.agent.is_some() {
+            self.agent = None;
+            if self.settings.agents {
+                let started = xml_atlas_mcp::bridge::endpoint_file()
+                    .ok_or_else(|| "there is no folder for the settings".to_string())
+                    .and_then(|file| {
+                        let ctx = ctx.clone();
+                        xml_atlas_mcp::bridge::Listener::start(file, move || ctx.request_repaint())
+                            .map_err(|e| e.to_string())
+                    });
+                match started {
+                    Ok(listener) => self.agent = Some(listener),
+                    Err(e) => {
+                        self.message = Some(format!("Cannot let agents in: {e}"));
+                        self.settings.agents = false;
+                    }
+                }
+            }
         }
-        self.docs.push(open);
+        let Some(agent) = &self.agent else {
+            return;
+        };
+        let calls: Vec<_> = agent.requests.try_iter().collect();
+        for request in calls {
+            // Typing may have left an index behind its text (TEXT-22).
+            for open in self.docs.iter_mut() {
+                open.settle();
+            }
+            let mut docs = crate::agent::WindowDocs {
+                docs: &mut self.docs,
+                next_id: &mut self.next_id,
+                tree_attributes: self.settings.tree_attributes,
+            };
+            let result = xml_atlas_mcp::call(&mut docs, &request.tool, &request.arguments);
+            let changes = xml_atlas_mcp::tools()
+                .iter()
+                .any(|t| t.name == request.tool && !t.read_only);
+            let target = request.arguments.get("path").and_then(|p| p.as_str());
+            let what = match target {
+                Some(p) => format!("{} {p}", request.tool),
+                None => request.tool.clone(),
+            };
+            match &result {
+                Ok(_) if changes => self.notice = Some(Note::info(format!("Agent: {what}"))),
+                Ok(_) => {}
+                Err(e) => self.notice = Some(Note::refused(format!("Agent: {what}: {e}"))),
+            }
+            request.answer(result.map_err(|e| e.to_string()));
+        }
     }
 
     /// Light, dark, or the desktop's preference (WIN-2). On Linux the desktop's preference comes
@@ -1307,6 +1365,11 @@ impl App {
                     "Cell pane beside the grid (experiment)",
                 );
                 ui.checkbox(&mut self.settings.toolbar, "Toolbar");
+                ui.checkbox(&mut self.settings.agents, "Allow AI agents (MCP)")
+                    .on_hover_text(
+                        "Agents such as Claude Code may read and edit the open documents, \
+                         through `xml-atlas-cli mcp --window`; each change is one undo step",
+                    );
                 if ui.button("Font…").clicked() {
                     ui.close();
                     self.font_dialog =
@@ -1526,6 +1589,9 @@ impl App {
                 s.elements,
                 s.timings.total().as_secs_f64() * 1000.0,
             ));
+            if self.agent.as_ref().is_some_and(|a| a.connected() > 0) {
+                ui.label(RichText::new("  ·  Agent connected").strong());
+            }
             if let Some(n) = &self.notice {
                 let text = RichText::new(format!("  ·  {}", n.text));
                 ui.label(if n.refused {
@@ -1572,6 +1638,7 @@ impl eframe::App for App {
             self.open_file(&ctx, path);
         }
         self.open_requested(&ctx);
+        self.serve_agents(&ctx);
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
         {
             self.pick_file(&ctx);
@@ -1751,6 +1818,7 @@ impl Open {
         log::debug!("minified check: {minified} in {:?}", started.elapsed());
         let mut open = Open {
             tree: tree::TreeState::new(&doc),
+            number: 0,
             doc,
             id,
             discard: false,
@@ -2187,7 +2255,7 @@ fn shorten_left(s: &str, max: usize) -> String {
 }
 
 /// Whether two paths name the same file: equal, or equal once links and `..` are resolved.
-fn same_file(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     a == b
         || std::fs::canonicalize(a)
             .ok()
