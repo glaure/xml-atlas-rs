@@ -978,7 +978,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   speaking MCP itself (clients start a program to talk to, so the bridge is needed
   anyway); agents closing modified tabs.
 
-## D29: Themes the user can change, and a native look (proposed)
+## D29: Themes the user can change, and a native look
 
 - **Problem:** WIN-2 gives Light, Dark and Follow system, with egui's own colours. The
   owner (2026-11-17): dark is good, but light is too light next to it, and users will want
@@ -1010,7 +1010,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     KDE's Breeze), and the system's accent colour for the selection and focus. The colours
     are our own choice, taken from looking at the systems and their published design
     guidelines; no assets of theirs are used.
-- **Two choices in View > Theme** (proposed in answer to the owner's first question):
+- **Two choices in View > Theme:**
   - *Mode*, as today (WIN-2): Follow system (the default), Light or Dark.
   - *Style*: XML Atlas (the default; the Dark and softer Light above), Native, or a theme
     file of the user's.
@@ -1065,19 +1065,20 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - Taking a theme from VS Code or another editor's format: tied to a format we do not
     control; a later import is possible from our own file.
 - **Answered (owner, 2026-11-17):** theme files edited in a text editor are enough; the
-  macOS menu bar is wanted later; steps 1 and 2 first. Asked back: Native as one style with
-  a light and a dark variant, instead of *Native light* and *Native dark* (open below).
+  macOS menu bar is wanted later; steps 1 and 2 first; Native is one style with a light
+  and a dark variant, chosen by the mode, instead of *Native light* and *Native dark*. Decided as
+  above. The rules are WIN-7 to WIN-10 in `docs/spec/window.md`.
 
 ## Open questions
 
-1. D29: Native as one style next to the light/dark mode, as proposed under "Two choices in
-   View > Theme"?
+None.
 
 ## Answered questions
 
 About D29, themes (owner, 2026-11-17): an editor in the window is not needed, theme files
 are enough; the macOS menu bar at the top of the screen is wanted later, as its own
-decision; steps 1 and 2 (a softer Light) come first, the rest later.
+decision; steps 1 and 2 (a softer Light) come first, the rest later. Native is one style
+next to the light/dark mode, not two themes.
 
 The five questions asked before the review: index updates in D9, rope or not in D10, memory
 mapping in D11, roadmap order in D15, slow spots in the review notes and D16.
