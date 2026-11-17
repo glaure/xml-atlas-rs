@@ -1682,12 +1682,15 @@ impl eframe::App for App {
             return;
         };
 
+        // The font chosen in View > Font… for tree, grid and cell pane too (TEXT-25).
+        let view_font = self.settings.text_font.view_font_id();
         egui::Panel::left("tree")
             .resizable(true)
             .default_size(320.0)
             .show(ui, |ui| {
                 let id = open.id;
-                ui.push_id(id, |ui| tree::show(ui, open));
+                crate::fonts::use_in_views(ui, view_font.as_ref());
+                ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
             });
         let layout = self.settings.layout;
         let format = self.settings.format;
@@ -1704,6 +1707,7 @@ impl eframe::App for App {
             grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
+                    crate::fonts::use_in_views(ui, view_font.as_ref());
                     ui.push_id(open.id, |ui| {
                         if cell_pane {
                             let width = ui.available_width() * 0.35;

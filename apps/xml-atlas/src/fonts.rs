@@ -1,5 +1,6 @@
-//! The text view's font (TEXT-25): View > Font… chooses a monospaced font installed on the
-//! system, its face and its size; the tree, the grid and the menus keep egui's font.
+//! The font of the views (TEXT-25): View > Font… chooses a monospaced font installed on the
+//! system, its face and its size, for the text, the tree and the grid; menus and dialogs
+//! keep egui's font.
 //!
 //! Only monospaced fonts can be chosen: the text view places every character at a multiple of
 //! one character's width. The system's fonts are listed with `fontique` and checked with
@@ -136,6 +137,20 @@ impl Default for TextFont {
 }
 
 impl TextFont {
+    /// The font of the tree, the grid and the cell pane: the chosen one; with the built-in
+    /// font, egui's proportional one at the chosen size. `None` while nothing is chosen, so
+    /// they keep the sizes they have by default.
+    pub fn view_font_id(&self) -> Option<FontId> {
+        if *self == TextFont::default() {
+            return None;
+        }
+        let mut font = self.font_id();
+        if self.family.is_none() {
+            font.family = FontFamily::Proportional;
+        }
+        Some(font)
+    }
+
     /// The font the text view lays out with.
     pub fn font_id(&self) -> FontId {
         let family = match self.family {
@@ -349,6 +364,15 @@ impl FontDialog {
     }
 }
 
+/// Lays out the tree, the grid or the cell pane drawn in `ui` with `font`, when one is chosen.
+pub fn use_in_views(ui: &mut Ui, font: Option<&FontId>) {
+    if let Some(font) = font {
+        let styles = &mut ui.style_mut().text_styles;
+        styles.insert(egui::TextStyle::Body, font.clone());
+        styles.insert(egui::TextStyle::Button, font.clone());
+    }
+}
+
 /// The font of `family` closest to `face`: its data, its index in the file, and the file.
 fn load(family: &str, face: Face) -> Option<(Vec<u8>, u32, Option<PathBuf>)> {
     let mut collection = Collection::new(CollectionOptions {
@@ -426,6 +450,21 @@ mod tests {
             ..TextFont::default()
         };
         assert_eq!(font.font_id().family, FontFamily::Monospace);
+        // Tree and grid: unchanged by default, egui's proportional font at the size with the
+        // built-in font, and the chosen font otherwise.
+        assert_eq!(TextFont::default().view_font_id(), None);
+        assert_eq!(
+            font.view_font_id(),
+            Some(FontId::proportional(f32::from(*SIZES.end())))
+        );
+        let chosen = TextFont {
+            family: Some("DejaVu Sans Mono".into()),
+            ..TextFont::default()
+        };
+        assert_eq!(
+            chosen.view_font_id(),
+            Some(FontId::new(13.0, FontFamily::Name(FAMILY.into())))
+        );
         assert_eq!(font.font_id().size, f32::from(*SIZES.end()));
     }
 

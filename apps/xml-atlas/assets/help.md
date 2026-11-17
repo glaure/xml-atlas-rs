@@ -49,7 +49,8 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 - The source, with colours. Type in it as in any editor; tree and grid follow.
 - Clicking a line selects its element in the tree.
 - Alt+Z turns word wrap on and off. Very long lines can be read to the end either way.
-- View > Font… chooses the text's font, style and size. Only monospaced fonts are listed.
+- View > Font… chooses the font, style and size of the text, the tree and the grid. Only
+  monospaced fonts are listed.
 
 ## Find and Replace
 
