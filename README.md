@@ -85,6 +85,15 @@ wix extension add --global WixToolset.UI.wixext/5.0.2
 cargo xtask package-windows    # writes target/dist/*.msi and *-windows-x64.zip
 ```
 
+## macOS package
+
+On macOS, with both Rust targets:
+
+```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+cargo xtask package-macos      # writes target/dist/*-macos-universal.dmg
+```
+
 ## Layout
 
 | Path                | Purpose                                                        |
@@ -93,10 +102,11 @@ cargo xtask package-windows    # writes target/dist/*.msi and *-windows-x64.zip
 | `crates/engine`     | Document, line index and commands shared by every front end    |
 | `apps/xml-atlas`    | egui desktop app                                               |
 | `apps/xml-atlas-cli`| Command-line front end and benchmark tool                      |
-| `xtask`             | Project tasks: fixtures, Linux and Windows packages            |
+| `xtask`             | Project tasks: fixtures, Linux, Windows and macOS packages     |
 | `docs/spec`         | Clean-room behaviour spec                                      |
 | `packaging/linux`   | Desktop entry, icon and metainfo the Linux packages install    |
 | `packaging/windows` | Installer source (WiX) and icon of the Windows packages        |
+| `packaging/macos`   | Icon of the macOS app                                          |
 
 ## License
 
