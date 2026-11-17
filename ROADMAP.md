@@ -71,7 +71,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Highlighting across lines, driven by the index (it knows comment and CDATA spans) (TEXT-3)
 - [x] Page very long lines (TEXT-5)
 - [x] Word wrap (TEXT-13)
-- [ ] Minified-file mode
+- [ ] Minified-file mode: opens wrapped, a notice offers Format (TEXT-23)
 
 ## 0.4: Power features (after 1.0, D20)
 
@@ -81,6 +81,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
+- [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 
 ## Distribution and automation
 

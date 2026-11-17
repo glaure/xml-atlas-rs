@@ -152,6 +152,12 @@ pub struct Open {
     pub text_wrap: xml_atlas_engine::wrap::Wrap,
     /// Whether the text view wrapped lines last frame.
     pub text_wrapped: bool,
+    /// Word wrap for this tab alone, over the setting: a minified file opens wrapped
+    /// (TEXT-23).
+    pub wrap: Option<bool>,
+    /// The file is minified, and the notice that says so waits for Format or Dismiss
+    /// (TEXT-23).
+    pub minified_notice: bool,
 }
 
 /// How a structured edit moves elements among their siblings, so that the selection and
@@ -767,6 +773,19 @@ impl App {
             },
             chosen.options,
         );
+        if let Some(open) = self.docs.active_mut() {
+            open.formatted();
+        }
+    }
+
+    /// View > Word wrap and Alt+Z (TEXT-13): for a tab with a choice of its own (a minified
+    /// file, TEXT-23) only that tab, else the setting for every tab.
+    fn toggle_wrap(&mut self) {
+        let setting = self.settings.word_wrap;
+        match self.docs.active_mut() {
+            Some(open) if open.wrap.is_some() => open.wrap = Some(!open.wraps(setting)),
+            _ => self.settings.word_wrap = !setting,
+        }
     }
 
     /// Edit > Compact (FMT-14): the document on one line.
@@ -1049,6 +1068,37 @@ impl App {
         });
     }
 
+    /// The notice above the views for a minified file (TEXT-23): it is shown wrapped, and
+    /// Format spreads it over lines.
+    fn minified_bar(&mut self, ui: &mut Ui) {
+        let Some(open) = self.docs.active() else {
+            return;
+        };
+        let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
+        let broken = open.problems.iter().any(|p| p.severity == Severity::Error);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "ℹ {name} is minified: its elements are on one long line, shown wrapped."
+            ));
+            if !broken
+                && ui
+                    .button("Format")
+                    .on_hover_text(
+                        "Put each element on its own indented line. One undo step; the file \
+                         changes only when you save",
+                    )
+                    .clicked()
+            {
+                self.format_document();
+            }
+            if ui.button("Dismiss").clicked()
+                && let Some(open) = self.docs.active_mut()
+            {
+                open.minified_notice = false;
+            }
+        });
+    }
+
     /// File > Open Recent (OPEN-12): newest first, the file name with its folder beside it.
     fn recent_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let enabled = !self.settings.recent.is_empty();
@@ -1219,7 +1269,11 @@ impl App {
                     &mut self.settings.cell_pane,
                     "Cell pane beside the grid (experiment)",
                 );
-                ui.checkbox(&mut self.settings.word_wrap, "Word wrap    Alt+Z");
+                let setting = self.settings.word_wrap;
+                let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
+                if ui.checkbox(&mut wrap, "Word wrap    Alt+Z").changed() {
+                    self.toggle_wrap();
+                }
                 ui.separator();
                 ui.label("Theme");
                 ui.radio_value(
@@ -1389,7 +1443,7 @@ impl eframe::App for App {
             pressed
         }) {
             // View > Word wrap (TEXT-13).
-            self.settings.word_wrap = !self.settings.word_wrap;
+            self.toggle_wrap();
         }
         // The window's close button: hold the close until the user has answered.
         if ctx.input(|i| i.viewport().close_requested())
@@ -1458,6 +1512,9 @@ impl eframe::App for App {
         if self.docs.active().is_some_and(|o| o.disk.is_some()) {
             egui::Panel::top("disk").show(ui, |ui| self.disk_bar(ui));
         }
+        if self.docs.active().is_some_and(|o| o.minified_notice) {
+            egui::Panel::top("minified").show(ui, |ui| self.minified_bar(ui));
+        }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         self.update_title(&ctx);
 
@@ -1480,7 +1537,7 @@ impl eframe::App for App {
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
-        let wrap = self.settings.word_wrap;
+        let wrap = open.wraps(self.settings.word_wrap);
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
             // Each layout has its own panel, so each remembers its own height.
@@ -1529,6 +1586,9 @@ impl eframe::App for App {
 impl Open {
     /// A tab for `doc`, with nothing selected yet.
     pub fn new(doc: Document, id: egui::Id) -> Self {
+        let started = std::time::Instant::now();
+        let minified = doc.is_minified();
+        log::debug!("minified check: {minified} in {:?}", started.elapsed());
         let mut open = Open {
             tree: tree::TreeState::new(&doc),
             doc,
@@ -1561,9 +1621,25 @@ impl Open {
             text_preedit: None,
             reparse: None,
             text_rows: 0..0,
+            wrap: minified.then_some(true),
+            minified_notice: minified,
         };
         open.problems = open.doc.problems();
         open
+    }
+
+    /// Whether this tab wraps lines: its own choice when it has one, else the `setting`.
+    pub fn wraps(&self, setting: bool) -> bool {
+        self.wrap.unwrap_or(setting)
+    }
+
+    /// After Format (TEXT-23): a file that is no longer minified loses its notice and wraps
+    /// as the setting says.
+    pub fn formatted(&mut self) {
+        if (self.wrap.is_some() || self.minified_notice) && !self.doc.is_minified() {
+            self.wrap = None;
+            self.minified_notice = false;
+        }
     }
 
     /// Runs `change` on the document and, when it reports a change, rebuilds the views around
@@ -1996,6 +2072,39 @@ fn no_animations(ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minified file opens wrapped in its own tab, with the notice (TEXT-23); after Format
+    /// both go, and the tab wraps as the setting says. Other files follow the setting.
+    #[test]
+    fn minified_file_opens_wrapped_until_formatted() {
+        let items = "<a x=\"ü\">Grüße</a>".repeat(400);
+        let src = format!("\u{feff}<r>{items}</r>\r\n");
+        let mut open = Open::new(
+            Document::from_bytes(src.into_bytes()),
+            egui::Id::unique("min"),
+        );
+        assert!(open.minified_notice);
+        assert!(open.wraps(false));
+        let out = open.doc.format(&FormatOptions::default()).unwrap();
+        open.edit(|doc| {
+            doc.apply(Edit::whole("Format", doc.src.len(), out))
+                .map(|()| true)
+        })
+        .unwrap();
+        open.formatted();
+        assert!(!open.minified_notice);
+        assert!(!open.wraps(false));
+        assert!(open.wraps(true));
+        // The byte order mark and CRLF are kept by Format.
+        assert!(open.doc.src.starts_with("\u{feff}<r>\r\n".as_bytes()));
+
+        let plain = Open::new(
+            Document::from_bytes(b"<r>\n<a/>\n</r>\n".to_vec()),
+            egui::Id::unique("plain"),
+        );
+        assert!(!plain.minified_notice);
+        assert!(!plain.wraps(false));
+    }
 
     /// A scroll bar that appears, as on every new selection in the grid, is there at once and
     /// asks for no further frames.

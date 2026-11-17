@@ -40,6 +40,13 @@ pub const REPARSE_PAUSE: Duration = Duration::from_millis(500);
 /// thread with [`Document::reparse_job`] (`docs/decisions.md`, D19).
 pub const REPARSE_INLINE_BYTES: usize = 20 << 20;
 
+/// A line longer than this, holding [`MINIFIED_TAGS`] tags, makes a file minified (TEXT-23);
+/// the text view lays out lines this long only where they are on screen (TEXT-5).
+pub const MINIFIED_LINE_BYTES: usize = 4000;
+
+/// How many tags a long line needs for the file to count as minified (TEXT-23).
+pub const MINIFIED_TAGS: usize = 10;
+
 /// A document read again off the UI thread: run it anywhere, then hand the result to
 /// [`Document::finish_reparse`].
 pub struct ReparseJob {
@@ -465,6 +472,29 @@ impl Document {
 
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
+    }
+
+    /// Whether the file is minified (TEXT-23): a line longer than [`MINIFIED_LINE_BYTES`]
+    /// holds at least [`MINIFIED_TAGS`] tags. One long text or attribute value does not
+    /// count. Counting stops at the tenth `<`, so even a file of one huge line costs little.
+    pub fn is_minified(&self) -> bool {
+        let ends = self.line_starts[1..]
+            .iter()
+            .copied()
+            .chain([self.src.len() as u64]);
+        // Line lengths from the line starts first: only the few long lines are looked at.
+        self.line_starts
+            .iter()
+            .zip(ends)
+            .enumerate()
+            .filter(|(_, (start, end))| end - *start > MINIFIED_LINE_BYTES as u64)
+            .any(|(n, _)| {
+                let line = self.line(n);
+                line.len() > MINIFIED_LINE_BYTES
+                    && memchr::memchr_iter(b'<', line)
+                        .nth(MINIFIED_TAGS - 1)
+                        .is_some()
+            })
     }
 
     /// Zero-based line containing byte `offset`.
@@ -919,5 +949,22 @@ mod tests {
         assert!(doc.reparse());
         assert_eq!(doc.stale(), None);
         assert_fresh(&doc, "opened broken");
+    }
+
+    /// A minified file is a long line of many tags (TEXT-23): not a long text, not a file of
+    /// many short lines. A byte order mark, CRLF and non-ASCII text change nothing.
+    #[test]
+    fn minified_files() {
+        let items = "<a x=\"ü\">Grüße</a>".repeat(400);
+        let one_line = format!("\u{feff}<?xml version=\"1.0\"?>\r\n<r>{items}</r>\r\n");
+        assert!(Document::from_bytes(one_line.into_bytes()).is_minified());
+        let lines = format!("<r>\r\n{}</r>\r\n", "<a x=\"ü\">Grüße</a>\r\n".repeat(400));
+        assert!(!Document::from_bytes(lines.into_bytes()).is_minified());
+        let long_text = format!("<r>\n<a>{}</a>\n</r>\n", "Grüße ".repeat(2000));
+        assert!(!Document::from_bytes(long_text.into_bytes()).is_minified());
+        // Nine tags on a long line are not enough; ten are.
+        let tags = |n: usize| format!("<r>{}{}</r>", "<b/>".repeat(n - 2), "x".repeat(5000));
+        assert!(!Document::from_bytes(tags(9).into_bytes()).is_minified());
+        assert!(Document::from_bytes(tags(10).into_bytes()).is_minified());
     }
 }
