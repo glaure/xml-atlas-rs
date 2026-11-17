@@ -92,6 +92,20 @@ of it.
   index (7 to 13 ms); tree and grid add nothing measurable. A sorted grid is not sorted
   again while typing, so a row does not jump away under the cursor. Still open: copying
   the text for the worker thread costs 54 ms on 100 MiB, once per pause, on the UI thread.
+- **TEXT-23** `[built]` Minified files. A file is minified when a line is longer than 4,000
+  bytes (TEXT-5) and holds at least ten tags, so one long text or attribute value does not
+  count. Such a file opens with word wrap on (TEXT-13) for its tab only; Alt+Z still turns
+  it off there, and the setting for other files stays as it was. A notice above the views
+  says the file is minified and offers Format (FMT-1), which is one undo step and saves
+  nothing by itself, and Dismiss. A file that is not well-formed gets the notice without
+  Format (FMT-7). After a Format, from the notice or the Edit menu, the notice goes, and the
+  tab wraps as the setting says. Undoing the Format brings neither back. Telling a minified
+  file costs 1.8 ms on the 100 MiB fixture and 5.8 ms on 300 MiB (release build, once when
+  the tab opens): line lengths come from the line index, and only long lines are searched.
+- **TEXT-24** `[planned]` (after 1.0) A formatted view: the text view shows a minified file
+  indented, built from the index for the lines on screen, without changing the file. While
+  it is shown, the text cannot be typed into; tree and grid jump into it as into the text.
+  It is an exception to "no read-only mode" below, to be decided when it is built.
 - **TEXT-11** `[done]` What is clicked inside the selection gets a second, outlined highlight
   of its own, inside the first (XM-37): a grid row or a cell that stands for a child element,
   and in the tree a text row or an attribute row (just its `name="value"`).
@@ -165,6 +179,10 @@ of it.
   keeps the column; typing a letter shows at once. Alt+Z again types no `z`. Select the last
   element in the tree: the text shows the row with its `<`, highlighted. Alt+Z, select the
   first element and then the last again: the line scrolls sideways to it.
+- Open a minified file with word wrap off in View: it opens wrapped, with a notice that it is
+  minified. Alt+Z unwraps it; another, formatted file in a second tab is not wrapped.
+  Format in the notice: each element is on its own line, the notice is gone, and Ctrl+Z puts
+  the one line back.
 
 ## Seen in the reference programs
 
@@ -204,3 +222,5 @@ Details and limits in `reference.md`.
 - The text is editable as soon as a file opens; there is no read-only mode. (Owner,
   2026-11-15.)
 - Undo goes word by word while typing (TEXT-20), as code editors do. (Owner, 2026-11-15.)
+- Minified files open wrapped, with a notice that offers Format (TEXT-23); a formatted view
+  that leaves the file as it is comes after 1.0 (TEXT-24). (Owner, 2026-11-17.)
