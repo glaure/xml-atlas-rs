@@ -23,7 +23,11 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   that changes the packaging builds the packages the same way, without a release. The tag
   `v0.1.3` (2026-11-17) made the first draft: all jobs passed in about 8 minutes, the install
   test passed on all five systems, and the files downloaded from the draft match
-  `SHA256SUMS`.
+  `SHA256SUMS`. That draft and its tag were deleted afterwards. 1.0.0 (published
+  2026-11-17) is an exception: its tag came before the macOS job, so its DMG is the one
+  the workflow built for the pull request that added the job (#83), from `main` with the
+  same program code as the tag, and `SHA256SUMS` was written again with it. Every file on
+  the published release matches it.
 - **PKG-2** `[planned]` Every package contains both programs, the license texts (MIT and
   Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version,
   and `xml-atlas-cli --version` prints it.
