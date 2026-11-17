@@ -1,8 +1,9 @@
 # Release packages (docs/spec/install.md, PKG-1, PKG-14).
 #
 # A version tag such as `v1.0.0` builds the Linux .deb and .rpm and the Windows MSI and zip,
-# and puts them with a SHA256SUMS file into a draft release. The Windows files are unsigned:
-# a maintainer signs them on Windows and only then publishes the draft (PKG-14).
+# and puts them with a SHA256SUMS file into a draft release for a maintainer to check and
+# publish. The Windows files are not signed: signing is postponed until after 1.0 (PKG-13,
+# PKG-14).
 #
 # On a pull request that touches the packaging, and when started by hand, the same jobs
 # build the packages and keep them as workflow artifacts; no release is made.
@@ -141,8 +142,8 @@ jobs:
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber -- *
           else
             cat > ../notes.md <<EOF
-          > **Draft: the Windows files are not signed yet.** Sign them with the signing
-          > script (docs/spec/install.md, PKG-14), then publish this release.
+          The Windows files are not signed, so Windows SmartScreen may warn that the
+          publisher is unknown. Choose *More info*, then *Run anyway*.
 
           Linux: \`xml-atlas_${VERSION}-1_amd64.deb\` for Ubuntu 22.04 and later and Debian 12
           and later, \`xml-atlas-${VERSION}-1.x86_64.rpm\` for RHEL 9 and Fedora.

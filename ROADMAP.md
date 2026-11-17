@@ -89,9 +89,10 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Windows MSI and zip: `cargo xtask package-windows` (PKG-10 to PKG-12) with WiX 5.0.2,
       installed for the current user and for all users on Windows 11, and 0.1.1 over 0.1.0
       (PKG-5)
-- [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): the Linux
-      and Windows packages above into a draft release (PKG-1, written); left: the manual
-      signing step for Windows (PKG-14)
+- [ ] Packages for 1.0, built by CI from a version tag into a draft release
+      (`docs/spec/install.md`, PKG-1): written, not yet run from a real tag
+- [ ] Windows signing with the employer's certificate, a manual step (PKG-13, PKG-14)
+      (*after 1.0*; owner, 2026-11-17)
 - [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
 - [ ] macOS DMG (universal, Homebrew cask) with a manual signing and notarization step
       (*after 1.0*, D20)
