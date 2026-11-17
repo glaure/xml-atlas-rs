@@ -54,6 +54,8 @@ pub struct App {
     opened: Option<Receiver<PathBuf>>,
     /// The help windows (WIN-4).
     help: crate::help::Help,
+    /// View > Font… while it is open (TEXT-25).
+    font_dialog: Option<crate::fonts::FontDialog>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<Note>,
@@ -279,12 +281,17 @@ impl App {
             loading: Vec::new(),
             opened,
             help: Default::default(),
+            font_dialog: None,
             message: None,
             notice: None,
             format_dialog: None,
             unencodable: None,
             disk_watch: DiskWatch::start(cc.egui_ctx.clone()),
         };
+        if let Err(e) = crate::fonts::apply(&cc.egui_ctx, &mut app.settings.text_font) {
+            log::warn!("{e}; the text view uses the built-in font");
+            app.settings.text_font.family = None;
+        }
         for path in paths {
             app.open_file(&cc.egui_ctx, path);
         }
@@ -1300,6 +1307,11 @@ impl App {
                     "Cell pane beside the grid (experiment)",
                 );
                 ui.checkbox(&mut self.settings.toolbar, "Toolbar");
+                if ui.button("Font…").clicked() {
+                    ui.close();
+                    self.font_dialog =
+                        Some(crate::fonts::FontDialog::new(&self.settings.text_font));
+                }
                 let setting = self.settings.word_wrap;
                 let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
                 if ui.checkbox(&mut wrap, "Word wrap    Alt+Z").changed() {
@@ -1387,6 +1399,24 @@ impl App {
                 open.text_sel = Some(xml_atlas_engine::text::select_all(&open.doc));
                 open.text_goal = None;
                 open.doc.history.seal();
+            }
+        }
+    }
+
+    /// View > Font… (TEXT-25): the text view takes the font chosen with OK.
+    fn font_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.font_dialog else {
+            return;
+        };
+        match dialog.show(ctx) {
+            None => {}
+            Some(crate::fonts::Answer::Cancel) => self.font_dialog = None,
+            Some(crate::fonts::Answer::Use(mut font)) => {
+                self.font_dialog = None;
+                match crate::fonts::apply(ctx, &mut font) {
+                    Ok(()) => self.settings.text_font = font,
+                    Err(e) => self.message = Some(format!("Cannot use the font: {e}")),
+                }
             }
         }
     }
@@ -1582,6 +1612,7 @@ impl eframe::App for App {
             self.help.guide = true;
         }
         crate::help::show(&ctx, &mut self.help);
+        self.font_dialog(&ctx);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
         if ctx.input_mut(|i| {
             i.consume_shortcut(&KeyboardShortcut::new(
@@ -1651,17 +1682,21 @@ impl eframe::App for App {
             return;
         };
 
+        // The font chosen in View > Font… for tree, grid and cell pane too (TEXT-25).
+        let view_font = self.settings.text_font.view_font_id();
         egui::Panel::left("tree")
             .resizable(true)
             .default_size(320.0)
             .show(ui, |ui| {
                 let id = open.id;
-                ui.push_id(id, |ui| tree::show(ui, open));
+                crate::fonts::use_in_views(ui, view_font.as_ref());
+                ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
             });
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
         let wrap = open.wraps(self.settings.word_wrap);
+        let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
             // Each layout has its own panel, so each remembers its own height.
@@ -1672,6 +1707,7 @@ impl eframe::App for App {
             grid.resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
+                    crate::fonts::use_in_views(ui, view_font.as_ref());
                     ui.push_id(open.id, |ui| {
                         if cell_pane {
                             let width = ui.available_width() * 0.35;
@@ -1697,7 +1733,7 @@ impl eframe::App for App {
             }
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.push_id(open.id, |ui| {
-                    crate::text_view::show(ui, open, &format, wrap)
+                    crate::text_view::show(ui, open, &format, wrap, &text_font)
                 });
             });
         });

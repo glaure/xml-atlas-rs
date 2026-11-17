@@ -259,10 +259,11 @@ impl TreeState {
     }
 }
 
-pub fn show(ui: &mut Ui, open: &mut Open) {
+/// Draws the tree; `font` is the one chosen in View > Font… (TEXT-25), if any.
+pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
     open.tree.rebuild(&open.doc);
     ui.spacing_mut().item_spacing.y = 0.0;
-    let font = FontId::proportional(13.0);
+    let font = font.cloned().unwrap_or_else(|| FontId::proportional(13.0));
     let row_h = ui.fonts_mut(|f| f.row_height(&font)) + 4.0;
     let mut area = egui::ScrollArea::both().id_salt("tree").auto_shrink(false);
     if let Some(top) = open.tree.scroll_to.take() {

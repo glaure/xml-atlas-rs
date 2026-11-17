@@ -4,6 +4,7 @@ mod app;
 mod cell_pane;
 mod disk_watch;
 mod find_bar;
+mod fonts;
 mod grid;
 mod help;
 mod highlight;

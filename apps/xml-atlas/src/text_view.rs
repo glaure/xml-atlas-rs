@@ -87,9 +87,9 @@ pub fn focus_id(id: egui::Id) -> egui::Id {
 }
 
 /// The text view of `open`; with `wrap`, long lines wrap at the view's width (TEXT-13).
-pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool) {
+pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, font: &FontId) {
     ui.spacing_mut().item_spacing.y = 0.0;
-    let font = FontId::monospace(13.0);
+    let font = font.clone();
     let row_h = ui.fonts_mut(|f| f.row_height(&font)).ceil() + 1.0;
     let digits = open.doc.line_count().to_string().len() as f32;
     let char_w = ui.fonts_mut(|f| f.glyph_width(&font, '0'));
@@ -1394,7 +1394,7 @@ mod tests {
         let mut out = ctx.run_ui(input, |ui| {
             let font = FontId::monospace(13.0);
             row_h = ui.fonts_mut(|f| f.row_height(&font)).ceil() + 1.0;
-            show(ui, open, &FormatOptions::default(), wrap);
+            show(ui, open, &FormatOptions::default(), wrap, &font);
         });
         // No renderer here takes the font atlas.
         out.textures_delta.clear();
