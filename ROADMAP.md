@@ -85,6 +85,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
 - [x] Font, style and size of the text, tree and grid (TEXT-25)
+- [ ] Themes: a softer Light, themes the user can change and share as files, a native look
+      with the system's accent colour (D29, WIN-7 to WIN-10); a softer Light first
 
 ## Distribution and automation
 

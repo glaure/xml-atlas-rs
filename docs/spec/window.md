@@ -52,6 +52,30 @@ How the views are laid out, and how the window looks.
   warning. The status bar says "Agent connected" while one is. An agent may open files as
   tabs and save, but not close a tab with unsaved changes. Tried by the owner with Claude
   Code on Linux (2026-11-17).
+- **WIN-7** `[planned]` Every colour of the window is part of the theme: panels, menus, the
+  text and grid backgrounds, text and weak text, separators, buttons, the selection, links,
+  warnings and errors, the syntax colours (TEXT-2), the marked element and find matches
+  (TEXT-6, TEXT-12), the grid's hatching (GRID-13), tree icons (TREE-11) and problem markers
+  (OPEN-13); also corner rounding and spacing. Changing the theme changes all of them at
+  once and costs nothing per frame. Every built-in theme passes a contrast check: 4.5:1 for
+  text and syntax colours, 3:1 for weak text, on their backgrounds (`docs/decisions.md`, D29).
+- **WIN-8** `[planned]` A softer Light: panels in a mid grey, the text and grid areas
+  off-white rather than pure white, darker separators, so the views stand apart and the
+  window glares less. Chosen by the owner from candidates in the running program. Dark
+  stays as it is.
+- **WIN-9** `[planned]` View > Theme has two choices, both remembered (WIN-3): the *mode*
+  of WIN-2 (Follow system, Light, Dark) and the *style*: XML Atlas (the default), Native, or
+  a theme file. Every style has a light and a dark variant; the mode picks which one shows.
+  *Native* looks like the system it runs on (Windows 11, macOS, GNOME, KDE) as far as egui
+  allows: colours, rounding, spacing, the system's UI font, and the system's accent colour
+  for the selection and focus, followed while running. Its colours are our own choice;
+  nothing of the systems' is copied.
+- **WIN-10** `[planned]` Theme files: TOML in `themes/` next to the settings file, with a
+  `[light]` and a `[dark]` part and named colours, edited in a text editor (no editor in
+  the window). Each file there is a style in View > Theme. *Save a copy of this theme*
+  writes the current style as a file to start from; *Open the themes folder* shows the
+  folder. A changed file is read again when the window gets the focus back. A missing or
+  unreadable colour or part comes from the XML Atlas style, with a warning in the log.
 
 ## Acceptance tests
 
@@ -73,6 +97,12 @@ How the views are laid out, and how the window looks.
 - Turn off View > Toolbar, quit and start again: no toolbar. Turn it on: click a grid row,
   then Drill Up and Drill Down on the toolbar: the selection goes to the parent and back.
   Select text, Copy and Paste on the toolbar: pasted at the cursor.
+- Choose Style Native with Follow system, switch the desktop between light and dark: the
+  window follows, in Native's variants. Change the system's accent colour: the selection
+  takes it.
+- Save a copy of the theme, change `tag` in its `[light]` part in a text editor, switch
+  back to XML Atlas: the tags have the new colour. Write `tag = "nonsense"`: the tags have
+  the XML Atlas colour and the log says why.
 
 ## Seen in the reference programs
 
@@ -92,6 +122,10 @@ How the views are laid out, and how the window looks.
   PKG-7). (Owner, 2026-11-17.)
 - A toolbar after XML Marker's, without Locate in tree, fixed under the menu; File > New
   added for it (WIN-5, OPEN-22). (Owner, 2026-11-17.)
+- Themes (D29): dark is good, light is too light next to it, users will want to change the
+  colours, and a native look. A softer Light first; then a style next to the light/dark
+  mode, Native as one style, theme files edited in a text editor (WIN-7 to WIN-10). The
+  macOS menu bar at the top of the screen later, as its own decision. (Owner, 2026-11-17.)
 
 ## Questions
 

@@ -978,11 +978,107 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   speaking MCP itself (clients start a program to talk to, so the bridge is needed
   anyway); agents closing modified tabs.
 
+## D29: Themes the user can change, and a native look
+
+- **Problem:** WIN-2 gives Light, Dark and Follow system, with egui's own colours. The
+  owner (2026-11-17): dark is good, but light is too light next to it, and users will want
+  to change the colours. Themes should also let the program look more like the other
+  programs on the system.
+- **Why light is too light:** egui's light theme has panels and menus in grey 248 and the
+  text and grid areas in pure white (255), with grey 80 text. Almost the whole window is
+  close to white, so there is little to separate the views, and the light glare is much
+  stronger than the dark theme's. Our syntax colours (`highlight.rs`) are dark enough; the
+  backgrounds are the problem.
+- **What a theme is:** one set of every colour the window uses, in one place:
+  - the window's: panel and menu backgrounds, the text and grid backgrounds, text and weak
+    text, separators, buttons in their states, the selection, links, warning and error;
+  - the views': the syntax colours of the text (TEXT-2, now in `highlight.rs`), the marked
+    element and the find matches (TEXT-6, TEXT-12), the grid's hatching (GRID-13), tree
+    icons (TREE-11), the problem markers (OPEN-13);
+  - and the shape: corner rounding and spacing.
+
+  Today these come partly from egui's `Visuals` and partly from constants in four files.
+  They move into one `Theme` that is turned into egui's `Visuals` and handed to the views
+  once, when the theme changes. No work per frame is added.
+- **Themes that come with the program:**
+  - *Dark*: as today.
+  - *Light*: softer than egui's: panels in a mid grey, text and grid areas off-white, not
+    pure white, and darker separators, so the views stand apart. The owner picks it from
+    two or three candidates shown in the running program.
+  - *Native*, in a light and a dark variant for the system it runs on: colours, corner
+    rounding and spacing after the system's own look (Windows 11, macOS, GNOME's Adwaita,
+    KDE's Breeze), and the system's accent colour for the selection and focus. The colours
+    are our own choice, taken from looking at the systems and their published design
+    guidelines; no assets of theirs are used.
+- **Two choices in View > Theme:**
+  - *Mode*, as today (WIN-2): Follow system (the default), Light or Dark.
+  - *Style*: XML Atlas (the default; the Dark and softer Light above), Native, or a theme
+    file of the user's.
+
+  Every style has a light and a dark variant, and the mode picks which one shows. So
+  Native with Follow system switches with the system, and there is no "Native light" and
+  "Native dark" to keep in step. Both choices are remembered (WIN-3).
+- **The accent colour:**
+  - Linux: the settings portal that already reports light or dark (`system_theme.rs`) has
+    `accent-color` in the same `org.freedesktop.appearance` namespace (GNOME 47, KDE
+    Plasma 6); the same thread reads it and listens for changes. Without it, a blue.
+  - Windows: `AccentColor` in the registry (`HKCU\Software\Microsoft\Windows\DWM`), read at
+    start and again when the window regains focus.
+  - macOS: `NSColor.controlAccentColor` (`objc2-app-kit`, safe to call). Reading its red,
+    green and blue may need `unsafe`; if so, it goes into the module D26 allows, or a
+    decision of its own first (`AGENTS.md`). To check on a Mac.
+- **Changing a theme:** with a text editor; no editor in the window (owner, 2026-11-17).
+  A theme is a TOML file in `themes/` next to the settings file (WIN-3), readable and
+  shareable, with a `[light]` and a `[dark]` part; the colours have names (`text_background`,
+  `tag`, `attribute_name`, `selection`, …). A file there shows up under Style. View > Theme
+  > *Save a copy of this theme* writes the current style as a file to start from, and *Open
+  the themes folder* shows the folder; the window reads a changed file again when it gets
+  the focus back. A colour that is missing or cannot be read, or a missing part, comes from
+  the XML Atlas style, with a warning in the log, as WIN-3 does for settings. The help
+  (WIN-4) describes the file.
+- **What a native look cannot be in egui:** egui draws every widget itself. Menus, buttons,
+  scroll bars and dialogs look like the system's only as far as colours, rounding, spacing
+  and the font allow. The title bar and the file dialogs (`rfd`) are already the system's.
+  The UI font follows TEXT-25's font choice; using the system's UI font by default
+  (`fontique` names it) is part of *Native*. The menu bar at the top of the screen on macOS
+  is wanted later (owner, 2026-11-17); it needs a crate (`muda`) and a decision of its own,
+  after this plan.
+- **Checks:** a test for every built-in theme that text, syntax colours, weak text and the
+  selection have enough contrast on their backgrounds (4.5:1 for text, 3:1 for weak text,
+  the WCAG levels); a test that a saved theme file reads back the same, with non-ASCII in
+  its name; the startup time measured before and after (WIN-2's portal thread already runs).
+  `xml-atlas-cli stats` does not touch the window, so its numbers do not move; they are
+  reported anyway (rule 1).
+- **Order of work,** each a pull request. Steps 1 and 2 come first, in a 1.x release; the
+  rest later (owner, 2026-11-17):
+  1. One `Theme` holding every colour, built from today's; the window looks the same.
+  2. A softer *Light*, chosen by the owner from candidates in the running program.
+  3. Style next to mode in View > Theme; theme files.
+  4. *Native* for Windows, macOS, GNOME and KDE, with the accent colour.
+- **Not chosen:**
+  - Only a softer light theme: fixes the glare but not "users will want to change it".
+  - Native widgets (through a toolkit such as GTK, or a web view): a second UI toolkit,
+    against D1.
+  - Themes as code (Rust constants per theme only): users could not share or change them.
+  - An editor for themes in the window: a text editor is enough (owner).
+  - *Native light* and *Native dark* as two themes: the mode already chooses light or dark.
+  - Taking a theme from VS Code or another editor's format: tied to a format we do not
+    control; a later import is possible from our own file.
+- **Answered (owner, 2026-11-17):** theme files edited in a text editor are enough; the
+  macOS menu bar is wanted later; steps 1 and 2 first; Native is one style with a light
+  and a dark variant, chosen by the mode, instead of *Native light* and *Native dark*. Decided as
+  above. The rules are WIN-7 to WIN-10 in `docs/spec/window.md`.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D29, themes (owner, 2026-11-17): an editor in the window is not needed, theme files
+are enough; the macOS menu bar at the top of the screen is wanted later, as its own
+decision; steps 1 and 2 (a softer Light) come first, the rest later. Native is one style
+next to the light/dark mode, not two themes.
 
 The five questions asked before the review: index updates in D9, rope or not in D10, memory
 mapping in D11, roadmap order in D15, slow spots in the review notes and D16.
