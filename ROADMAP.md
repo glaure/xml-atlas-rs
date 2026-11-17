@@ -103,6 +103,6 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (*after 1.0*, D20): unsigned DMG built by the release workflow (PKG-20); left: opening
       files from Finder, signing (PKG-21), Homebrew cask (PKG-22)
 - [ ] Notice when a newer version is released (PKG-7)
-- [ ] MCP server over the engine commands: on files first (`xml-atlas-cli`), then on the
-      documents open in the window
+- [x] MCP server on files: `xml-atlas-cli mcp` (D27, step 1)
+- [ ] MCP on the documents open in the window (D27, step 2)
 - [ ] Web build (WebAssembly)

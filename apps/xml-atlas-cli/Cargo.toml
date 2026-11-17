@@ -1,6 +1,6 @@
 [package]
 name = "xml-atlas-cli"
-description = "Command-line interface to XML Atlas: stats, benchmarks, formatting"
+description = "Command-line interface to XML Atlas: stats, benchmarks, formatting, MCP server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,6 +16,12 @@ xml-atlas-engine.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 env_logger.workspace = true
+log.workspace = true
+xml-atlas-mcp = { path = "../../crates/mcp" }
+# The MCP server, `xml-atlas-cli mcp` (docs/decisions.md, D27).
+rmcp = { version = "3.11.0", default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+serde_json = "1.0.154"
 
 [lints]
 workspace = true

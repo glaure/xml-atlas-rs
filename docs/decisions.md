@@ -920,6 +920,17 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   concern, as it costs build time and the CLI's size but nothing in the window, the engine
   or opening. An agent may save through `save` without being asked again; MCP clients ask
   their user before tool calls.
+- **Step 1 built (2026-11-17):** `crates/mcp` holds the 22 tools over the `Documents`
+  trait, with `Files` keeping the documents of one session; `apps/xml-atlas-cli/src/mcp.rs`
+  serves them with `rmcp` 3.11 on a single-threaded `tokio` runtime. Results are JSON, both
+  as text and as structured content; a refusal (a path that leads nowhere, an edit on a
+  broken document, a change that would break one, which is undone) is a tool error with its
+  reason. Element paths are those of the grid and `xml-atlas-cli`, and `children` builds
+  each row's so that it leads back to the row. Measured: the stripped CLI grows from 2.9 to
+  4.9 MiB; `xml-atlas-cli stats` on the 100 MiB fixture is unchanged (104.7-109.1 ms median
+  for both in three alternating rounds). Tested on the corpus (a byte order mark and CRLF,
+  Latin-1, a broken file) and through the protocol, by a test that starts `xml-atlas-cli
+  mcp`; not yet with Claude Code as the client.
 
 ## Open questions
 
