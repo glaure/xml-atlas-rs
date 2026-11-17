@@ -8,21 +8,38 @@ XML Atlas is an independent project. Its behaviour is inspired by XML Marker
 
 ## Status
 
-Early. What works today:
+Version 1.0, for Windows and Linux. What it does:
 
-- Opens large files on a background thread. A 100 MiB file with 3.4 M nodes opens in about 0.4 s.
-- Element tree, virtualized; it expands and scrolls to the selection.
-- Grid: the child elements of the selection are rows, and their attributes and leaf
-  children are columns. Click a row to show it in the text; double-click to open it.
-- Source view with line numbers and syntax colouring. Click a line to select its element.
-- Malformed files open up to the error. The status bar links to the error position.
-- Format (re-indent). It changes only whitespace between tags; text, mixed content,
-  `xml:space="preserve"`, the byte order mark and line endings are kept.
+- Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
+  about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
+  what is on screen, not on the size of the file.
+- Tree, grid and text views of the same document. The grid shows the selected element's
+  children as rows, with their attributes and children as columns; it sorts, hides columns
+  and edits cells.
+- Editing: the text as in any editor, with undo and input methods; in the tree and grid,
+  rename, delete, duplicate, move and set values. Tree and grid follow typing.
+- Find and Replace, an error list with markers, and files that are not well-formed open
+  up to the error and past it.
+- Format, Compact, remove comments and trim text change only whitespace and what was asked
+  for; the byte order mark and line endings are kept.
+- Files in other encodings (Latin-1, UTF-16 and others) open and are saved in their own.
+- Word wrap, very long lines, and minified files, which open wrapped with an offer to format.
+- Several documents as tabs, recent files, light and dark theme, a notice when a file changes
+  on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
 
-Not yet: editing, find, and files that are not UTF-8 (Latin-1, UTF-16).
+See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, macOS.
 
-See [ROADMAP.md](ROADMAP.md) for what comes next.
+## Install
+
+Download a package from the [releases page](https://github.com/glaure/xml-atlas-rs/releases):
+
+- Windows 10 and 11: the `.msi`, or the `-windows-x64.zip` to run without installing. The
+  files are not signed yet, so SmartScreen may warn: *More info*, then *Run anyway*.
+- Ubuntu 22.04 and later, Debian 12 and later: `sudo apt install ./xml-atlas_….deb`
+- RHEL 9 and its rebuilds, Fedora: `sudo dnf install ./xml-atlas-….rpm`
+
+`SHA256SUMS` on the same page holds each file's checksum.
 
 ## Build and run
 
