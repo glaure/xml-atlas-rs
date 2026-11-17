@@ -178,7 +178,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool) {
 
     let total = open.doc.line_count();
     let visible = ((text_rect.height() / row_h).floor() as usize).max(1);
-    let jumped = open.scroll_text_to.is_some();
+    let jump = open.scroll_text_to;
     let v_bar = Rect::from_min_max(
         pos2(text_rect.right(), area_rect.top()),
         pos2(area_rect.right(), text_rect.bottom()),
@@ -471,10 +471,13 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool) {
             to = x + margin - view_w;
         }
     }
-    if jumped
-        && !wrap
-        && let Some(m) = &open.mark
-    {
+    // What a jump shows: the match or item it marked, else the byte it went to (a selected
+    // element's `<`).
+    let target = jump.filter(|_| !wrap).map(|at| match &open.mark {
+        Some(m) if m.start == at => m.clone(),
+        _ => at..at,
+    });
+    if let Some(m) = target {
         // A jump shows the whole match, its start a third into the view when it was not.
         let doc = &open.doc;
         let at = m.start as usize;
@@ -555,7 +558,8 @@ fn line_scroll(ui: &Ui, open: &mut Open, area_rect: Rect, v_bar: Rect, row_h: f3
         open.text_scroll.to(max_top, max_top);
     }
     let cursor_line = open.text_sel.map(|s| open.doc.line_of(s.head as u64));
-    if let Some(line) = open.scroll_text_to.take() {
+    if let Some(at) = open.scroll_text_to.take() {
+        let line = open.doc.line_of(at);
         open.text_scroll
             .to(line.saturating_sub(CONTEXT_LINES), max_top);
     } else if open.text_reveal
@@ -605,8 +609,10 @@ fn wrap_scroll(ui: &Ui, open: &mut Open, area_rect: Rect, v_bar: Rect, row_h: f3
         }
     };
     clamp(s);
-    if let Some(line) = open.scroll_text_to.take() {
-        let (to, _) = w.moved(doc, RowPos { line, row: 0 }, -(CONTEXT_LINES as isize));
+    if let Some(at) = open.scroll_text_to.take() {
+        // The row the target starts on, not the first of its line: a minified file is one.
+        let row = w.row_of(doc, at as usize);
+        let (to, _) = w.moved(doc, row, -(CONTEXT_LINES as isize));
         *s = at_row(to, row_h);
     } else if open.text_reveal
         && let Some(sel) = open.text_sel
@@ -1328,5 +1334,70 @@ mod tests {
                 .windows(2)
                 .all(|p| p[0].bytes.as_ref().unwrap().end == p[1].bytes.as_ref().unwrap().start)
         );
+    }
+
+    /// With word wrap, selecting an element far along a one-line file scrolls to the row it
+    /// starts on, not to the first row of its line (TEXT-13).
+    #[test]
+    fn wrapped_jump_goes_to_the_row() {
+        let mut open = Open::new(minified(), egui::Id::unique("wrapped-jump"));
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 300.0));
+        let frame = |open: &mut Open| run(&ctx, screen, open, true);
+        frame(&mut open);
+        let end = open.doc.src.len() as u64 - 20;
+        let id = open.element_at(end).unwrap();
+        open.select(id);
+        let row_h = frame(&mut open);
+        let start = open.doc.index.node(id).start as usize;
+        let row = open.text_wrap.row_of(&open.doc, start);
+        let top = top_row(open.text_scroll, row_h);
+        let visible = (screen.height() / row_h) as usize;
+        assert_eq!(row.line, 0);
+        assert!(row.row > 100, "{row:?}");
+        assert!(
+            top.row <= row.row && row.row < top.row + visible,
+            "row {row:?} not on screen from {top:?}"
+        );
+    }
+
+    /// Without word wrap, selecting an element far along a long line scrolls sideways to its
+    /// `<`, also when nothing inside it is marked (TEXT-5).
+    #[test]
+    fn jump_scrolls_a_long_line_sideways() {
+        let mut open = Open::new(minified(), egui::Id::unique("sideways-jump"));
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 300.0));
+        run(&ctx, screen, &mut open, false);
+        assert_eq!(open.text_left, 0.0);
+        let id = open.element_at(open.doc.src.len() as u64 - 20).unwrap();
+        open.select(id);
+        assert_eq!(open.mark, None);
+        run(&ctx, screen, &mut open, false);
+        let column = text::column(&open.doc, open.doc.index.node(id).start as usize) as f64;
+        let char_w = ctx.fonts_mut(|f| f.glyph_width(&FontId::monospace(13.0), '0')) as f64;
+        let x = column * char_w;
+        assert!(
+            open.text_left <= x && x < open.text_left + screen.width() as f64,
+            "x {x} not on screen from {}",
+            open.text_left
+        );
+    }
+
+    /// One frame of the text view on `screen`; returns the row height.
+    fn run(ctx: &egui::Context, screen: Rect, open: &mut Open, wrap: bool) -> f32 {
+        let mut row_h = 0.0;
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            let font = FontId::monospace(13.0);
+            row_h = ui.fonts_mut(|f| f.row_height(&font)).ceil() + 1.0;
+            show(ui, open, &FormatOptions::default(), wrap);
+        });
+        // No renderer here takes the font atlas.
+        out.textures_delta.clear();
+        row_h
     }
 }

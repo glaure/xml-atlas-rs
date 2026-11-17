@@ -15,8 +15,9 @@ of it.
 - **TEXT-4** `[built]` A tab is shown as four spaces.
 - **TEXT-5** `[done]` Very long lines can be read to the end. A line longer than 4,000 bytes
   is laid out only where it is on screen, so a minified file of one huge line scrolls, is
-  clicked and edited like any other. Find, and a click in tree or grid, scroll sideways to
-  what they show. Measured on a 10 MiB file of one line: counting its columns once
+  clicked and edited like any other. Find, the problems list, and a click in tree or grid,
+  scroll sideways to what they show; a selected element without a mark inside it, to its
+  `<`. Measured on a 10 MiB file of one line: counting its columns once
   10.7 ms; afterwards each frame under 1.5 ms, also at its end; a typed letter about 2 ms,
   with 2.3 to 3 ms for the frame that shows it.
 - **TEXT-6** `[done]` The selected element is highlighted from its `<` to its last `>`, not by
@@ -126,7 +127,8 @@ of it.
   Down by the rows on screen; Home and End stay on the whole line. The wheel moves row by
   row, also through a minified file's single line, and stops at the last row. The scroll bar
   counts lines, and rows within the line at the top, so it also scrolls a one-line file.
-  A wrapped view does not scroll sideways. Only the lines on screen are wrapped each frame;
+  A wrapped view does not scroll sideways. Find, the problems list, and a click in tree or
+  grid go to the row where what they show starts, not to its line's first row. Only the lines on screen are wrapped each frame;
   a line longer than 4,000 bytes keeps its rows, and typing in it works out a few rows again,
   not the line. Measured on a 13 MiB file of one line (release build): wrapping it 22 to
   25 ms once (again when the view's width changes), then a typed letter about 0.1 ms and
@@ -160,7 +162,9 @@ of it.
 - Type `ü` with a dead key and `日本` with an input method: both arrive as typed.
 - Open a minified file of one long line and press Alt+Z: it wraps at the view's width,
   coloured as without wrap. Ctrl+End shows its last row at the bottom; Up moves one row and
-  keeps the column; typing a letter shows at once. Alt+Z again types no `z`.
+  keeps the column; typing a letter shows at once. Alt+Z again types no `z`. Select the last
+  element in the tree: the text shows the row with its `<`, highlighted. Alt+Z, select the
+  first element and then the last again: the line scrolls sideways to it.
 
 ## Seen in the reference programs
 
