@@ -85,8 +85,9 @@ pub fn package(root: &Path, skip_build: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The app's `Info.plist`. No document types yet: the app cannot take a file from Finder
-/// (PKG-20), so it does not offer itself in *Open with*.
+/// The app's `Info.plist`. XML files are declared with the rank Alternate, so the app is
+/// listed in *Open with* without becoming the default (PKG-4); it takes them from Finder as
+/// `docs/decisions.md`, D26, describes.
 pub(crate) fn info_plist(version: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -117,6 +118,21 @@ pub(crate) fn info_plist(version: &str) -> String {
     <string>public.app-category.developer-tools</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>XML document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.xml</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 "#
@@ -169,10 +185,17 @@ mod tests {
         );
         assert!(plist.contains("<key>CFBundleExecutable</key>\n    <string>xml-atlas</string>"));
         assert!(plist.contains("<string>12.0</string>"));
-        // Balanced: every key has a value, and the dict closes.
-        let keys = plist.matches("<key>").count();
-        let values = plist.matches("<string>").count() + plist.matches("<true/>").count();
-        assert_eq!(keys, values);
+        // XML files, listed in Open with but not taken as the default (PKG-4).
+        assert!(plist.contains("<string>public.xml</string>"));
+        assert!(plist.contains("<key>LSHandlerRank</key>\n            <string>Alternate</string>"));
+        assert_eq!(
+            plist.matches("<dict>").count(),
+            plist.matches("</dict>").count()
+        );
+        assert_eq!(
+            plist.matches("<array>").count(),
+            plist.matches("</array>").count()
+        );
         assert!(plist.trim_end().ends_with("</dict>\n</plist>"));
     }
 }

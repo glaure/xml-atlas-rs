@@ -28,8 +28,10 @@ Guidance for people and coding agents working on XML Atlas.
 - Rust 2024, `cargo fmt`, `cargo clippy --workspace --all-targets` clean.
 - No `println!` / `eprintln!` outside the CLI, xtask and tests; use `log`.
 - Errors: `thiserror` in libraries, `anyhow` in binaries.
-- `unsafe` is forbidden workspace-wide. Lifting that for a SIMD tokenizer needs a decision
-  recorded in `docs/decisions.md`.
+- `unsafe` is forbidden workspace-wide. The one exception is
+  `apps/xml-atlas/src/macos_open.rs`, files from Finder on macOS (`docs/decisions.md`, D26);
+  a test keeps it there. Any other `unsafe`, such as for a SIMD tokenizer, needs a decision
+  recorded in `docs/decisions.md` first.
 - Files read top to bottom: constants, types, public functions, private helpers.
 
 ## Working as an agent
