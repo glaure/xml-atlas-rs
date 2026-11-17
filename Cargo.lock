@@ -4798,12 +4798,16 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 name = "xml-atlas"
 version = "1.0.0"
 dependencies = [
+ "block2 0.6.2",
  "eframe",
  "egui",
  "egui_extras",
  "embed-resource",
  "env_logger",
  "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "rfd",
  "xml-atlas-engine",
  "zbus",

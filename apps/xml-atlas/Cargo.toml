@@ -16,8 +16,16 @@ rfd.workspace = true
 log.workspace = true
 env_logger.workspace = true
 
-[lints]
-workspace = true
+# The workspace forbids `unsafe`; this crate denies it instead, so that the one module that
+# needs it, `macos_open.rs`, can allow it (`docs/decisions.md`, D26). The rest as in the
+# workspace.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+print_stdout = "warn"
+print_stderr = "warn"
+undocumented_unsafe_blocks = "warn"
 
 # Puts the icon into xml-atlas.exe (build.rs), so Explorer shows it for the program file.
 [build-dependencies]
@@ -25,5 +33,13 @@ embed-resource = "3.0.12"
 
 # The desktop's light or dark preference (system_theme.rs). Already in the build through the
 # accessibility support; its blocking API is part of its default features.
+# Files from Finder (macos_open.rs, D26). The versions already in the build through the
+# clipboard and OpenGL crates.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSAppleEventDescriptor", "NSAppleEventManager", "NSNotification", "NSObject", "NSOperation", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }

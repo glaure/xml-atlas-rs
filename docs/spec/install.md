@@ -112,11 +112,13 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   and `xml-atlas-cli`, signed ad hoc (no identity), in a disk image with a link to
   Applications. The release workflow builds it on `macos-latest` and checks the mounted
   image: both executables hold both architectures, the signature verifies, the command line
-  prints the version. Not yet: registering for XML files and opening a file from Finder or
-  the Dock. macOS hands those over as an Apple event that winit 0.30 does not pass on; an
-  handler of our own needs `unsafe` calls into AppKit, proposed in `docs/decisions.md`,
-  D26. Until then the app does not offer itself in *Open with*. Not yet
-  run on a Mac by a person.
+  prints the version. Files from Finder, the Dock and `open` arrive as an Apple event that
+  winit 0.30 does not pass on; `apps/xml-atlas/src/macos_open.rs` handles it (D26) and
+  opens each file as a tab, also while the app runs. The `Info.plist` declares XML files
+  with the rank Alternate, so XML Atlas is in *Open with* without becoming the default. The
+  release workflow opens two files with `open -a`, one at launch and one while running,
+  with a space and non-ASCII letters in their names, and checks that both open in one
+  process. Not yet run on a Mac by a person.
 - **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
   Apple developer account and notarized, so Gatekeeper opens it without a warning. As for
   Windows (PKG-14), this is a manual step, and the account's credentials never go into CI:

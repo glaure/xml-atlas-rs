@@ -50,6 +50,8 @@ pub struct App {
     find: crate::find_bar::FindBar,
     /// Files being opened, in the order asked for.
     loading: Vec<Loading>,
+    /// Files the system asks to open while the app runs: from Finder on macOS (D26).
+    opened: Option<Receiver<PathBuf>>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<Note>,
@@ -249,7 +251,12 @@ pub enum Pane {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
+    /// `paths` came on the command line; `opened` brings more while the app runs (D26).
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        paths: Vec<PathBuf>,
+        opened: Option<Receiver<PathBuf>>,
+    ) -> Self {
         stop_at_the_edge(&cc.egui_ctx);
         no_animations(&cc.egui_ctx);
         let settings = Settings::load();
@@ -268,6 +275,7 @@ impl App {
             quitting: false,
             find,
             loading: Vec::new(),
+            opened,
             message: None,
             notice: None,
             format_dialog: None,
@@ -277,7 +285,22 @@ impl App {
         for path in paths {
             app.open_file(&cc.egui_ctx, path);
         }
+        #[cfg(target_os = "macos")]
+        crate::macos_open::wake(&cc.egui_ctx);
+        app.open_requested(&cc.egui_ctx);
         app
+    }
+
+    /// Opens the files the system asked for since the last frame, each in its own tab.
+    fn open_requested(&mut self, ctx: &egui::Context) {
+        let paths: Vec<PathBuf> = self
+            .opened
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for path in paths {
+            self.open_file(ctx, path);
+        }
     }
 
     /// Opens `path` in a new tab, or shows its tab when it is open already (OPEN-5).
@@ -1429,6 +1452,7 @@ impl eframe::App for App {
         for path in dropped {
             self.open_file(&ctx, path);
         }
+        self.open_requested(&ctx);
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
         {
             self.pick_file(&ctx);

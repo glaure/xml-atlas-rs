@@ -135,6 +135,34 @@ jobs:
           [[ "$out" == *"${{ needs.version.outputs.version }}"* ]]
           test -L "$RUNNER_TEMP/xa/Applications"
           hdiutil detach "$RUNNER_TEMP/xa"
+      # What Finder does: an "open documents" Apple event, at launch and while running (D26).
+      - name: Files from Finder open as tabs in one app
+        run: |
+          app="$PWD/target/dist/macos/XML Atlas.app"
+          dir="$RUNNER_TEMP/files"
+          mkdir -p "$dir"
+          first="$dir/first file.xml"
+          second="$dir/zweite Größe.xml"
+          printf '\xef\xbb\xbf<r>\r\n<a/>\r\n</r>\r\n' > "$first"
+          printf '<r><b>Grüße</b></r>\n' > "$second"
+          log="$RUNNER_TEMP/xml-atlas.log"
+          # Waits until the log names `n` files of $dir as opened.
+          opened() {
+            for _ in $(seq 60); do
+              [ "$(grep -c "opened $dir/" "$log" 2>/dev/null)" -ge "$1" ] && return 0
+              sleep 1
+            done
+            echo "not opened:"; cat "$log"; return 1
+          }
+          open -a "$app" --env RUST_LOG=xml_atlas=info,xml_atlas_engine=info \
+            --stderr "$log" "$first"
+          opened 1
+          open -a "$app" "$second"
+          opened 2
+          cat "$log"
+          # Both in the one app, not a second process.
+          test "$(pgrep -x xml-atlas | wc -l | tr -d ' ')" = 1
+          pkill -x xml-atlas
       - uses: actions/upload-artifact@v4
         with:
           name: macos
