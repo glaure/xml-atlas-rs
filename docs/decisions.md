@@ -978,9 +978,96 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   speaking MCP itself (clients start a program to talk to, so the bridge is needed
   anyway); agents closing modified tabs.
 
+## D29: Themes the user can change, and a native look (proposed)
+
+- **Problem:** WIN-2 gives Light, Dark and Follow system, with egui's own colours. The
+  owner (2026-11-17): dark is good, but light is too light next to it, and users will want
+  to change the colours. Themes should also let the program look more like the other
+  programs on the system.
+- **Why light is too light:** egui's light theme has panels and menus in grey 248 and the
+  text and grid areas in pure white (255), with grey 80 text. Almost the whole window is
+  close to white, so there is little to separate the views, and the light glare is much
+  stronger than the dark theme's. Our syntax colours (`highlight.rs`) are dark enough; the
+  backgrounds are the problem.
+- **What a theme is:** one set of every colour the window uses, in one place:
+  - the window's: panel and menu backgrounds, the text and grid backgrounds, text and weak
+    text, separators, buttons in their states, the selection, links, warning and error;
+  - the views': the syntax colours of the text (TEXT-2, now in `highlight.rs`), the marked
+    element and the find matches (TEXT-6, TEXT-12), the grid's hatching (GRID-13), tree
+    icons (TREE-11), the problem markers (OPEN-13);
+  - and the shape: corner rounding and spacing.
+
+  Today these come partly from egui's `Visuals` and partly from constants in four files.
+  They move into one `Theme` that is turned into egui's `Visuals` and handed to the views
+  once, when the theme changes. No work per frame is added.
+- **Themes that come with the program:**
+  - *Dark*: as today.
+  - *Light*: softer than egui's: panels in a mid grey, text and grid areas off-white, not
+    pure white, and darker separators, so the views stand apart. The owner picks it from
+    two or three candidates shown in the running program.
+  - *Native*, in a light and a dark variant for the system it runs on: colours, corner
+    rounding and spacing after the system's own look (Windows 11, macOS, GNOME's Adwaita,
+    KDE's Breeze), and the system's accent colour for the selection and focus. The colours
+    are our own choice, taken from looking at the systems and their published design
+    guidelines; no assets of theirs are used.
+- **Follow system, light and dark:** the settings remember one light and one dark theme.
+  *Follow system* (the default, WIN-2) switches between the two as the system does; the
+  user can also pin either.
+- **The accent colour:**
+  - Linux: the settings portal that already reports light or dark (`system_theme.rs`) has
+    `accent-color` in the same `org.freedesktop.appearance` namespace (GNOME 47, KDE
+    Plasma 6); the same thread reads it and listens for changes. Without it, a blue.
+  - Windows: `AccentColor` in the registry (`HKCU\Software\Microsoft\Windows\DWM`), read at
+    start and again when the window regains focus.
+  - macOS: `NSColor.controlAccentColor` (`objc2-app-kit`, safe to call). Reading its red,
+    green and blue may need `unsafe`; if so, it goes into the module D26 allows, or a
+    decision of its own first (`AGENTS.md`). To check on a Mac.
+- **Changing a theme:** View > Theme… opens a dialog: the themes in a list, the window
+  showing the chosen one at once, and *Edit a copy*, which lists the colours by name (Text
+  background, Tags, Attribute names, Selection, …) with a colour picker each, and a reset.
+  A changed theme is saved as a TOML file in `themes/` next to the settings file (WIN-3),
+  readable and shareable; a file dropped there shows up in the list. A colour that cannot be
+  read is left at the theme it was copied from, with a warning in the log, as WIN-3 does
+  for settings.
+- **What a native look cannot be in egui:** egui draws every widget itself. Menus, buttons,
+  scroll bars and dialogs look like the system's only as far as colours, rounding, spacing
+  and the font allow. The title bar and the file dialogs (`rfd`) are already the system's.
+  The UI font follows TEXT-25's font choice; using the system's UI font by default
+  (`fontique` names it) is part of *Native*. A native menu bar on macOS (the one at the top
+  of the screen) is a separate step, not in this plan.
+- **Checks:** a test for every built-in theme that text, syntax colours, weak text and the
+  selection have enough contrast on their backgrounds (4.5:1 for text, 3:1 for weak text,
+  the WCAG levels); a test that a saved theme file reads back the same, with non-ASCII in
+  its name; the startup time measured before and after (WIN-2's portal thread already runs).
+  `xml-atlas-cli stats` does not touch the window, so its numbers do not move; they are
+  reported anyway (rule 1).
+- **Order of work,** each a pull request:
+  1. One `Theme` holding every colour, built from today's; the window looks the same.
+  2. A softer *Light*, chosen by the owner from candidates in the running program.
+  3. A light and a dark theme remembered for Follow system; the accent colour on Linux
+     and Windows.
+  4. *Native* themes for Windows, macOS, GNOME and KDE; the accent colour on macOS.
+  5. The theme dialog, editing a copy, and theme files.
+- **Not chosen:**
+  - Only a softer light theme: fixes the glare but not "users will want to change it".
+  - Native widgets (through a toolkit such as GTK, or a web view): a second UI toolkit,
+    against D1.
+  - Themes as code (Rust constants per theme only): users could not share or change them.
+  - Taking a theme from VS Code or another editor's format: tied to a format we do not
+    control; a later import is possible from our own file.
+- **Questions for the owner:** below, under Open questions.
+
 ## Open questions
 
-None.
+About D29, themes:
+
+1. Should *Native* be the default when following the system, or stay a choice next to
+   Light and Dark?
+2. Is an editor for themes in the window wanted in the first version, or are theme files
+   (edited in a text editor) enough to begin with?
+3. Is the macOS menu bar at the top of the screen wanted later? It needs a crate (`muda`)
+   and its own decision.
+4. Should 1.x get only steps 1 and 2 (a better Light) first, and the rest later?
 
 ## Answered questions
 

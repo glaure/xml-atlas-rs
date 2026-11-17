@@ -93,6 +93,13 @@ How the views are laid out, and how the window looks.
 - A toolbar after XML Marker's, without Locate in tree, fixed under the menu; File > New
   added for it (WIN-5, OPEN-22). (Owner, 2026-11-17.)
 
+## Decisions needed
+
+- Themes beyond WIN-2: a softer Light, themes the user can change, a native look
+  (`docs/decisions.md`, D29, proposed; its questions are listed there). The owner's view
+  (2026-11-17): dark is good, light is too light next to it, and users will want to change
+  the colours. Rules follow here once D29 is decided.
+
 ## Questions
 
 None open.
