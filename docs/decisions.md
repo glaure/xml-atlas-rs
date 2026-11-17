@@ -857,6 +857,14 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - Kept if all of these work and the unsafe code stays in the one file.
 - **Owner's answers (2026-11-17):** `unsafe` is acceptable for this, contained as above. A
   Mac is available from 2026-11-18 for the checks on a real Mac. Next: the prototype.
+- **Prototype (2026-11-17, #86):** built as proposed in `apps/xml-atlas/src/macos_open.rs`,
+  with five `unsafe` uses. `setEventHandler:…` and `paramDescriptorForKeyword:` are called
+  with `msg_send!`, because their generated bindings need `objc2-core-services`, which is not
+  in the build. When OpenGL fails and the app starts again with wgpu (D21), files from
+  Finder go to the new process as arguments. On the CI's macOS runner, `open -a` with
+  `first file.xml` started the app with it open, and `zweite Größe.xml` sent while it ran
+  opened as a second tab in the same process; macOS sent that name decomposed (`o` and a
+  combining diaeresis), and it opened. Still to do: the checks on a real Mac.
 
 ## Open questions
 
