@@ -17,10 +17,11 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   `vX.Y.Z`: it refuses a tag that is not the version in `Cargo.toml`, builds the `.deb` and
   `.rpm` with `cargo xtask package` and runs `packaging/linux/install-test.sh` on them,
   builds the MSI and zip on Windows with `cargo xtask package-windows`, and puts the four
-  files and a `SHA256SUMS` into a draft release whose notes say the Windows files still
-  need signing (PKG-14, step 1). Run again for the same tag, it replaces the draft's files;
-  it never touches a published release. A pull request that changes the packaging builds
-  the packages the same way, without a release. Not yet run from a real tag.
+  files and a `SHA256SUMS` into a draft release. Its notes say the Windows files are not
+  signed (PKG-13). A maintainer checks the draft and publishes it. Run again for the same
+  tag, it replaces the draft's files; it never touches a published release. A pull request
+  that changes the packaging builds the packages the same way, without a release. Not yet
+  run from a real tag.
 - **PKG-2** `[planned]` Every package contains both programs, the license texts (MIT and
   Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version,
   and `xml-atlas-cli --version` prints it.
@@ -73,10 +74,12 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   ("portable"). It stores settings in the usual place, not next to the program. The same
   command writes it, with the license texts, in a folder named after the version. Built on
   Windows and its five files checked; not yet run from the unpacked zip.
-- **PKG-13** `[planned]` The executables and the MSI are signed with the owner's employer's
-  code-signing certificate, so Windows does not warn that the publisher is unknown.
-- **PKG-14** `[planned]` Signing for Windows is a manual step, because the certificate stays
-  with the company and never goes into CI:
+- **PKG-13** `[planned]` (after 1.0) The executables and the MSI are signed with the
+  owner's employer's code-signing certificate, so Windows does not warn that the publisher
+  is unknown.
+- **PKG-14** `[planned]` (after 1.0) Signing for Windows is a manual step, because the
+  certificate stays with the company and never goes into CI. Until then, releases are
+  published with unsigned Windows files, and their notes say so. Once signing is in place:
   1. CI builds the release from the tag as a draft on GitHub, with unsigned Windows files
      and a note that they still need signing.
   2. A maintainer with access to the certificate runs one script on a Windows machine. It
@@ -144,7 +147,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 On a fresh virtual machine of each supported system, for each package:
 
-- Install without errors or warnings about the publisher (PKG-13, PKG-21). XML Atlas appears in the Start menu, Applications or the application menu.
+- Install without errors. No warning about the publisher once signing is in place (PKG-13,
+  after 1.0; PKG-21). XML Atlas appears in the Start menu, Applications or the application
+  menu.
 - Right-click an XML file, *Open with* > XML Atlas: it opens. Double-clicking it still opens
   the previous default program.
 - `xml-atlas-cli --version` in a terminal prints the release's version (Windows: after
@@ -152,9 +157,9 @@ On a fresh virtual machine of each supported system, for each package:
 - Change the layout, quit, install the next version over it: the layout is kept.
 - Uninstall: the program, menu entry and *Open with* entry are gone; the settings file is
   still there.
-- Windows: Properties > Digital Signatures of `xml-atlas.exe`, `xml-atlas-cli.exe` and the
-  MSI shows the company's certificate (PKG-13). A draft release with unsigned files cannot be
-  mistaken for a published one (PKG-14).
+- Windows (after 1.0): Properties > Digital Signatures of `xml-atlas.exe`,
+  `xml-atlas-cli.exe` and the MSI shows the company's certificate (PKG-13). A draft release
+  with unsigned files cannot be mistaken for a published one (PKG-14).
 - macOS: on a Mac that has never run XML Atlas, open the downloaded DMG and start the app:
   no Gatekeeper warning. `spctl --assess -vv` on the app names the company's Developer ID and
   says "Notarized Developer ID" (PKG-21).
@@ -177,6 +182,8 @@ On a fresh virtual machine of each supported system, for each package:
   (Owner, 2026-11-15.)
 - The owner's employer signs for Windows and Apple; Windows signing is a manual step
   (PKG-13, PKG-14, PKG-21). (Owner, 2026-11-15.)
+- Windows signing is postponed until after 1.0: it cannot run on GitHub, and 1.0 ships
+  unsigned Windows files (PKG-13, PKG-14). (Owner, 2026-11-17.)
 - macOS signing and notarization are a manual step too, not in CI (PKG-21). (Owner,
   2026-11-15.)
 - Linux: `.deb` and `.rpm` first, Flatpak next, no AppImage or Snap (PKG-30 to PKG-33).
