@@ -38,8 +38,12 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   its shortcuts and its file associations, and leaves the settings file, so a later install
   finds it again. On the owner's Windows 11 (2026-11-16) the 0.1.1 MSI installed over
   0.1.0: one XML Atlas in the installed apps, `xml-atlas-cli --version` prints 0.1.1, the
-  Start menu shortcut works, and a changed setting and the recent files were kept. Not yet
-  tried: an upgrade of the `.deb` and `.rpm` (PKG-30, PKG-31).
+  Start menu shortcut works, and a changed setting and the recent files were kept. The
+  `.deb` upgrade was tried by the owner (2026-11-17). The `.rpm` from 0.1.2 to 0.1.3 with
+  `dnf install` on Rocky Linux 9 and Fedora 43, in containers (2026-11-17): afterwards
+  exactly one `xml-atlas-0.1.3-1` is installed, `xml-atlas-cli --version` prints 0.1.3,
+  `rpm -V` finds every file as packaged, and a settings file is unchanged by the upgrade and
+  by removing the package, which takes the program files with it.
 - **PKG-6** `[planned]` 64-bit x86 on every platform; 64-bit ARM on macOS (Apple silicon)
   and on Windows and Linux where CI can build it.
 - **PKG-7** `[planned]` The program can tell the user that a newer version exists: at most
@@ -140,7 +144,7 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   the window opens and draws with OpenGL (on a nested X server), and removing the package
   removes its files. On the owner's Ubuntu 26.04 desktop (Wayland) the `.deb` installs, the
   menu entry starts it, the dock shows its icon, and *Open with* lists it for XML files
-  (2026-11-15). Not yet tried: an upgrade over an older version. dnf notes that the package
+  (2026-11-15). Upgrades over an older version: see PKG-5. dnf notes that the package
   is not signed (OpenPGP).
 - **PKG-34** `[planned]` The window works under both Wayland and X11, and follows the
   desktop's light or dark setting (WIN-2), in every package.
