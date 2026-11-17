@@ -79,6 +79,23 @@ this file needs the most observation.
 - **GRID-20** `[done]` Columns that do not fit scroll sideways, with the header; so do those
   of the cell pane (GRID-16). Left and Right scroll the marked cell into view, and back to
   the start of the row when the whole row is marked again.
+- **GRID-21** `[planned]` (after 1.0) Move rows: Alt+Shift+Up and Alt+Shift+Down on a marked
+  row move its element before the previous or after the next sibling in the file, as in the
+  tree (TREE-9, EDIT-10); the row stays marked. While the grid is sorted (GRID-14) the rows
+  cannot be moved, and the status bar says why.
+- **GRID-22** `[planned]` (after 1.0) Copy and paste elements: Ctrl+C on a marked row copies
+  its element's source text; Ctrl+V on a marked row inserts the copied element after it, as
+  a new element on its own lines with the row's indentation, like Duplicate (EDIT-9). The
+  grid gets a row for it. What is pasted must be well-formed XML; otherwise nothing changes
+  and the status bar says why. One undo step.
+- **GRID-23** `[planned]` (after 1.0) Copy the grid for a spreadsheet: the shown rows and
+  columns, as tab-separated text with the header as the first line, in the shown order and
+  without hidden columns (GRID-15). Pasted into Excel, each cell lands in its own cell.
+- **GRID-24** `[planned]` (after 1.0) Reorder columns by dragging a header; the order is kept
+  with the hidden columns. Optionally, applying the shown order to the file: the sort order
+  (GRID-14) reorders the elements, the column order reorders each row's attributes or child
+  elements. Changes only the order, keeps every byte inside each item, and is one undo step.
+  Whether it is offered is decided when it is built.
 
 ## Known gaps
 
@@ -146,9 +163,11 @@ today.
 - Absent and empty values look different (GRID-13).
 - Cells keep decoding entities (GRID-4).
 - Sorting by column (GRID-14).
+- After 1.0, not in it: moving rows in the file (GRID-21), copy and paste of elements
+  (GRID-22), copying the grid for a spreadsheet (GRID-23) and reordering columns, perhaps
+  also in the file (GRID-24). Copy and paste is mostly wanted in the document itself, and
+  pasting adds new elements. (Owner, 2026-11-17.)
 
 ## Questions
 
-1. Is there anything you wish XML Marker's grid did differently? Open for now.
-2. The owner mostly reads the grid. Copy grid to clipboard could be handy; in-place editing
-   (GRID-10) came first.
+None open.
