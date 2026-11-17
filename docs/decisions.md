@@ -855,9 +855,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     XML Atlas as the default for `.xml`, *Open with*, a file dropped on the Dock icon, with
     the app running and not running.
   - Kept if all of these work and the unsafe code stays in the one file.
-- **Owner's questions:**
-  1. Is `unsafe` acceptable for this, contained as above?
-  2. Is there a Mac to try it on?
+- **Owner's answers (2026-11-17):** `unsafe` is acceptable for this, contained as above. A
+  Mac is available from 2026-11-18 for the checks on a real Mac. Next: the prototype.
 
 ## Open questions
 
