@@ -49,6 +49,8 @@ pub struct Settings {
     pub cell_pane: bool,
     /// Long lines wrap in the text view (TEXT-13).
     pub word_wrap: bool,
+    /// The toolbar under the menu (WIN-5).
+    pub toolbar: bool,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
@@ -63,6 +65,7 @@ impl Default for Settings {
             tree_attributes: true,
             cell_pane: true,
             word_wrap: false,
+            toolbar: true,
             find: FindOptions::default(),
             recent: Vec::new(),
         }
@@ -140,6 +143,7 @@ impl Settings {
              tree_attributes = {}\n\
              cell_pane = {}\n\
              word_wrap = {}\n\
+             toolbar = {}\n\
              \n\
              [find]\n\
              match_case = {}\n\
@@ -155,6 +159,7 @@ impl Settings {
             self.tree_attributes,
             self.cell_pane,
             self.word_wrap,
+            self.toolbar,
             self.find.match_case,
             self.find.whole_word,
             self.recent
@@ -228,6 +233,7 @@ impl Settings {
                 ("view", "tree_attributes") => set(&mut s.tree_attributes, boolean(value)),
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
+                ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
                 ("find", "match_case") => set(&mut s.find.match_case, boolean(value)),
                 ("find", "whole_word") => set(&mut s.find.whole_word, boolean(value)),
                 _ => false,
@@ -333,6 +339,7 @@ mod tests {
             tree_attributes: false,
             cell_pane: false,
             word_wrap: true,
+            toolbar: false,
             find: FindOptions {
                 match_case: true,
                 whole_word: true,

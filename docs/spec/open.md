@@ -96,6 +96,10 @@
   is no change. File > Save As… (Ctrl+Shift+S) is in the menu too. Files are looked at once a
   second on a thread of their own, and the window is woken only when one changed. XML Marker
   does not notice (XM-14).
+- **OPEN-22** `[built]` File > New (Ctrl+N, and on the toolbar, WIN-5) opens an untitled tab
+  holding the XML declaration and an empty `root` element, with this system's line endings
+  (`Document::untitled`). Nothing is to save until it is changed; then saving asks for a
+  name. XML Marker has New too (XM-2).
 
 ## Speed targets
 

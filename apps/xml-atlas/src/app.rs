@@ -1168,6 +1168,10 @@ impl App {
         let ctx = ui.ctx().clone();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.button("New    Ctrl+N").clicked() {
+                    ui.close();
+                    self.new_document();
+                }
                 if ui.button("Open…    Ctrl+O").clicked() {
                     ui.close();
                     self.pick_file(&ctx);
@@ -1295,6 +1299,7 @@ impl App {
                     &mut self.settings.cell_pane,
                     "Cell pane beside the grid (experiment)",
                 );
+                ui.checkbox(&mut self.settings.toolbar, "Toolbar");
                 let setting = self.settings.word_wrap;
                 let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
                 if ui.checkbox(&mut wrap, "Word wrap    Alt+Z").changed() {
@@ -1365,19 +1370,90 @@ impl App {
                 continue;
             }
             ui.close();
-            let Some(open) = self.docs.active_mut() else {
-                return;
-            };
-            open.text_focus = true;
-            match command {
-                Some(command) => ui.ctx().send_viewport_cmd(command),
-                None => {
-                    open.text_sel = Some(xml_atlas_engine::text::select_all(&open.doc));
-                    open.text_goal = None;
-                    open.doc.history.seal();
-                }
+            self.clipboard(ui.ctx(), command);
+        }
+    }
+
+    /// Cut, Copy, Paste (`command`) or, without one, Select All, in the text view: it gets
+    /// the keyboard back, and egui hands it the same events the keys make, on the next frame.
+    fn clipboard(&mut self, ctx: &egui::Context, command: Option<egui::ViewportCommand>) {
+        let Some(open) = self.docs.active_mut() else {
+            return;
+        };
+        open.text_focus = true;
+        match command {
+            Some(command) => ctx.send_viewport_cmd(command),
+            None => {
+                open.text_sel = Some(xml_atlas_engine::text::select_all(&open.doc));
+                open.text_goal = None;
+                open.doc.history.seal();
             }
         }
+    }
+
+    /// File > New (OPEN-22): an untitled document in a new tab.
+    fn new_document(&mut self) {
+        self.add_document(Document::untitled());
+        self.message = None;
+    }
+
+    /// The toolbar under the menu (WIN-5): the commands used most, as in XML Marker's (XM-58).
+    fn toolbar(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        let active = self.docs.active();
+        let open = active.is_some();
+        let modified = active.is_some_and(|o| o.doc.is_modified());
+        let selected = active
+            .and_then(|o| o.text_sel)
+            .is_some_and(|s| !s.is_empty());
+        let history = active.map(|o| &o.doc.history);
+        let undo = history.is_some_and(|h| h.undo_label().is_some());
+        let redo = history.is_some_and(|h| h.redo_label().is_some());
+        ui.horizontal(|ui| {
+            if tool(ui, true, "🗋", "New    Ctrl+N") {
+                self.new_document();
+            }
+            if tool(ui, true, "🗁", "Open    Ctrl+O") {
+                self.pick_file(&ctx);
+            }
+            if tool(ui, modified, "💾", "Save    Ctrl+S") {
+                self.save();
+            }
+            ui.separator();
+            if tool(ui, selected, "✂", "Cut    Ctrl+X") {
+                self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCut));
+            }
+            if tool(ui, selected, "🗐", "Copy    Ctrl+C") {
+                self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCopy));
+            }
+            if tool(ui, open, "📋", "Paste    Ctrl+V") {
+                self.clipboard(&ctx, Some(egui::ViewportCommand::RequestPaste));
+            }
+            ui.separator();
+            if tool(ui, undo, "⟲", "Undo    Ctrl+Z") {
+                self.undo();
+            }
+            if tool(ui, redo, "⟳", "Redo    Ctrl+Y") {
+                self.redo();
+            }
+            if tool(ui, open, "🔍", "Find    Ctrl+F") {
+                self.find.open();
+            }
+            ui.separator();
+            if tool(ui, open, "⏶", "Drill Up    Alt+Up")
+                && let Some(open) = self.docs.active_mut()
+            {
+                crate::nav::drill_up(open);
+            }
+            if tool(ui, open, "⏷", "Drill Down    Alt+Down")
+                && let Some(open) = self.docs.active_mut()
+            {
+                crate::nav::drill_down(open);
+            }
+            if tool(ui, open, "☰", "Format") {
+                self.format_document();
+            }
+        });
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
@@ -1470,6 +1546,10 @@ impl eframe::App for App {
         {
             self.pick_file(&ctx);
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::N)))
+        {
+            self.new_document();
+        }
         if ctx.input_mut(|i| {
             let pressed = i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::Z));
             if pressed {
@@ -1547,6 +1627,9 @@ impl eframe::App for App {
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
+        if self.settings.toolbar {
+            egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        }
         if !self.docs.is_empty() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(ui));
         }
@@ -2108,6 +2191,17 @@ fn stop_at_the_edge(ctx: &egui::Context) {
 /// sections and menus open at once too.
 fn no_animations(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| style.animation_time = 0.0);
+}
+
+/// A toolbar button: `icon`, with `tip` when the pointer rests on it, also while disabled.
+fn tool(ui: &mut Ui, enabled: bool, icon: &str, tip: &str) -> bool {
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(RichText::new(icon).size(17.0)).frame(false),
+    )
+    .on_hover_text(tip)
+    .on_disabled_hover_text(tip)
+    .clicked()
 }
 
 #[cfg(test)]

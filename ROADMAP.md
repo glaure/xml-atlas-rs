@@ -83,7 +83,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       reorder columns (GRID-21 to GRID-24)
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
-- [ ] Toolbar like XML Marker's, once its buttons are observed (WIN-5)
+- [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
 
 ## Distribution and automation
 

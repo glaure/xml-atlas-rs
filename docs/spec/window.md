@@ -34,8 +34,14 @@ How the views are laid out, and how the window looks.
   features. *About XML Atlas* shows the version, what the program is, its licenses (and
   where the libraries' licenses are), and links to the project page and the releases.
   Checking for a newer version (PKG-7) is to come in this menu.
-- **WIN-5** `[planned]` A toolbar under the menu, as XML Marker has one (XM-2). Its buttons
-  are decided once the owner has observed XML Marker's toolbar.
+- **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
+  Cut, Copy, Paste | Undo, Redo, Find | Drill Up, Drill Down, Format. Each button does what
+  its menu entry or key does and is greyed out when that is: Save without changes, Cut and
+  Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest
+  without an open document (except New and Open). Resting the pointer on a button names it
+  and its key. The icons are symbols from egui's own fonts, no images. View > Toolbar shows
+  or hides it, remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree
+  follows the selection by itself, and the toolbar stays under the menu; egui cannot move it.
 
 ## Acceptance tests
 
@@ -50,6 +56,9 @@ How the views are laid out, and how the window looks.
   window follows within a moment.
 - Press F1: the help window opens, its text wraps with the window's width and scrolls. Help >
   About XML Atlas shows the version the package was built as; its links open in the browser.
+- Turn off View > Toolbar, quit and start again: no toolbar. Turn it on: click a grid row,
+  then Drill Up and Drill Down on the toolbar: the selection goes to the parent and back.
+  Select text, Copy and Paste on the toolbar: pasted at the cursor.
 
 ## Seen in the reference programs
 
@@ -66,8 +75,9 @@ How the views are laid out, and how the window looks.
 - The default layout, until the user changes it: tree on the left, text at the top right,
   the grid below the text. (Owner, 2026-11-16.)
 - Help holds a built-in guide and About, and later the check for a newer version (WIN-4,
-  PKG-7). A toolbar like XML Marker's, its buttons after the owner has observed them
-  (WIN-5). (Owner, 2026-11-17.)
+  PKG-7). (Owner, 2026-11-17.)
+- A toolbar after XML Marker's, without Locate in tree, fixed under the menu; File > New
+  added for it (WIN-5, OPEN-22). (Owner, 2026-11-17.)
 
 ## Questions
 
