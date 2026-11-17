@@ -5,6 +5,7 @@ All three show the same document, and a change in one shows in the others.
 
 ## Opening files
 
+- File > New (Ctrl+N) starts an untitled document; saving asks for its name.
 - File > Open (Ctrl+O), drop files onto the window, or name them on the command line. On
   macOS, double-click them in Finder or drop them on the Dock icon.
 - Each file opens in a tab of its own. Ctrl+Tab and Ctrl+Shift+Tab switch tabs, Ctrl+W
@@ -16,6 +17,11 @@ All three show the same document, and a change in one shows in the others.
 - When another program changes the open file, a notice above the views offers to reload it.
 - A minified file, its elements on one long line, opens with word wrap on and a notice that
   offers to format it.
+
+## The toolbar
+
+Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, Drill Up, Drill Down
+and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 
 ## The tree
 
@@ -71,7 +77,7 @@ All three show the same document, and a change in one shows in the others.
 
 ## Keyboard
 
-- Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab
+- Ctrl+N new, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab
 - Ctrl+Tab and Ctrl+Shift+Tab next and previous tab
 - Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo
 - Ctrl+F find, Ctrl+H replace, F3 and Shift+F3 next and previous match

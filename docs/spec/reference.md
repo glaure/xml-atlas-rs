@@ -37,6 +37,9 @@ Limits:
   Alt+Down (Drill Down), Alt+Up (Drill Up), Ctrl+E (Editor Select), Ctrl+T (Insert Tag),
   Ctrl+R (Insert Attribute), Ctrl+U (Comment Out Selection), Ctrl+M (Mark Selection With Tag),
   F5 (minimize empty columns for visible rows).
+- **XM-58** A toolbar under the menu, observed by the owner (2026-11-17), in this order with
+  separators: New, Open, Save | Cut, Copy, Paste | Undo, Redo, Find | Locate in tree, Drill
+  Up, Drill Down, Indent. View > Toolbar hides it; it can be moved.
 - **XM-4** The status bar shows "Ready" and the cursor as position, line and column. No file
   size, element count or timing.
 

@@ -470,6 +470,14 @@ impl Document {
         self.revision = revision;
     }
 
+    /// A new, untitled document (OPEN-22): the XML declaration and an empty `root` element,
+    /// with this system's line endings. It has no path, so saving asks for a name.
+    pub fn untitled() -> Self {
+        let newline = if cfg!(windows) { "\r\n" } else { "\n" };
+        let src = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>{newline}<root/>{newline}");
+        Self::from_bytes(src.into_bytes())
+    }
+
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }
@@ -966,5 +974,18 @@ mod tests {
         let tags = |n: usize| format!("<r>{}{}</r>", "<b/>".repeat(n - 2), "x".repeat(5000));
         assert!(!Document::from_bytes(tags(9).into_bytes()).is_minified());
         assert!(Document::from_bytes(tags(10).into_bytes()).is_minified());
+    }
+
+    /// File > New (OPEN-22): well-formed, one empty `root`, nothing to save yet, no path.
+    #[test]
+    fn untitled_document() {
+        let doc = Document::untitled();
+        assert!(doc.path.is_none());
+        assert!(!doc.is_modified());
+        assert!(doc.problems().is_empty());
+        let root = doc.index.root_element().unwrap();
+        assert_eq!(doc.index.name(&doc.src, root), b"root");
+        let newline: &[u8] = if cfg!(windows) { b"\r\n" } else { b"\n" };
+        assert!(doc.src.ends_with(&[b"<root/>", newline].concat()));
     }
 }
