@@ -1,2 +1,4 @@
 /target
 /fixtures/*.xml
+# Files from users' issue reports; they may not be ours to publish.
+/tmp/

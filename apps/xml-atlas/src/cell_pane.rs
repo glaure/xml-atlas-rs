@@ -59,10 +59,11 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 });
         }
         Detail::Element(grid) | Detail::Elements(grid) => {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&grid.path).strong());
-                ui.label(RichText::new(format!("{} rows", grid.rows.len())).weak());
-            });
+            crate::grid::path_line(
+                ui,
+                RichText::new(&grid.path).strong(),
+                &[format!("{} rows", grid.rows.len())],
+            );
             if matches!(pane.detail, Detail::Element(_)) {
                 crate::grid::attributes(ui, grid);
             }

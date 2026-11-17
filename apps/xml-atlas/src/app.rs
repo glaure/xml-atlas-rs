@@ -406,40 +406,7 @@ impl App {
     /// Shows `doc` in a new tab.
     fn add_document(&mut self, doc: Document) {
         self.next_id += 1;
-        let mut open = Open {
-            tree: tree::TreeState::new(&doc),
-            doc,
-            id: egui::Id::unique(("document", self.next_id)),
-            discard: false,
-            disk: None,
-            selected: None,
-            focus: None,
-            mark: None,
-            grid: None,
-            scroll_text_to: None,
-            problems: Vec::new(),
-            keys: Pane::Tree,
-            grid_scroll_to: None,
-            grid_reveal_cell: false,
-            grid_cell: None,
-            grid_edit: None,
-            note: None,
-            cell_pane: None,
-            text_sel: None,
-            text_goal: None,
-            text_reveal: false,
-            text_focus: false,
-            text_scroll: crate::scroll::RowScroll::default(),
-            text_left: 0.0,
-            text_width: 0.0,
-            text_long: Default::default(),
-            text_wrap: Default::default(),
-            text_wrapped: false,
-            text_preedit: None,
-            reparse: None,
-            text_rows: 0..0,
-        };
-        open.problems = open.doc.problems();
+        let mut open = Open::new(doc, egui::Id::unique(("document", self.next_id)));
         open.tree.set_attributes(self.settings.tree_attributes);
         if let Some(root) = open.doc.index.root_element() {
             open.select(root);
@@ -1558,6 +1525,45 @@ impl eframe::App for App {
 }
 
 impl Open {
+    /// A tab for `doc`, with nothing selected yet.
+    pub fn new(doc: Document, id: egui::Id) -> Self {
+        let mut open = Open {
+            tree: tree::TreeState::new(&doc),
+            doc,
+            id,
+            discard: false,
+            disk: None,
+            selected: None,
+            focus: None,
+            mark: None,
+            grid: None,
+            scroll_text_to: None,
+            problems: Vec::new(),
+            keys: Pane::Tree,
+            grid_scroll_to: None,
+            grid_reveal_cell: false,
+            grid_cell: None,
+            grid_edit: None,
+            note: None,
+            cell_pane: None,
+            text_sel: None,
+            text_goal: None,
+            text_reveal: false,
+            text_focus: false,
+            text_scroll: crate::scroll::RowScroll::default(),
+            text_left: 0.0,
+            text_width: 0.0,
+            text_long: Default::default(),
+            text_wrap: Default::default(),
+            text_wrapped: false,
+            text_preedit: None,
+            reparse: None,
+            text_rows: 0..0,
+        };
+        open.problems = open.doc.problems();
+        open
+    }
+
     /// Runs `change` on the document and, when it reports a change, rebuilds the views around
     /// the same elements: the selection and the expanded tree rows are found again by their
     /// position among their element siblings (FMT-8).
@@ -2061,6 +2067,55 @@ mod tests {
             offset <= max,
             "scrolled {} points past the end",
             offset - max
+        );
+    }
+
+    /// The cell pane beside the grid (GRID-16) showing an element as deep as those in AUTOSAR
+    /// files fits the width it is given. An egui side panel is never narrower than its
+    /// content: the pane's path line made it as wide as the path, the grid beside it was
+    /// squeezed to a few pixels, and the border could not be dragged back. Reported with an
+    /// `.arxml` file.
+    #[test]
+    fn a_deep_path_fits_the_cell_pane() {
+        let names: Vec<String> = (0..14).map(|i| format!("ÄR-PACKAGE-ELEMENT-{i}")).collect();
+        let mut src = String::from("\u{feff}<?xml version=\"1.0\"?>\r\n");
+        for n in &names {
+            src.push_str(&format!("<{n}>\r\n"));
+        }
+        src.push_str("<FIBEX-ELEMENT-REF DEST=\"CAN-FRAME\">/Frame/Grüße</FIBEX-ELEMENT-REF>\r\n");
+        for n in names.iter().rev() {
+            src.push_str(&format!("</{n}>\r\n"));
+        }
+        let doc = Document::from_bytes(src.into_bytes());
+        let deepest = (0..doc.index.len() as NodeId)
+            .rev()
+            .find(|&id| doc.index.node(id).kind == NodeKind::Element)
+            .unwrap();
+        let mut open = Open::new(doc, egui::Id::unique("deep"));
+        // A leaf is the grid's one row (GRID-5); marked, the pane shows it with its path.
+        open.select(deepest);
+        assert!(open.grid.as_ref().unwrap().path.len() > 300);
+
+        let ctx = egui::Context::default();
+        let width = 300.0;
+        let mut used = 0.0;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.allocate_ui(egui::vec2(width, 400.0), |ui| {
+                    crate::cell_pane::show(ui, &mut open);
+                    used = ui.min_rect().width();
+                });
+            });
+            // No renderer here takes the font atlas.
+            out.textures_delta.clear();
+        }
+        assert!(
+            open.cell_pane.is_some(),
+            "the pane did not show the marked row"
+        );
+        assert!(
+            used <= width,
+            "the pane's content needs {used} points of the {width} it has"
         );
     }
 

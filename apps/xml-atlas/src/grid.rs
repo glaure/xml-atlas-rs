@@ -56,24 +56,19 @@ enum Header<'a> {
 
 pub fn show(ui: &mut Ui, open: &mut Open) {
     let Some(grid) = &open.grid else { return };
-    ui.horizontal(|ui| {
-        let path = RichText::new(&grid.path).strong();
-        if open.doc.stale() == Some(grid.parent) {
-            ui.label(path.color(ui.visuals().error_fg_color))
-                .on_hover_text("The text of this element is being edited and is not well-formed; the grid shows it as it last was.");
-        } else {
-            ui.label(path);
-        }
-        ui.label(RichText::new(format!("{} rows", grid.rows.len())).weak());
-        let hidden = grid.view().hidden.len();
-        if hidden > 0 {
-            let text = match hidden {
-                1 => "1 column hidden".to_string(),
-                n => format!("{n} columns hidden"),
-            };
-            ui.label(RichText::new(text).weak());
-        }
-    });
+    let mut after = vec![format!("{} rows", grid.rows.len())];
+    match grid.view().hidden.len() {
+        0 => {}
+        1 => after.push("1 column hidden".to_string()),
+        n => after.push(format!("{n} columns hidden")),
+    }
+    let path = RichText::new(&grid.path).strong();
+    if open.doc.stale() == Some(grid.parent) {
+        path_line(ui, path.color(ui.visuals().error_fg_color), &after)
+            .on_hover_text("The text of this element is being edited and is not well-formed; the grid shows it as it last was.");
+    } else {
+        path_line(ui, path, &after);
+    }
     attributes(ui, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
     let scroll = open.grid_scroll_to.take();
@@ -200,6 +195,39 @@ fn not_editable(cell: &Cell) -> &'static str {
 }
 
 /// The selected element's own attributes (GRID-11).
+/// One line: the path of a grid's element, then `after`, weak. The path is cut to the width
+/// the rest of the line leaves, and shown whole on hover: the path of a deep element (AUTOSAR
+/// files nest a dozen levels) must not widen its pane, because an egui side panel is never
+/// narrower than its content, and the border to the grid could no longer be dragged
+/// (GRID-16). Returns the path's response.
+pub(crate) fn path_line(ui: &mut Ui, path: RichText, after: &[String]) -> egui::Response {
+    ui.horizontal(|ui| {
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let gap = ui.spacing().item_spacing.x;
+        let rest: f32 = after
+            .iter()
+            .map(|t| {
+                let galley = ui.fonts_mut(|f| {
+                    f.layout_no_wrap(t.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+                });
+                galley.size().x + gap
+            })
+            .sum();
+        let room = (ui.available_width() - rest).max(0.0);
+        let response = ui
+            .scope(|ui| {
+                ui.set_max_width(room);
+                ui.add(egui::Label::new(path).truncate())
+            })
+            .inner;
+        for t in after {
+            ui.label(RichText::new(t).weak());
+        }
+        response
+    })
+    .inner
+}
+
 pub(crate) fn attributes(ui: &mut Ui, grid: &Grid) {
     if grid.attributes.is_empty() {
         ui.label(RichText::new("No attributes").weak());
