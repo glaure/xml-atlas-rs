@@ -1,0 +1,155 @@
+# Release packages (docs/spec/install.md, PKG-1, PKG-14).
+#
+# A version tag such as `v1.0.0` builds the Linux .deb and .rpm and the Windows MSI and zip,
+# and puts them with a SHA256SUMS file into a draft release. The Windows files are unsigned:
+# a maintainer signs them on Windows and only then publishes the draft (PKG-14).
+#
+# On a pull request that touches the packaging, and when started by hand, the same jobs
+# build the packages and keep them as workflow artifacts; no release is made.
+
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - xtask/**
+      - packaging/**
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The tools the packages are built with, pinned like WiX (xtask/src/windows.rs).
+  ZIG_VERSION: 0.14.1
+  CARGO_ZIGBUILD_VERSION: 0.24.1
+  WIX_VERSION: 5.0.2
+
+jobs:
+  version:
+    name: tag matches the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Read the workspace version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "xml-atlas") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "workspace version $version"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the version in Cargo.toml ($version)"
+            exit 1
+          fi
+
+  linux:
+    name: Linux .deb and .rpm
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
+      - run: cargo xtask package
+      # Installs each package in a fresh container of every supported system (PKG-33).
+      - run: packaging/linux/install-test.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/dist/*.deb
+            target/dist/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: Windows MSI and zip (unsigned)
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install WiX
+        shell: bash
+        run: |
+          dotnet tool install --global wix --version "$WIX_VERSION"
+          echo "$USERPROFILE/.dotnet/tools" >> "$GITHUB_PATH"
+      - name: Add the WiX UI extension
+        shell: bash
+        run: |
+          wix --version
+          wix extension add --global "WixToolset.UI.wixext/$WIX_VERSION"
+      - run: cargo xtask package-windows
+      - name: The packed programs run
+        shell: bash
+        run: |
+          out=$(target/dist/windows/xml-atlas-cli.exe --version)
+          echo "$out"
+          [[ "$out" == *"${{ needs.version.outputs.version }}"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            target/dist/*.msi
+            target/dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create or update the draft
+        working-directory: dist
+        run: |
+          tag=$GITHUB_REF_NAME
+          if draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            # A published release keeps its signed files: never replace them with unsigned ones.
+            if [ "$draft" != true ]; then
+              echo "::error::release $tag is already published"
+              exit 1
+            fi
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber -- *
+          else
+            cat > ../notes.md <<EOF
+          > **Draft: the Windows files are not signed yet.** Sign them with the signing
+          > script (docs/spec/install.md, PKG-14), then publish this release.
+
+          Linux: \`xml-atlas_${VERSION}-1_amd64.deb\` for Ubuntu 22.04 and later and Debian 12
+          and later, \`xml-atlas-${VERSION}-1.x86_64.rpm\` for RHEL 9 and Fedora.
+          Windows: \`xml-atlas-${VERSION}-x64.msi\` to install, or
+          \`xml-atlas-${VERSION}-windows-x64.zip\` to use without installing.
+          SHA256SUMS holds the checksum of each file.
+          EOF
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "XML Atlas $VERSION" --notes-file ../notes.md --generate-notes -- *
+          fi
