@@ -1010,9 +1010,14 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     KDE's Breeze), and the system's accent colour for the selection and focus. The colours
     are our own choice, taken from looking at the systems and their published design
     guidelines; no assets of theirs are used.
-- **Follow system, light and dark:** the settings remember one light and one dark theme.
-  *Follow system* (the default, WIN-2) switches between the two as the system does; the
-  user can also pin either.
+- **Two choices in View > Theme** (proposed in answer to the owner's first question):
+  - *Mode*, as today (WIN-2): Follow system (the default), Light or Dark.
+  - *Style*: XML Atlas (the default; the Dark and softer Light above), Native, or a theme
+    file of the user's.
+
+  Every style has a light and a dark variant, and the mode picks which one shows. So
+  Native with Follow system switches with the system, and there is no "Native light" and
+  "Native dark" to keep in step. Both choices are remembered (WIN-3).
 - **The accent colour:**
   - Linux: the settings portal that already reports light or dark (`system_theme.rs`) has
     `accent-color` in the same `org.freedesktop.appearance` namespace (GNOME 47, KDE
@@ -1022,54 +1027,57 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - macOS: `NSColor.controlAccentColor` (`objc2-app-kit`, safe to call). Reading its red,
     green and blue may need `unsafe`; if so, it goes into the module D26 allows, or a
     decision of its own first (`AGENTS.md`). To check on a Mac.
-- **Changing a theme:** View > Theme… opens a dialog: the themes in a list, the window
-  showing the chosen one at once, and *Edit a copy*, which lists the colours by name (Text
-  background, Tags, Attribute names, Selection, …) with a colour picker each, and a reset.
-  A changed theme is saved as a TOML file in `themes/` next to the settings file (WIN-3),
-  readable and shareable; a file dropped there shows up in the list. A colour that cannot be
-  read is left at the theme it was copied from, with a warning in the log, as WIN-3 does
-  for settings.
+- **Changing a theme:** with a text editor; no editor in the window (owner, 2026-11-17).
+  A theme is a TOML file in `themes/` next to the settings file (WIN-3), readable and
+  shareable, with a `[light]` and a `[dark]` part; the colours have names (`text_background`,
+  `tag`, `attribute_name`, `selection`, …). A file there shows up under Style. View > Theme
+  > *Save a copy of this theme* writes the current style as a file to start from, and *Open
+  the themes folder* shows the folder; the window reads a changed file again when it gets
+  the focus back. A colour that is missing or cannot be read, or a missing part, comes from
+  the XML Atlas style, with a warning in the log, as WIN-3 does for settings. The help
+  (WIN-4) describes the file.
 - **What a native look cannot be in egui:** egui draws every widget itself. Menus, buttons,
   scroll bars and dialogs look like the system's only as far as colours, rounding, spacing
   and the font allow. The title bar and the file dialogs (`rfd`) are already the system's.
   The UI font follows TEXT-25's font choice; using the system's UI font by default
-  (`fontique` names it) is part of *Native*. A native menu bar on macOS (the one at the top
-  of the screen) is a separate step, not in this plan.
+  (`fontique` names it) is part of *Native*. The menu bar at the top of the screen on macOS
+  is wanted later (owner, 2026-11-17); it needs a crate (`muda`) and a decision of its own,
+  after this plan.
 - **Checks:** a test for every built-in theme that text, syntax colours, weak text and the
   selection have enough contrast on their backgrounds (4.5:1 for text, 3:1 for weak text,
   the WCAG levels); a test that a saved theme file reads back the same, with non-ASCII in
   its name; the startup time measured before and after (WIN-2's portal thread already runs).
   `xml-atlas-cli stats` does not touch the window, so its numbers do not move; they are
   reported anyway (rule 1).
-- **Order of work,** each a pull request:
+- **Order of work,** each a pull request. Steps 1 and 2 come first, in a 1.x release; the
+  rest later (owner, 2026-11-17):
   1. One `Theme` holding every colour, built from today's; the window looks the same.
   2. A softer *Light*, chosen by the owner from candidates in the running program.
-  3. A light and a dark theme remembered for Follow system; the accent colour on Linux
-     and Windows.
-  4. *Native* themes for Windows, macOS, GNOME and KDE; the accent colour on macOS.
-  5. The theme dialog, editing a copy, and theme files.
+  3. Style next to mode in View > Theme; theme files.
+  4. *Native* for Windows, macOS, GNOME and KDE, with the accent colour.
 - **Not chosen:**
   - Only a softer light theme: fixes the glare but not "users will want to change it".
   - Native widgets (through a toolkit such as GTK, or a web view): a second UI toolkit,
     against D1.
   - Themes as code (Rust constants per theme only): users could not share or change them.
+  - An editor for themes in the window: a text editor is enough (owner).
+  - *Native light* and *Native dark* as two themes: the mode already chooses light or dark.
   - Taking a theme from VS Code or another editor's format: tied to a format we do not
     control; a later import is possible from our own file.
-- **Questions for the owner:** below, under Open questions.
+- **Answered (owner, 2026-11-17):** theme files edited in a text editor are enough; the
+  macOS menu bar is wanted later; steps 1 and 2 first. Asked back: Native as one style with
+  a light and a dark variant, instead of *Native light* and *Native dark* (open below).
 
 ## Open questions
 
-About D29, themes:
-
-1. Should *Native* be the default when following the system, or stay a choice next to
-   Light and Dark?
-2. Is an editor for themes in the window wanted in the first version, or are theme files
-   (edited in a text editor) enough to begin with?
-3. Is the macOS menu bar at the top of the screen wanted later? It needs a crate (`muda`)
-   and its own decision.
-4. Should 1.x get only steps 1 and 2 (a better Light) first, and the rest later?
+1. D29: Native as one style next to the light/dark mode, as proposed under "Two choices in
+   View > Theme"?
 
 ## Answered questions
+
+About D29, themes (owner, 2026-11-17): an editor in the window is not needed, theme files
+are enough; the macOS menu bar at the top of the screen is wanted later, as its own
+decision; steps 1 and 2 (a softer Light) come first, the rest later.
 
 The five questions asked before the review: index updates in D9, rope or not in D10, memory
 mapping in D11, roadmap order in D15, slow spots in the review notes and D16.

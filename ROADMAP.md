@@ -86,7 +86,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
 - [x] Font, style and size of the text, tree and grid (TEXT-25)
 - [ ] Themes: a softer Light, themes the user can change and share as files, a native look
-      with the system's accent colour (D29, proposed)
+      with the system's accent colour (D29, proposed); a softer Light first
 
 ## Distribution and automation
 
