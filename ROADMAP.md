@@ -17,9 +17,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       Now 0.30-0.33 s and 132 MiB with OpenGL instead of wgpu (D21)
 - [x] Corpus of small real-world files as tests: byte order mark, CRLF, UTF-16, Latin-1, one
       huge line, deep nesting, namespaces, DOCTYPE (`crates/engine/tests/corpus/`)
-- [ ] Behaviour spec in `docs/spec/`: drafts written, XML Marker and the Qt XML Atlas observed
-      (`docs/spec/reference.md`); for the owner, two questions about the grid are left
-      (`docs/spec/grid.md`)
+- [x] Behaviour spec in `docs/spec/`: XML Marker and the Qt XML Atlas observed
+      (`docs/spec/reference.md`); the owner's questions answered, none open
 - [x] Find: match case, whole word, direction, F3 (TEXT-12); also `xml-atlas-cli find`
 - [x] Error list with markers in the text (OPEN-13)
 - [x] Tree: attribute and text rows, with a setting to hide attribute rows (TREE-1)
@@ -80,6 +79,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Schema (XSD) validation
 - [ ] Import other XML files: follow XInclude references (`docs/spec/open.md`)
 - [ ] Memory-mapped open for files larger than RAM (D11)
+- [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
+      reorder columns (GRID-21 to GRID-24)
 
 ## Distribution and automation
 
