@@ -42,6 +42,15 @@ How the views are laid out, and how the window looks.
   and its key. The icons are symbols from egui's own fonts, no images. View > Toolbar shows
   or hides it, remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree
   follows the selection by itself, and the toolbar stays under the menu; egui cannot move it.
+- **WIN-6** `[built]` View > Allow AI agents (MCP), off by default and remembered (WIN-3),
+  lets an agent such as Claude Code work in the window through `xml-atlas-cli mcp --window`
+  (`docs/decisions.md`, D28). While it is on, the window listens on `127.0.0.1` and writes
+  the port and a secret to `agent.json` next to the settings file, readable only by the
+  user; turning it off or closing the window removes the file. An agent's call runs between
+  two frames: a change is one undo step, its tab is shown and the element it changed
+  selected, and the status bar names it ("Agent: rename /r/b"); a refusal is shown as a
+  warning. The status bar says "Agent connected" while one is. An agent may open files as
+  tabs and save, but not close a tab with unsaved changes.
 
 ## Acceptance tests
 
@@ -56,6 +65,10 @@ How the views are laid out, and how the window looks.
   window follows within a moment.
 - Press F1: the help window opens, its text wraps with the window's width and scrolls. Help >
   About XML Atlas shows the version the package was built as; its links open in the browser.
+- Turn on View > Allow AI agents (MCP) and connect Claude Code with `xml-atlas-cli mcp
+  --window`; ask it to rename an element in the open file: the tab shows it renamed and
+  selected, Ctrl+Z undoes it. Ask it to close the tab: refused while there are unsaved
+  changes. Turn the setting off: `agent.json` is gone and the agent is told to turn it on.
 - Turn off View > Toolbar, quit and start again: no toolbar. Turn it on: click a grid row,
   then Drill Up and Drill Down on the toolbar: the selection goes to the parent and back.
   Select text, Copy and Paste on the toolbar: pasted at the cursor.

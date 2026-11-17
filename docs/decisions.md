@@ -932,6 +932,52 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   Latin-1, a broken file) and through the protocol, by a test that starts `xml-atlas-cli
   mcp`; not yet with Claude Code as the client.
 
+## D28: Agents in the open window (MCP, step 2)
+
+- **What:** step 2 of D27. An agent works on the documents open in the window: the user
+  sees each change, selected, and can undo it. The tools are those of step 1
+  (`crates/mcp`); the window implements their `Documents` trait with its tabs.
+- **How the agent reaches the window:** the agent's client starts `xml-atlas-cli mcp
+  --window`, which speaks MCP as in step 1 and passes each tool call to the window.
+  - The window listens on `127.0.0.1`, on a port the system picks, only while View > Allow
+    AI agents (MCP) is on; the setting is remembered (WIN-3) and off by default.
+  - It writes `agent.json` next to the settings file (WIN-3): the port, a secret of 32
+    random bytes from the system (`getrandom`, already in the build) and its process id;
+    only the user can read it. Every call must carry the secret, or the connection is
+    closed. The file goes when the setting is turned off or the window closes.
+  - Between them, one line of JSON per call and one per answer, over one connection:
+    `{"secret", "tool", "arguments"}` and `{"result"}` or `{"error"}`.
+  - The standard library has loopback TCP on every system; a Unix socket or a named pipe
+    would need a crate and two kinds of code.
+- **In the window:** a thread per connection reads the calls and hands them to the window,
+  which runs them between two frames, on its own thread, where the documents are.
+  - A change goes through the same code as the menus' (`Open::edit`): tree, grid and text
+    follow, the selection and expanded rows stay, it is one undo step, and the element it
+    changed is selected. The status bar names it: "Agent: Rename".
+  - `open` opens a tab, or shows the one the file is open in. `documents` lists the tabs.
+  - An agent may not discard the user's work: `close` is refused for a tab with unsaved
+    changes. It may save (D27).
+  - While an agent is connected the status bar says so.
+  - Large files open on the window's thread while the agent waits, about a second per
+    100 MiB: the window does not draw meanwhile. Opening in the background as File > Open
+    does is a later step.
+- **Decided (owner, 2026-11-17):** loopback TCP with a secret; a remembered setting, off
+  by default; agents edit and save but do not discard.
+- **Built (2026-11-17):** `crates/mcp/src/bridge.rs` holds both ends: `Listener` in the
+  window, `WindowClient` in the CLI, and where `agent.json` is, the same rule as the
+  settings file's, which moved there from the app. The `Documents` trait gained `change`,
+  so that the window runs a change through `Open::edit`; `close` may refuse.
+  `apps/xml-atlas/src/agent.rs` implements the trait over the tabs. Tested without a window
+  (a listener, a loop that runs the calls, the client: the secret file is `0600`, a wrong
+  secret closes the connection, the file goes when listening stops), on the tabs (an edit
+  is one undo step, selected, its tab shown; `close` is refused with unsaved changes; the
+  saved bytes change only where asked), and through the protocol (`mcp --window` without a
+  window tells the agent to turn it on; with one, its calls arrive). Not yet tried by a
+  person with Claude Code in the running window.
+- **Not chosen:** a Unix socket and a named pipe (a new crate, two code paths); the window
+  speaking MCP itself (clients start a program to talk to, so the bridge is needed
+  anyway); agents closing modified tabs.
+
 ## Open questions
 
 None.

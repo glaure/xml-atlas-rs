@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 xml-atlas-engine.workspace = true
+# The MCP tools, for agents in the open window (agent.rs, D28).
+xml-atlas-mcp = { path = "../../crates/mcp" }
 egui.workspace = true
 egui_extras = { version = "0.37", default-features = false }
 eframe.workspace = true
@@ -21,6 +23,7 @@ fontique = { version = "0.11.1", default-features = false, features = ["system",
 skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
+serde_json = "1.0.154"
 # egui's own fonts, as test data for the monospace check.
 epaint_default_fonts = "0.37"
 

@@ -11,6 +11,9 @@ repository.workspace = true
 xml-atlas-engine.workspace = true
 serde_json = "1.0.154"
 thiserror.workspace = true
+log.workspace = true
+# The secret of the window's connection (bridge.rs, D28); already in the window's build.
+getrandom = "0.3.4"
 
 [lints]
 workspace = true

@@ -9,14 +9,8 @@ use std::path::{Path, PathBuf};
 use xml_atlas_engine::FormatOptions;
 use xml_atlas_engine::find::FindOptions;
 
-/// Overrides where the settings file is, e.g. for tests.
-pub const PATH_VARIABLE: &str = "XML_ATLAS_SETTINGS";
-
-const FILE_NAME: &str = "settings.toml";
-
 /// Files kept in File > Open Recent (OPEN-12).
 pub const RECENT_FILES: usize = 10;
-const APP_DIR: &str = "xml-atlas";
 
 /// Where the grid and the text go on the right (WIN-1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -53,6 +47,8 @@ pub struct Settings {
     pub toolbar: bool,
     /// The text view's font (TEXT-25).
     pub text_font: crate::fonts::TextFont,
+    /// View > Allow AI agents (MCP) (D28).
+    pub agents: bool,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
@@ -69,6 +65,7 @@ impl Default for Settings {
             word_wrap: false,
             toolbar: true,
             text_font: Default::default(),
+            agents: false,
             find: FindOptions::default(),
             recent: Vec::new(),
         }
@@ -147,6 +144,7 @@ impl Settings {
              cell_pane = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
+             agents = {}\n\
              \n\
              [text]\n\
              font = {}\n\
@@ -170,6 +168,7 @@ impl Settings {
             self.cell_pane,
             self.word_wrap,
             self.toolbar,
+            self.agents,
             quote(self.text_font.family.as_deref().unwrap_or("")),
             self.text_font.face.name(),
             self.text_font.size,
@@ -257,6 +256,7 @@ impl Settings {
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
+                ("view", "agents") => set(&mut s.agents, boolean(value)),
                 ("text", "font") => set(
                     &mut s.text_font.family,
                     unquote(value).map(|f| (!f.is_empty()).then_some(f)),
@@ -297,28 +297,11 @@ impl Settings {
     }
 }
 
-/// The settings file: [`PATH_VARIABLE`] if set, else `xml-atlas/settings.toml` in the
-/// platform's configuration folder. `None` when there is no home folder to put it in.
+/// The settings file: `XML_ATLAS_SETTINGS` if set, else `xml-atlas/settings.toml` in the
+/// platform's configuration folder. `None` when there is no home folder to put it in. The
+/// same rule finds the file agents connect with (D28), so it lives in `xml-atlas-mcp`.
 pub fn path() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os(PATH_VARIABLE).filter(|p| !p.is_empty()) {
-        return Some(PathBuf::from(p));
-    }
-    config_dir().map(|d| d.join(APP_DIR).join(FILE_NAME))
-}
-
-fn config_dir() -> Option<PathBuf> {
-    let env = |name: &str| {
-        std::env::var_os(name)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    if cfg!(windows) {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Application Support"))
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
-    }
+    xml_atlas_mcp::bridge::settings_file()
 }
 
 fn set<T>(slot: &mut T, value: Option<T>) -> bool {
@@ -391,6 +374,7 @@ mod tests {
             cell_pane: false,
             word_wrap: true,
             toolbar: false,
+            agents: true,
             text_font: crate::fonts::TextFont {
                 family: Some("DejaVu Sans Mono \"Größe\"".into()),
                 face: crate::fonts::Face::BoldItalic,
@@ -455,7 +439,7 @@ mod tests {
     #[test]
     fn save_and_load_through_the_file() {
         let dir = std::env::temp_dir().join(format!("xml-atlas-settings-{}", std::process::id()));
-        let file = dir.join("nested").join(FILE_NAME);
+        let file = dir.join("nested").join("settings.toml");
         let s = Settings {
             layout: Layout::GridAbove,
             ..Settings::default()

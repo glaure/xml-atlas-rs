@@ -89,6 +89,17 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 
 On macOS, Cmd takes the place of Ctrl.
 
+## AI agents
+
+An agent such as Claude Code can work with XML files through XML Atlas, over the Model
+Context Protocol (MCP):
+
+- On files, without a window: `claude mcp add xml-atlas -- xml-atlas-cli mcp`.
+- In this window, on the open tabs: turn on View > Allow AI agents (MCP), then
+  `claude mcp add xml-atlas-window -- xml-atlas-cli mcp --window`. Each change an agent
+  makes is selected and named in the status bar, and Ctrl+Z undoes it. An agent cannot close
+  a tab with unsaved changes.
+
 ## Settings
 
 The layout, theme, view options, text font, format options and recent files are remembered in

@@ -1,5 +1,6 @@
 //! XML Atlas desktop app.
 
+mod agent;
 mod app;
 mod cell_pane;
 mod disk_watch;
