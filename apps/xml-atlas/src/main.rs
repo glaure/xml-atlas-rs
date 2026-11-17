@@ -5,6 +5,7 @@ mod cell_pane;
 mod disk_watch;
 mod find_bar;
 mod grid;
+mod help;
 mod highlight;
 mod icons;
 #[cfg(target_os = "macos")]

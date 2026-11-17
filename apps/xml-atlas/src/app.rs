@@ -52,6 +52,8 @@ pub struct App {
     loading: Vec<Loading>,
     /// Files the system asks to open while the app runs: from Finder on macOS (D26).
     opened: Option<Receiver<PathBuf>>,
+    /// The help windows (WIN-4).
+    help: crate::help::Help,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
     notice: Option<Note>,
@@ -276,6 +278,7 @@ impl App {
             find,
             loading: Vec::new(),
             opened,
+            help: Default::default(),
             message: None,
             notice: None,
             format_dialog: None,
@@ -1319,6 +1322,16 @@ impl App {
                     "Text above grid (as in XML Marker)",
                 );
             });
+            ui.menu_button("Help", |ui| {
+                if ui.button("XML Atlas Help    F1").clicked() {
+                    ui.close();
+                    self.help.guide = true;
+                }
+                if ui.button("About XML Atlas").clicked() {
+                    ui.close();
+                    self.help.about = true;
+                }
+            });
         });
     }
 
@@ -1485,6 +1498,10 @@ impl eframe::App for App {
         self.confirm_dialog(ui);
         self.encoding_dialog(ui);
         self.format_dialog(&ctx);
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) {
+            self.help.guide = true;
+        }
+        crate::help::show(&ctx, &mut self.help);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
         if ctx.input_mut(|i| {
             i.consume_shortcut(&KeyboardShortcut::new(

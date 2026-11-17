@@ -27,6 +27,15 @@ How the views are laid out, and how the window looks.
   follows it while running, because the window library does not report the theme there; with
   no portal it falls back to dark and says why in the log. On Windows and macOS the window
   library reports the system theme. The Qt XML Atlas has the same choice (QT-12).
+- **WIN-4** `[built]` A Help menu. *XML Atlas Help* (also F1) opens a window with a short
+  guide: opening files, the tree, the grid, the text, Find and Replace, formatting, undo and
+  saving, the keys, and where the settings are. The guide is built into the program, so it
+  works offline; its text is `apps/xml-atlas/assets/help.md`, kept up to date with the
+  features. *About XML Atlas* shows the version, what the program is, its licenses (and
+  where the libraries' licenses are), and links to the project page and the releases.
+  Checking for a newer version (PKG-7) is to come in this menu.
+- **WIN-5** `[planned]` A toolbar under the menu, as XML Marker has one (XM-2). Its buttons
+  are decided once the owner has observed XML Marker's toolbar.
 
 ## Acceptance tests
 
@@ -39,6 +48,8 @@ How the views are laid out, and how the window looks.
   whole window turns dark at once, without reopening the file.
 - With Follow system, switch the desktop between light and dark while XML Atlas runs: the
   window follows within a moment.
+- Press F1: the help window opens, its text wraps with the window's width and scrolls. Help >
+  About XML Atlas shows the version the package was built as; its links open in the browser.
 
 ## Seen in the reference programs
 
@@ -54,6 +65,9 @@ How the views are laid out, and how the window looks.
 - Theme support: light, dark, and following the system (WIN-2). (Owner, 2026-11-14.)
 - The default layout, until the user changes it: tree on the left, text at the top right,
   the grid below the text. (Owner, 2026-11-16.)
+- Help holds a built-in guide and About, and later the check for a newer version (WIN-4,
+  PKG-7). A toolbar like XML Marker's, its buttons after the owner has observed them
+  (WIN-5). (Owner, 2026-11-17.)
 
 ## Questions
 
