@@ -791,6 +791,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 
 ## Open questions
 
+None is open.
+
 The five questions asked before the review are answered: index updates in D9, rope or not in
 D10, memory mapping in D11, roadmap order in D15, slow spots in the review notes and D16.
 
@@ -799,6 +801,12 @@ New ones:
 1. Does the tokenizer of D14 pay for itself? Answered: yes for well-formed UTF-8, 17 % off
    opening 300 MiB as built (D14).
 2. How should node identity survive a full re-index (after Format, or when a splice fails)?
-   Paths of child positions are one option.
+   Answered: by paths of child positions, as built for Format (FMT-8) and the structured
+   edits (EDIT-5 to EDIT-10). `Index::element_position` gives an element's position among
+   its element siblings at each level; comments and text do not count, so Remove comments
+   keeps them. Before a change the app notes the selection, the marked element and the
+   expanded tree rows that way, and finds them again after it (`Open::edit_with`). A
+   structured edit says how it moves elements (`Shift` in `apps/xml-atlas/src/app.rs`), so
+   a moved, inserted or deleted element is followed.
 3. Which encodings do the owner's real files use? Answered: UTF-8. Other encodings are in
    1.0 anyway (D23).
