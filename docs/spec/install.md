@@ -11,9 +11,16 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 ### Every platform
 
-- **PKG-1** `[planned]` Every release is built by CI from a version tag and published on the
+- **PKG-1** `[built]` Every release is built by CI from a version tag and published on the
   project's GitHub releases page, with release notes and a SHA-256 checksum for each file.
-  Nobody builds a release package by hand.
+  Nobody builds a release package by hand. `.github/workflows/release.yml` runs on a tag
+  `vX.Y.Z`: it refuses a tag that is not the version in `Cargo.toml`, builds the `.deb` and
+  `.rpm` with `cargo xtask package` and runs `packaging/linux/install-test.sh` on them,
+  builds the MSI and zip on Windows with `cargo xtask package-windows`, and puts the four
+  files and a `SHA256SUMS` into a draft release whose notes say the Windows files still
+  need signing (PKG-14, step 1). Run again for the same tag, it replaces the draft's files;
+  it never touches a published release. A pull request that changes the packaging builds
+  the packages the same way, without a release. Not yet run from a real tag.
 - **PKG-2** `[planned]` Every package contains both programs, the license texts (MIT and
   Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version,
   and `xml-atlas-cli --version` prints it.

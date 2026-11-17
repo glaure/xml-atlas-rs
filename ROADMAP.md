@@ -90,7 +90,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       installed for the current user and for all users on Windows 11, and 0.1.1 over 0.1.0
       (PKG-5)
 - [ ] Packages for 1.0, built by CI from a version tag (`docs/spec/install.md`): the Linux
-      and Windows packages above, with the manual signing step for Windows (PKG-14)
+      and Windows packages above into a draft release (PKG-1, written); left: the manual
+      signing step for Windows (PKG-14)
 - [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
 - [ ] macOS DMG (universal, Homebrew cask) with a manual signing and notarization step
       (*after 1.0*, D20)
