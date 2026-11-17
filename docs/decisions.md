@@ -866,6 +866,61 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   opened as a second tab in the same process; macOS sent that name decomposed (`o` and a
   combining diaeresis), and it opened. Still to do: the checks on a real Mac.
 
+## D27: An MCP server, on files first, then on the open window
+
+- **What:** agents such as Claude Code use XML Atlas through the Model Context Protocol
+  (MCP). The owner's order (2026-11-17): first a server that works on files without a
+  window, then one that works on the documents open in the window, so the user sees what
+  an agent does and can undo it.
+- **Step 1, files:** `xml-atlas-cli mcp` speaks MCP over standard input and output, the
+  transport local clients start a server with (`claude mcp add xml-atlas -- xml-atlas-cli
+  mcp`). It keeps the documents it opened in memory, like tabs, until the session ends.
+  Nothing is written to disk except by `save`.
+- **Tools,** each a call into the engine (D4), the same as the CLI's commands. Elements are
+  named by the paths the grid and CLI use (`/orders/order[2]/customer`):
+  - `open` (a path; returns a document id and its stats: size, lines, elements, encoding,
+    whether it is well-formed), `close`, `documents`.
+  - Reading: `element` (name, attributes, text, line, and its children by name and count, as
+    the grid shows them), `children` (a page of child rows with their columns), `text` (a
+    range of lines of the source), `find` (matches with line, column and element path),
+    `problems`.
+  - Changing, each one undo step: `set_text`, `set_attribute`, `remove_attribute`, `rename`,
+    `delete`, `duplicate`, `move`, `replace`, `format`, `compact`, `undo`, `redo`.
+  - `save` (atomic, D13; keeps the file's encoding, OPEN-8) and `save_as`.
+- **Answers stay small:** an agent reads the answer as text, and its context is short.
+  Every list is a page with a limit (100 by default) and a note of how many there are;
+  text and values are cut at 64 KiB, with the length given. Nothing returns a whole large
+  file.
+- **Crate:** `rmcp` 3.x, the official Rust SDK, with its `server` and `transport-io`
+  features. It follows the protocol's versions, so we do not. It brings `tokio` into
+  `xml-atlas-cli` only; the window, the engine and the parser do not get it. The engine
+  stays synchronous: a tool call runs its engine call and answers.
+- **Where the code lives:** a crate `crates/mcp` with the tools, over a trait for "the open
+  documents". The CLI implements the trait with documents in memory (step 1); the app
+  implements it with its tabs (step 2). So the tools are written once.
+- **Step 2, the window:** the app listens on a local socket (a Unix socket, a named pipe on
+  Windows) only when the user turns it on (a setting, off by default), and `xml-atlas-cli
+  mcp --window` passes the agent's calls on to it. Calls act on the open tabs: an edit
+  selects what it changed and is one undo step in the window, `open` opens a tab. Its
+  details are a decision of their own, after step 1.
+- **Cost:** `tokio` and `rmcp` in the CLI: a larger CLI and a longer clean build; the
+  window is not affected. A new crate of about 500 to 800 lines with its tests.
+- **Not chosen:**
+  - An MCP implementation of our own over `serde_json`: no `tokio`, and the protocol is
+    small, but we would have to follow every change of it ourselves.
+  - The server in its own program (`xml-atlas-mcp`): one more executable in every package
+    for little gain; a subcommand of the CLI is installed already.
+  - Only step 2: an agent could not work without a window, as on a server or in CI.
+- **Tests:** the tools against the engine in `crates/mcp`, with the corpus (a byte order
+  mark, CRLF, UTF-16, non-ASCII names). Through the protocol: a test starts `xml-atlas-cli
+  mcp`, initializes, lists the tools and calls `open`, `find`, `set_text`, `save` on a
+  copy of a corpus file, and checks the saved bytes change only where asked (rule 7).
+  Then once with Claude Code as the client.
+- **Decided (owner, 2026-11-17):** as proposed, with `rmcp`; `tokio` in the CLI is no
+  concern, as it costs build time and the CLI's size but nothing in the window, the engine
+  or opening. An agent may save through `save` without being asked again; MCP clients ask
+  their user before tool calls.
+
 ## Open questions
 
 None.
