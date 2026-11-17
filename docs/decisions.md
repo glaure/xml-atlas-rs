@@ -972,8 +972,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   secret closes the connection, the file goes when listening stops), on the tabs (an edit
   is one undo step, selected, its tab shown; `close` is refused with unsaved changes; the
   saved bytes change only where asked), and through the protocol (`mcp --window` without a
-  window tells the agent to turn it on; with one, its calls arrive). Not yet tried by a
-  person with Claude Code in the running window.
+  window tells the agent to turn it on; with one, its calls arrive). The owner tried it with
+  Claude Code in the running window on Linux, 2026-11-17: it worked.
 - **Not chosen:** a Unix socket and a named pipe (a new crate, two code paths); the window
   speaking MCP itself (clients start a program to talk to, so the bridge is needed
   anyway); agents closing modified tabs.

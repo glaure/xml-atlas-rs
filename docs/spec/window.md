@@ -50,7 +50,8 @@ How the views are laid out, and how the window looks.
   two frames: a change is one undo step, its tab is shown and the element it changed
   selected, and the status bar names it ("Agent: rename /r/b"); a refusal is shown as a
   warning. The status bar says "Agent connected" while one is. An agent may open files as
-  tabs and save, but not close a tab with unsaved changes.
+  tabs and save, but not close a tab with unsaved changes. Tried by the owner with Claude
+  Code on Linux (2026-11-17).
 
 ## Acceptance tests
 
