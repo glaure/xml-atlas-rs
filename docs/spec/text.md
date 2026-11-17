@@ -102,6 +102,19 @@ of it.
   tab wraps as the setting says. Undoing the Format brings neither back. Telling a minified
   file costs 1.8 ms on the 100 MiB fixture and 5.8 ms on 300 MiB (release build, once when
   the tab opens): line lengths come from the line index, and only long lines are searched.
+- **TEXT-25** `[built]` View > Font… chooses the text view's font, its style and its size;
+  tree, grid and menus keep egui's font. The fonts listed are the system's monospaced ones,
+  as the text view places characters by columns: a font counts when `i`, `M`, `0`, `<`,
+  `"` and `W` are equally wide. *Hack (built in)*, egui's own, is the default, in Regular at
+  13 pt. Style offers Regular, Bold, Italic and Bold Italic where the font has them. Size
+  is 8 to 40 points. OK uses the choice, Cancel leaves it, Default goes back to Hack at 13.
+  Characters the font lacks come from egui's monospaced fonts. The choice is remembered
+  (WIN-3) with the font file it was found in, so starting costs no search: a start with a
+  chosen font took 0.04 ms for it instead of about 50 ms (DejaVu Sans Mono Bold, this
+  machine). A file that is gone, or now holds another family, is looked up again; a font
+  not found leaves Hack and says so in the log. Listing the fonts takes about 0.6 s for this
+  machine's 53 monospaced families, on a thread of its own while the dialog shows that it
+  is looking. XML Marker has Options > Font (XM-2).
 - **TEXT-24** `[planned]` (after 1.0) A formatted view: the text view shows a minified file
   indented, built from the index for the lines on screen, without changing the file. While
   it is shown, the text cannot be typed into; tree and grid jump into it as into the text.
@@ -222,5 +235,7 @@ Details and limits in `reference.md`.
 - The text is editable as soon as a file opens; there is no read-only mode. (Owner,
   2026-11-15.)
 - Undo goes word by word while typing (TEXT-20), as code editors do. (Owner, 2026-11-15.)
+- A font, style and size for the text view, monospaced fonts only (TEXT-25). (Owner,
+  2026-11-17.)
 - Minified files open wrapped, with a notice that offers Format (TEXT-23); a formatted view
   that leaves the file as it is comes after 1.0 (TEXT-24). (Owner, 2026-11-17.)

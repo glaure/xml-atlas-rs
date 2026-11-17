@@ -84,6 +84,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
+- [x] Font, style and size of the text view (TEXT-25)
 
 ## Distribution and automation
 

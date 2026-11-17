@@ -49,6 +49,7 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 - The source, with colours. Type in it as in any editor; tree and grid follow.
 - Clicking a line selects its element in the tree.
 - Alt+Z turns word wrap on and off. Very long lines can be read to the end either way.
+- View > Font… chooses the text's font, style and size. Only monospaced fonts are listed.
 
 ## Find and Replace
 
@@ -89,5 +90,5 @@ On macOS, Cmd takes the place of Ctrl.
 
 ## Settings
 
-The layout, theme, view options, format options and recent files are remembered in
+The layout, theme, view options, text font, format options and recent files are remembered in
 `xml-atlas/settings.toml` in the system's configuration folder.

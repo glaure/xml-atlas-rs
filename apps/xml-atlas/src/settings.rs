@@ -51,6 +51,8 @@ pub struct Settings {
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
     pub toolbar: bool,
+    /// The text view's font (TEXT-25).
+    pub text_font: crate::fonts::TextFont,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
@@ -66,6 +68,7 @@ impl Default for Settings {
             cell_pane: true,
             word_wrap: false,
             toolbar: true,
+            text_font: Default::default(),
             find: FindOptions::default(),
             recent: Vec::new(),
         }
@@ -145,6 +148,13 @@ impl Settings {
              word_wrap = {}\n\
              toolbar = {}\n\
              \n\
+             [text]\n\
+             font = {}\n\
+             face = \"{}\"\n\
+             size = {}\n\
+             file = {}\n\
+             index = {}\n\
+             \n\
              [find]\n\
              match_case = {}\n\
              whole_word = {}\n\
@@ -160,6 +170,17 @@ impl Settings {
             self.cell_pane,
             self.word_wrap,
             self.toolbar,
+            quote(self.text_font.family.as_deref().unwrap_or("")),
+            self.text_font.face.name(),
+            self.text_font.size,
+            quote(
+                self.text_font
+                    .file
+                    .as_ref()
+                    .and_then(|(p, _)| p.to_str())
+                    .unwrap_or("")
+            ),
+            self.text_font.file.as_ref().map_or(0, |(_, i)| *i),
             self.find.match_case,
             self.find.whole_word,
             self.recent
@@ -177,6 +198,8 @@ impl Settings {
         let mut section = String::new();
         // Inside the multi-line `files = [ ... ]` of `[recent]`.
         let mut in_files = false;
+        // `[text] index`, the font file's face; it may come before or after `file`.
+        let mut font_index = 0;
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -234,6 +257,34 @@ impl Settings {
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
+                ("text", "font") => set(
+                    &mut s.text_font.family,
+                    unquote(value).map(|f| (!f.is_empty()).then_some(f)),
+                ),
+                ("text", "face") => set(
+                    &mut s.text_font.face,
+                    string(value).and_then(crate::fonts::Face::from_name),
+                ),
+                ("text", "file") => set(
+                    &mut s.text_font.file,
+                    unquote(value).map(|f| (!f.is_empty()).then(|| (PathBuf::from(f), font_index))),
+                ),
+                ("text", "index") => {
+                    font_index = number(value)
+                        .and_then(|n| u32::try_from(n).ok())
+                        .unwrap_or(0);
+                    if let Some((_, i)) = &mut s.text_font.file {
+                        *i = font_index;
+                    }
+                    true
+                }
+                ("text", "size") => set(
+                    &mut s.text_font.size,
+                    value
+                        .parse::<u8>()
+                        .ok()
+                        .filter(|v| crate::fonts::SIZES.contains(v)),
+                ),
                 ("find", "match_case") => set(&mut s.find.match_case, boolean(value)),
                 ("find", "whole_word") => set(&mut s.find.whole_word, boolean(value)),
                 _ => false,
@@ -340,6 +391,15 @@ mod tests {
             cell_pane: false,
             word_wrap: true,
             toolbar: false,
+            text_font: crate::fonts::TextFont {
+                family: Some("DejaVu Sans Mono \"Größe\"".into()),
+                face: crate::fonts::Face::BoldItalic,
+                size: 15,
+                file: Some((
+                    PathBuf::from("/usr/share/fonts/truetype/dejavu/Größe.ttc"),
+                    2,
+                )),
+            },
             find: FindOptions {
                 match_case: true,
                 whole_word: true,

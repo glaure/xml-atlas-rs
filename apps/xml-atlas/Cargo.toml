@@ -15,6 +15,14 @@ eframe.workspace = true
 rfd.workspace = true
 log.workspace = true
 env_logger.workspace = true
+# The text view's font (fonts.rs, TEXT-25): the system's fonts and their widths. The versions
+# and features egui already builds through its system font support.
+fontique = { version = "0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
+skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# egui's own fonts, as test data for the monospace check.
+epaint_default_fonts = "0.37"
 
 # The workspace forbids `unsafe`; this crate denies it instead, so that the one module that
 # needs it, `macos_open.rs`, can allow it (`docs/decisions.md`, D26). The rest as in the
