@@ -8,7 +8,7 @@ XML Atlas is an independent project. Its behaviour is inspired by XML Marker
 
 ## Status
 
-Version 1.0, for Windows and Linux. What it does:
+Version 1.0, for Windows, Linux and macOS. What it does:
 
 - Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
   about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
@@ -28,7 +28,8 @@ Version 1.0, for Windows and Linux. What it does:
   on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
 
-See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, macOS.
+See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, signed
+packages.
 
 ## Install
 
@@ -38,6 +39,10 @@ Download a package from the [releases page](https://github.com/glaure/xml-atlas-
   files are not signed yet, so SmartScreen may warn: *More info*, then *Run anyway*.
 - Ubuntu 22.04 and later, Debian 12 and later: `sudo apt install ./xml-atlas_….deb`
 - RHEL 9 and its rebuilds, Fedora: `sudo dnf install ./xml-atlas-….rpm`
+- macOS 12 and later, Apple silicon and Intel: the `-macos-universal.dmg`; drag XML Atlas
+  into Applications. The app is not signed yet, so the first start is refused: System
+  Settings > Privacy & Security, *Open Anyway*. It cannot open a file from Finder yet; use
+  File > Open or drop the file onto the window.
 
 `SHA256SUMS` on the same page holds each file's checksum.
 
