@@ -789,6 +789,76 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - Met: the index at 300 MiB takes 42-46 % of the time, and 10 MiB is faster, not slower.
 - **Decided (owner, 2026-11-16):** kept as built.
 
+## D26: Open files from Finder on macOS, with `unsafe` in one module
+
+- **Problem:** the macOS app (PKG-20) cannot take a file from Finder. A double-click, *Open
+  with*, a file dropped on the Dock icon and `open file.xml` in a terminal all reach the app
+  as an Apple event ("open documents", `kAEOpenDocuments`), not as a command-line argument.
+  winit 0.30.13, under eframe 0.37, does not pass that event on, so the app does not offer
+  itself for XML files (PKG-4). Receiving the event takes calls into AppKit, which are
+  `unsafe` in Rust, and `unsafe` is forbidden in the workspace (`AGENTS.md`).
+- **What winit does (read in its source, 0.30.13):** it sets an application delegate of its
+  own (`WinitApplicationDelegate`, `platform_impl/macos/event_loop.rs`), although its docs
+  say it does not. It handles `applicationDidFinishLaunching:` and
+  `applicationWillTerminate:`, and nothing for opening files. Replacing that delegate with
+  ours would break its start-up. eframe 0.37 has no hook either; it only offers one before
+  the event loop is built.
+- **Proposal:** a handler for the Apple event itself, next to winit's delegate:
+  - In `main`, before eframe starts, observe `NSApplicationWillFinishLaunchingNotification`.
+    When it comes, install a handler for `kAEOpenDocuments` with `NSAppleEventManager`.
+    AppKit installs its own handlers before that notification and dispatches the event
+    for the files given at launch after it, so ours replaces AppKit's and still sees those
+    files. To be confirmed by the prototype.
+  - The handler is a small Objective-C class of our own (`define_class!` in objc2). It
+    reads the file URLs from the event, turns them into paths and sends them over a channel
+    to the app, and asks for a frame once the window exists. The app opens each path as a
+    tab, as it does for a path on the command line (OPEN-5); a file already open is shown,
+    not opened twice. Files that arrive before the first frame wait in the channel.
+  - While the app runs, macOS sends the event to the running app instead of starting a
+    second one, so a file opened from Finder becomes a new tab.
+  - `Info.plist` declares XML documents (`public.xml`) with the role Viewer and the rank
+    Alternate, so XML Atlas is listed in *Open with* without becoming the default (PKG-4).
+- **How `unsafe` is contained:**
+  - All of it lives in one file, `apps/xml-atlas/src/macos_open.rs`, compiled only on macOS
+    (`#[cfg(target_os = "macos")]`), with `#![allow(unsafe_code)]` at its top. Each
+    `unsafe` block says why it is sound in a `// SAFETY:` comment.
+  - The workspace keeps `unsafe_code = "forbid"`. Only the `xml-atlas` crate sets
+    `unsafe_code = "deny"` in its own `[lints]` table, because `forbid` cannot be allowed
+    again for one module. Every other crate, including the engine and the parser, stays
+    under `forbid`.
+  - A test in the app's crate reads its own sources and fails when `allow(unsafe_code)`
+    appears anywhere but `macos_open.rs`.
+  - Crates: `objc2` 0.6, `objc2-foundation` and `objc2-app-kit` 0.3.2 and `block2` 0.6, all
+    for macOS only. The same versions are in `Cargo.lock` already, through the clipboard and
+    OpenGL crates, so nothing new is compiled; only a few of their features are turned on.
+- **Cost:** about 100 to 150 lines, with perhaps ten `unsafe` blocks, that only build on
+  macOS. Linux CI checks them with `cargo check --target aarch64-apple-darwin`; the macOS
+  CI runner builds and runs them.
+- **Not chosen:**
+  - Our own application delegate in place of winit's: breaks winit's start-up handling.
+  - Adding `application:openURLs:` to winit's delegate class at run time
+    (`class_addMethod`): depends on a private class name and on winit's internals, and
+    breaks silently when either changes.
+  - An AppleScript applet as the app's main program that starts `xml-atlas` with the path:
+    no `unsafe`, but every file opened from Finder would start another process instead of a
+    new tab, and the Dock would show two icons.
+  - Waiting for winit or eframe to pass on the event: nothing is known to be planned for the
+    versions eframe uses, and the gap stays until then.
+  - Leaving it as it is: the macOS app stays the only one that cannot be opened from the
+    file manager.
+- **Decide by:** a prototype, then:
+  - On the CI's macOS runner, `open -a "XML Atlas.app" file.xml` (with `--env` for the log
+    and `--stderr` to a file) starts the app with the file open, as the log shows; a second
+    `open` with another file adds a tab in the same process. Paths with spaces and
+    non-ASCII names.
+  - On a real Mac, by the owner or someone at the company: a double-click after choosing
+    XML Atlas as the default for `.xml`, *Open with*, a file dropped on the Dock icon, with
+    the app running and not running.
+  - Kept if all of these work and the unsafe code stays in the one file.
+- **Owner's questions:**
+  1. Is `unsafe` acceptable for this, contained as above?
+  2. Is there a Mac to try it on?
+
 ## Open questions
 
 The five questions asked before the review are answered: index updates in D9, rope or not in
