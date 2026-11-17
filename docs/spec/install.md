@@ -100,9 +100,19 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 
 ### macOS
 
-- **PKG-20** `[planned]` (after 1.0, D20) A disk image (DMG) holding `XML Atlas.app`, to drag into
-  Applications. One universal app for Apple silicon and Intel, for macOS 12 and later. The
-  app registers for XML files (PKG-4) and opens a file dropped on its Dock icon.
+- **PKG-20** `[built]` (after 1.0, D20) A disk image (DMG) holding `XML Atlas.app`, to drag
+  into Applications. One universal app for Apple silicon and Intel, for macOS 12 and later.
+  The app registers for XML files (PKG-4) and opens a file dropped on its Dock icon.
+  `cargo xtask package-macos` builds it on macOS: both programs for both targets, joined
+  with `lipo`, in an app bundle with `packaging/macos/xml-atlas.icns`, the license texts
+  and `xml-atlas-cli`, signed ad hoc (no identity), in a disk image with a link to
+  Applications. The release workflow builds it on `macos-latest` and checks the mounted
+  image: both executables hold both architectures, the signature verifies, the command line
+  prints the version. Not yet: registering for XML files and opening a file from Finder or
+  the Dock. macOS hands those over as an Apple event that winit 0.30 does not pass on; an
+  application delegate of our own needs `unsafe` calls into AppKit, which needs a decision
+  (`docs/decisions.md`). Until then the app does not offer itself in *Open with*. Not yet
+  run on a Mac by a person.
 - **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
   Apple developer account and notarized, so Gatekeeper opens it without a warning. As for
   Windows (PKG-14), this is a manual step, and the account's credentials never go into CI:

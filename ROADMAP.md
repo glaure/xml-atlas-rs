@@ -97,7 +97,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (*after 1.0*; owner, 2026-11-17)
 - [ ] Flatpak (PKG-32), after the `.deb` and `.rpm`
 - [ ] macOS DMG (universal, Homebrew cask) with a manual signing and notarization step
-      (*after 1.0*, D20)
+      (*after 1.0*, D20): unsigned DMG built by the release workflow (PKG-20); left: opening
+      files from Finder, signing (PKG-21), Homebrew cask (PKG-22)
 - [ ] Notice when a newer version is released (PKG-7)
 - [ ] JSON control channel and MCP server over the engine commands
 - [ ] Web build (WebAssembly)

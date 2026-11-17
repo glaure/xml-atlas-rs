@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+mod macos;
 mod package;
 mod windows;
 
@@ -46,6 +47,13 @@ enum Command {
         #[arg(long)]
         zip_only: bool,
     },
+    /// Build the macOS disk image, a universal app for Apple silicon and Intel, into
+    /// target/dist (PKG-20). Runs on macOS with both Rust targets installed.
+    PackageMacos {
+        /// Use the executables already in target/<target>/release for both targets.
+        #[arg(long)]
+        skip_build: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -66,6 +74,12 @@ fn main() -> anyhow::Result<()> {
                 .parent()
                 .expect("xtask is in the workspace");
             windows::package(root, skip_build, bin_dir, zip_only)
+        }
+        Command::PackageMacos { skip_build } => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("xtask is in the workspace");
+            macos::package(root, skip_build)
         }
     }
 }
