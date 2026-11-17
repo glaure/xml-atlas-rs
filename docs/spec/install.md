@@ -20,8 +20,10 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   files and a `SHA256SUMS` into a draft release. Its notes say the Windows files are not
   signed (PKG-13). A maintainer checks the draft and publishes it. Run again for the same
   tag, it replaces the draft's files; it never touches a published release. A pull request
-  that changes the packaging builds the packages the same way, without a release. Not yet
-  run from a real tag.
+  that changes the packaging builds the packages the same way, without a release. The tag
+  `v0.1.3` (2026-11-17) made the first draft: all jobs passed in about 8 minutes, the install
+  test passed on all five systems, and the files downloaded from the draft match
+  `SHA256SUMS`.
 - **PKG-2** `[planned]` Every package contains both programs, the license texts (MIT and
   Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version,
   and `xml-atlas-cli --version` prints it.
