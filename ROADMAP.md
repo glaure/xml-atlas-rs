@@ -3,7 +3,7 @@
 The order follows `docs/decisions.md`, D15. Version 1.0 is everything here except the items
 marked *after 1.0* (D20): all of 0.4 and the macOS package.
 
-## 0.1: Viewer you can trust on real files (current)
+## 0.1: Viewer you can trust on real files
 
 - [x] Flat span index, partial tree on parse errors
 - [x] Background open, virtualized tree, grid and text views
