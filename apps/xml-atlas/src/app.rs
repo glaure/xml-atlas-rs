@@ -103,7 +103,9 @@ pub struct Open {
     pub mark: Option<Range<u64>>,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
-    pub scroll_text_to: Option<usize>,
+    /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
+    /// word wrap its row, goes near the top, and a long line scrolls sideways to it.
+    pub scroll_text_to: Option<u64>,
     /// Warnings and errors, in document order (OPEN-13).
     pub problems: Vec<Problem>,
     /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
@@ -595,7 +597,7 @@ impl App {
                     anchor: offset,
                     head: offset + ch.len_utf8(),
                 });
-                open.scroll_text_to = Some(open.doc.line_of(offset as u64));
+                open.scroll_text_to = Some(offset as u64);
                 open.text_reveal = true;
                 open.text_focus = true;
             }
@@ -1859,7 +1861,7 @@ impl Open {
         self.grid_cell = None;
         self.grid_edit = None;
         self.tree.reveal(&self.doc, id);
-        self.scroll_text_to = Some(self.doc.line_of(self.doc.index.node(id).start));
+        self.scroll_text_to = Some(self.doc.index.node(id).start);
     }
 
     /// Marks `id` in the grid and tree and highlights it in the text view, without changing the
@@ -1868,7 +1870,7 @@ impl Open {
         self.focus = Some(id);
         let n = self.doc.index.node(id);
         self.mark = (self.selected != Some(id)).then_some(n.start..n.end);
-        self.scroll_text_to = Some(self.doc.line_of(n.start));
+        self.scroll_text_to = Some(n.start);
     }
 
     /// Highlights the `index`th attribute of `element` in the text view.
@@ -1876,7 +1878,7 @@ impl Open {
         let spans = self.doc.index.attribute_spans(&self.doc.src, element);
         if let Some(span) = spans.get(index as usize) {
             self.mark = Some(span.start as u64..span.end as u64);
-            self.scroll_text_to = Some(self.doc.line_of(span.start as u64));
+            self.scroll_text_to = Some(span.start as u64);
         }
     }
 
@@ -1885,7 +1887,7 @@ impl Open {
         if let Some(span) = self.doc.index.folded_span(&self.doc.src, element) {
             self.focus = Some(element);
             self.mark = Some(span.start as u64..span.end as u64);
-            self.scroll_text_to = Some(self.doc.line_of(span.start as u64));
+            self.scroll_text_to = Some(span.start as u64);
         }
     }
 

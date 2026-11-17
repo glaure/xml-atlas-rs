@@ -56,7 +56,7 @@ pub fn go_to(open: &mut Open, i: usize) {
         open.select(id);
     }
     open.mark = Some(at..end.max(at + 1));
-    open.scroll_text_to = Some(open.doc.line_of(at));
+    open.scroll_text_to = Some(at);
 }
 
 /// Marker drawn for a problem: `!` for a warning, `×` for an error.

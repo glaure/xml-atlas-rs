@@ -303,7 +303,7 @@ impl FindBar {
         if let Some(id) = open.element_at(range.start) {
             open.select(id);
         }
-        open.scroll_text_to = Some(open.doc.line_of(range.start));
+        open.scroll_text_to = Some(range.start);
         open.mark = Some(range);
         self.note = match (found.wrapped, direction) {
             (true, Direction::Forward) => "Continued from the top".into(),
