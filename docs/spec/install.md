@@ -28,9 +28,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   the workflow built for the pull request that added the job (#83), from `main` with the
   same program code as the tag, and `SHA256SUMS` was written again with it. Every file on
   the published release matches it.
-- **PKG-2** `[planned]` Every package contains both programs, the license texts (MIT and
-  Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version,
-  and `xml-atlas-cli --version` prints it.
+- **PKG-2** `[built]` Every package contains both programs, the license texts (MIT and
+  Apache-2.0) and the licenses of the libraries compiled in. Help > About shows the version
+  (WIN-4), and `xml-atlas-cli --version` prints it.
 - **PKG-3** `[planned]` The installed program starts as fast as a local build: a small file is
   on screen within the start-up target (OPEN-21).
 - **PKG-4** `[planned]` After installing, an XML file can be opened with XML Atlas from the

@@ -82,6 +82,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
+- [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
+- [ ] Toolbar like XML Marker's, once its buttons are observed (WIN-5)
 
 ## Distribution and automation
 
@@ -100,5 +102,6 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (*after 1.0*, D20): unsigned DMG built by the release workflow (PKG-20); left: opening
       files from Finder, signing (PKG-21), Homebrew cask (PKG-22)
 - [ ] Notice when a newer version is released (PKG-7)
-- [ ] JSON control channel and MCP server over the engine commands
+- [ ] MCP server over the engine commands: on files first (`xml-atlas-cli`), then on the
+      documents open in the window
 - [ ] Web build (WebAssembly)
