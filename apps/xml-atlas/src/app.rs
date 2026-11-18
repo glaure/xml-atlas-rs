@@ -1368,6 +1368,12 @@ impl App {
                         }
                         self.settings.tree_attributes = show;
                     }
+                    if ui.button("Collapse the tree").clicked() {
+                        ui.close();
+                        if let Some(open) = self.docs.active_mut() {
+                            open.tree.collapse_all(&open.doc);
+                        }
+                    }
                 });
                 ui.checkbox(
                     &mut self.settings.cell_pane,
