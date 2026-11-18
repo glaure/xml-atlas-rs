@@ -59,13 +59,16 @@ How the views are laid out, and how the window looks.
   (OPEN-13); also corner rounding and spacing. Changing the theme changes all of them at
   once and costs nothing per frame. Every built-in theme passes a contrast check: 4.5:1 for
   text and syntax colours, 3:1 for weak text, on their backgrounds (`docs/decisions.md`, D29).
-  So far (D29 step 1): the colours are in one `Theme` in `apps/xml-atlas/src/theme.rs`,
-  built from the ones before, so the window looks the same. Spacing and the contrast check
-  are still to come.
-- **WIN-8** `[planned]` A softer Light: panels in a mid grey, the text and grid areas
-  off-white rather than pure white, darker separators, so the views stand apart and the
-  window glares less. Chosen by the owner from candidates in the running program. Dark
-  stays as it is.
+  So far (D29 steps 1 and 2): the colours are in one `Theme` in
+  `apps/xml-atlas/src/theme.rs`, and a test checks the contrast of every built-in theme.
+  Dark's weak text (2.66:1) and punctuation (4.36:1) and Classic Light's weak text (2.89:1)
+  miss it and are kept as in 1.0 (owner, 2026-11-18). Spacing is still to come.
+- **WIN-8** `[built]` A softer Light: menus, toolbars and the status bar in a light grey
+  (232), the tree, grid, cell pane and text a little lighter (247), darker separators (182)
+  and text (45), so the views stand apart and the window glares less. View > Light style
+  chooses *Soft grey* (the default) or *Classic, as in 1.0*; remembered (WIN-3). The owner
+  chose these from three candidates in the running program (2026-11-18): a light grey, a
+  mid grey (220 and 244) and a warm paper tint. Dark stays as it is.
 - **WIN-9** `[planned]` View > Theme has two choices, both remembered (WIN-3): the *mode*
   of WIN-2 (Follow system, Light, Dark) and the *style*: XML Atlas (the default), Native, or
   a theme file. Every style has a light and a dark variant; the mode picks which one shows.

@@ -1078,6 +1078,18 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   `theme::current` gives the views the one the mode shows, from egui's memory (one lookup
   a frame per view, and one per hatched grid cell). Spacing is not in the theme yet.
 
+- **Built, step 2 (2026-11-18):** the owner looked at three candidates in the running
+  program: a light grey, a mid grey and a warm paper tint, next to 1.0's Light. They liked
+  both the light grey and 1.0's Light, and chose to offer both now. View > Light style picks
+  *Soft grey* (the default) or *Classic, as in 1.0*; it is remembered as `light_style`.
+  Measured, the analysis above was off in one point: egui fills every panel with the same
+  grey 248, the views included; only text fields and scroll bar tracks are pure white. So
+  the theme gained a view background for the tree, grid, cell pane and text, which in Dark
+  and Classic equals the panels' fill. The contrast test (WIN-7) covers every built-in
+  theme. Soft grey passes it; Dark's weak text (2.66:1) and punctuation (4.36:1), and
+  Classic's weak text (2.89:1), miss it and are exempt: Dark stays as it is (owner,
+  2026-11-18), and Classic is 1.0's Light.
+
 ## Open questions
 
 None.
