@@ -140,6 +140,8 @@ pub struct Open {
     pub reference_preview: Option<crate::ref_preview::Cached>,
     /// The sections chosen for `nearest` contexts in this tab (REF-9).
     pub reference_choices: Vec<crate::ref_preview::StoredChoice>,
+    /// The sections around the selected element, and the element and revision they are for.
+    pub reference_sections: Option<(NodeId, u64, Vec<references::Sections>)>,
     /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
     pub keys: Pane,
     /// Grid row to scroll into view on the next frame.
@@ -1939,6 +1941,7 @@ impl Open {
             references_due: None,
             reference_preview: None,
             reference_choices: Vec::new(),
+            reference_sections: None,
             keys: Pane::Tree,
             grid_scroll_to: None,
             grid_reveal_cell: false,

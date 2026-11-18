@@ -277,7 +277,19 @@ pub fn choose(open: &mut Open, scope: NodeId, section: Option<NodeId>) {
 
 /// A list per `nearest` context around the selection: which section to resolve it from.
 fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId) {
-    let sections = references::sections(&open.doc, rules, element);
+    // Finding the sections walks the whole scope: once per selection and change, not per
+    // frame.
+    let revision = open.doc.revision();
+    let fresh =
+        matches!(&open.reference_sections, Some((e, r, _)) if *e == element && *r == revision);
+    if !fresh {
+        let found = references::sections(&open.doc, rules, element);
+        open.reference_sections = Some((element, revision, found));
+    }
+    let sections = match &open.reference_sections {
+        Some((_, _, s)) => s.clone(),
+        None => Vec::new(),
+    };
     let current = chosen(open);
     for s in sections {
         let picked = current
