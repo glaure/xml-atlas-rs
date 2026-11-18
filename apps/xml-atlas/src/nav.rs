@@ -68,6 +68,10 @@ pub fn handle(ctx: &egui::Context, open: &mut Open) {
         drill_down(open);
         return;
     }
+    if pressed(Modifiers::NONE, Key::F12) {
+        crate::ref_preview::go_to_target(open);
+        return;
+    }
     if in_text {
         return;
     }

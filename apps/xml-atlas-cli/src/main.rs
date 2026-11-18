@@ -10,6 +10,7 @@ use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
+use xml_atlas_engine::references::{self, Resolution, Rules};
 use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
 
 #[derive(Parser)]
@@ -99,6 +100,26 @@ enum Command {
         #[command(flatten)]
         target: Target,
         direction: MoveDirection,
+    },
+    /// Check the references a rules file names (REF-4): count them and print those that find
+    /// nothing.
+    References {
+        file: PathBuf,
+        /// The rules file; by default `xml-atlas-references.json` next to FILE or above it.
+        #[arg(long, value_name = "PATH")]
+        rules: Option<PathBuf>,
+        /// Print at most this many references that find nothing; all are counted.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Print an element with its references resolved (REF-5), as XML Atlas previews it.
+    Preview {
+        file: PathBuf,
+        /// The element, by path: `/root/child[2]`.
+        path: String,
+        /// The rules file; by default `xml-atlas-references.json` next to FILE or above it.
+        #[arg(long, value_name = "PATH")]
+        rules: Option<PathBuf>,
     },
     /// Find text and print the lines that contain it.
     Find {
@@ -231,6 +252,8 @@ fn main() -> anyhow::Result<()> {
             };
             edit(target, |d, id| command::move_element(d, id, direction))
         }
+        Command::References { file, rules, limit } => check_references(&file, rules, limit),
+        Command::Preview { file, path, rules } => preview(&file, &path, rules),
         Command::Find {
             file,
             query,
@@ -383,6 +406,74 @@ fn find(
     }
     let noun = if count == 1 { "match" } else { "matches" };
     println!("{count} {noun} in {}", ms(t.elapsed()));
+    Ok(())
+}
+
+/// The rules for `file`: from `rules`, or the rules file next to it or above it.
+fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, Rules)> {
+    let path = match rules {
+        Some(p) => p,
+        None => Rules::find(&std::path::absolute(file)?).with_context(|| {
+            format!(
+                "no {} next to {} or in a folder above it; give one with --rules",
+                references::RULES_FILE,
+                file.display()
+            )
+        })?,
+    };
+    let rules = Rules::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    Ok((path, rules))
+}
+
+/// References (REF-4), the same check as the GUI's problems list.
+fn check_references(file: &Path, rules: Option<PathBuf>, limit: usize) -> anyhow::Result<()> {
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let (rules_path, rules) = load_rules(file, rules)?;
+    let root = doc
+        .index
+        .root_element()
+        .context("the document has no root element")?;
+    let t = Instant::now();
+    let refs = references::references(&doc, &rules, root);
+    let (mut found, mut skipped, mut runtime, mut elsewhere, mut missing) = (0, 0, 0, 0, 0);
+    for r in &refs {
+        match references::resolve(&doc, &rules, r, r.site).resolution {
+            Resolution::Nodes(_) | Resolution::Value(_) => found += 1,
+            Resolution::Skipped => skipped += 1,
+            Resolution::Runtime(_) => runtime += 1,
+            Resolution::Elsewhere(_) => elsewhere += 1,
+            Resolution::Unresolved(why) => {
+                if missing < limit {
+                    let line = doc.line_of(r.span.start as u64) + 1;
+                    println!("{line:>8}: {:?} {why}", r.expr);
+                }
+                missing += 1;
+            }
+        }
+    }
+    println!(
+        "{} references in {} (rules: {}): {found} found, {missing} find nothing, {runtime} \
+         known only at run time, {elsewhere} resolved where imported, {skipped} skipped",
+        refs.len(),
+        ms(t.elapsed()),
+        rules_path.display()
+    );
+    Ok(())
+}
+
+/// Preview (REF-5), the same text as the GUI's preview pane.
+fn preview(file: &Path, path: &str, rules: Option<PathBuf>) -> anyhow::Result<()> {
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let (_, rules) = load_rules(file, rules)?;
+    let id = command::resolve(&doc, path)?;
+    let p = references::preview(&doc, &rules, id, references::PREVIEW_LIMIT);
+    println!("{}", p.text);
+    eprintln!(
+        "{} references, {} not resolved{}",
+        p.references,
+        p.unresolved,
+        if p.cut { ", cut" } else { "" }
+    );
     Ok(())
 }
 

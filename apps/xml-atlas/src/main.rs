@@ -19,6 +19,7 @@ mod icons;
 mod macos_open;
 mod nav;
 mod problems_panel;
+mod ref_preview;
 mod scroll;
 mod settings;
 mod system_theme;

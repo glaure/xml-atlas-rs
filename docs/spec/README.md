@@ -42,6 +42,7 @@ Each area file ends with three lists:
 | `edit.md`      | Undo and redo, unsaved changes, structured edits            |
 | `install.md`   | Installers and packages for Windows, macOS and Linux        |
 | `window.md`    | Layout of the views, light and dark theme                   |
+| `references.md`| References a rules file defines: go to target, preview      |
 | `reference.md` | What XML Marker and the Qt XML Atlas do, as observed        |
 
 Not written yet: find and replace, the edits themselves, settings, keyboard shortcuts.

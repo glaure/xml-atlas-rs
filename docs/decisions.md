@@ -1203,11 +1203,46 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   above; *Allow AI agents* and *Light style* leave the View menu for Settings, the rest stays
   in both places; changes apply and are saved at once, without OK and Cancel.
 
+## D32: References a team defines, previewed resolved
+
+- **Problem:** the owner's most important file (6 MiB, about 7,600 references) points from
+  one part to another with conventions of its own team: an element that stands for elements
+  found elsewhere by a path, and attribute values looked up the same way, in named contexts.
+  The program that reads the file resolves them; in an editor they are opaque, and one that
+  finds nothing goes unnoticed. The owner wants editor support and a preview of the resolved
+  result, not XML Atlas resolving the file the way that program does.
+- **Decided (owner, 2026-11-18):**
+  - Generic rules in a file the user keeps, `xml-atlas-references.json` next to the document
+    or in a folder above it: which elements and attributes are references, where each named
+    context is, which contexts exist only at run time (REF-1). XML Atlas holds no team's
+    names or rules; the repository is public, and the conventions belong to their owners.
+  - Go to target (F12), references that find nothing in the problems list, and the preview
+    pane, together (REF-3 to REF-5); the CLI has the check and the preview (REF-6).
+  - Where the program merges several sections before it resolves, the preview takes the
+    nearest one instead (`nearest`, up to an ancestor) and says which it used (REF-7).
+- **How:** `crates/engine/src/references.rs` evaluates the small part of XPath the owner's
+  file uses (REF-2), on the index, on demand: nothing is built when a file opens without a
+  rules file, and opening is as fast as before. With rules, the check runs when the file
+  opens, after edits, and after a pause in typing. The preview copies the source bytes and
+  splices the imported ones in, so it keeps line breaks, non-ASCII text and the original
+  formatting, re-indented. Measured on the owner's file: all references checked in 37 ms;
+  the preview of a board with 954 references (1 MiB of text) in 31 ms.
+- **Not chosen:** a general XPath engine (the files use child steps, `*`, `@`, `text()` and
+  one kind of condition; a crate would be large for that); resolving the document in place
+  (the owner does not want it, and it would change the file); naming the owner's conventions
+  in XML Atlas (see above).
+- **Revisit when:** a second user's conventions do not fit the rules file, or XInclude
+  (`docs/spec/open.md`) is built: it could be one more kind of rule.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D32, references (owner, 2026-11-18): generic rules in a rules file the user keeps;
+go to target, the problems and the preview pane in one step; the nearest section stands in
+for the program's merge.
 
 About D31, a Settings window (owner, 2026-11-18): File > Settings… with Ctrl+,; the sections
 as proposed; Allow AI agents and Light style move from the View menu to Settings, the rest
