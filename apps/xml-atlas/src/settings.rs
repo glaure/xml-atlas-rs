@@ -50,6 +50,8 @@ pub struct Settings {
     pub light_style: LightStyle,
     /// Attribute rows in the tree (TREE-1).
     pub tree_attributes: bool,
+    /// The grid is shown (WIN-1); hidden, the text takes its place.
+    pub grid: bool,
     /// The pane beside the grid for the clicked cell (GRID-16).
     pub cell_pane: bool,
     /// Long lines wrap in the text view (TEXT-13).
@@ -75,6 +77,7 @@ impl Default for Settings {
             theme: ThemeChoice::default(),
             light_style: LightStyle::default(),
             tree_attributes: true,
+            grid: true,
             cell_pane: true,
             word_wrap: false,
             toolbar: true,
@@ -161,6 +164,7 @@ impl Settings {
              theme = \"{theme}\"\n\
              light_style = \"{light_style}\"\n\
              tree_attributes = {}\n\
+             grid = {}\n\
              cell_pane = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
@@ -186,6 +190,7 @@ impl Settings {
             f.remove_comments,
             f.trim_text,
             self.tree_attributes,
+            self.grid,
             self.cell_pane,
             self.word_wrap,
             self.toolbar,
@@ -283,6 +288,7 @@ impl Settings {
                     },
                 ),
                 ("view", "tree_attributes") => set(&mut s.tree_attributes, boolean(value)),
+                ("view", "grid") => set(&mut s.grid, boolean(value)),
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
@@ -403,6 +409,7 @@ mod tests {
             theme: ThemeChoice::Light,
             light_style: LightStyle::Classic,
             tree_attributes: false,
+            grid: false,
             cell_pane: false,
             word_wrap: true,
             toolbar: false,

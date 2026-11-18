@@ -10,9 +10,11 @@ How the views are laid out, and how the window looks.
   immediate and keeps the open file. The find bar sits directly above the text when open
   (TEXT-12), and the problems list directly under it when there are problems (OPEN-13). The
   borders between the views can be dragged; each layout keeps its own grid height. The choice
-  is remembered (WIN-3).
+  is remembered (WIN-3). View > Grid hides the grid, and its cell pane, so that the text and the
+  reference preview (REF-5) have the room; the arrow keys then go to the tree. Remembered
+  too.
 - **WIN-3** `[done]` Settings are remembered between sessions: the layout (WIN-1), attribute
-  rows in the tree (TREE-1), the Format options (FMT-10 to FMT-13), and Find's match case and
+  rows in the tree (TREE-1), whether the grid is shown (WIN-1), the Format options (FMT-10 to FMT-13), and Find's match case and
   whole word (TEXT-12), and the recent files (OPEN-12). They are kept in `xml-atlas/settings.toml` in the platform's
   configuration folder (`~/.config` on Linux, `%APPDATA%` on Windows, `~/Library/Application
   Support` on macOS); `XML_ATLAS_SETTINGS` can name another file. The file is written, atomically,

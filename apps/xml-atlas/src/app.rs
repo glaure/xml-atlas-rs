@@ -1406,9 +1406,14 @@ impl App {
                         }
                     }
                 });
-                ui.checkbox(
-                    &mut self.settings.cell_pane,
-                    "Cell pane beside the grid (experiment)",
+                ui.checkbox(&mut self.settings.grid, "Grid")
+                    .on_hover_text("Hidden, the text and the reference preview take its place");
+                ui.add_enabled(
+                    self.settings.grid,
+                    egui::Checkbox::new(
+                        &mut self.settings.cell_pane,
+                        "Cell pane beside the grid (experiment)",
+                    ),
                 );
                 ui.checkbox(&mut self.settings.toolbar, "Toolbar");
                 ui.checkbox(
@@ -1786,6 +1791,10 @@ impl eframe::App for App {
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
         {
+            // A hidden grid takes no keys: they go to the tree.
+            if !self.settings.grid && open.keys == Pane::Grid {
+                open.keys = Pane::Tree;
+            }
             crate::nav::handle(&ctx, open);
         }
 
@@ -1833,36 +1842,41 @@ impl eframe::App for App {
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
         let reference_preview = self.settings.reference_preview;
+        let show_grid = self.settings.grid;
         let wrap = open.wraps(self.settings.word_wrap);
         let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
-            // Each layout has its own panel, so each remembers its own height.
-            let grid = match layout {
-                Layout::GridAbove => egui::Panel::top("grid"),
-                Layout::TextAbove => egui::Panel::bottom("grid-below"),
-            };
-            grid.frame(theme.view_frame(ui.style(), false))
-                .resizable(true)
-                .default_size(total * 0.45)
-                .show(ui, |ui| {
-                    crate::fonts::use_in_views(ui, view_font.as_ref());
-                    ui.push_id(open.id, |ui| {
-                        if cell_pane {
-                            let width = ui.available_width() * 0.35;
-                            egui::Panel::right("cell-pane")
-                                .frame(theme.view_frame(ui.style(), false))
-                                .resizable(true)
-                                .default_size(width)
-                                .show(ui, |ui| {
-                                    ui.push_id("cell-pane", |ui| crate::cell_pane::show(ui, open));
-                                });
-                        }
-                        egui::CentralPanel::default()
-                            .frame(theme.view_frame(ui.style(), true))
-                            .show(ui, |ui| crate::grid::show(ui, open));
+            if show_grid {
+                // Each layout has its own panel, so each remembers its own height.
+                let grid = match layout {
+                    Layout::GridAbove => egui::Panel::top("grid"),
+                    Layout::TextAbove => egui::Panel::bottom("grid-below"),
+                };
+                grid.frame(theme.view_frame(ui.style(), false))
+                    .resizable(true)
+                    .default_size(total * 0.45)
+                    .show(ui, |ui| {
+                        crate::fonts::use_in_views(ui, view_font.as_ref());
+                        ui.push_id(open.id, |ui| {
+                            if cell_pane {
+                                let width = ui.available_width() * 0.35;
+                                egui::Panel::right("cell-pane")
+                                    .frame(theme.view_frame(ui.style(), false))
+                                    .resizable(true)
+                                    .default_size(width)
+                                    .show(ui, |ui| {
+                                        ui.push_id("cell-pane", |ui| {
+                                            crate::cell_pane::show(ui, open)
+                                        });
+                                    });
+                            }
+                            egui::CentralPanel::default()
+                                .frame(theme.view_frame(ui.style(), true))
+                                .show(ui, |ui| crate::grid::show(ui, open));
+                        });
                     });
-                });
+            }
             if !open.problems.is_empty() {
                 egui::Panel::bottom("problems")
                     .resizable(true)
