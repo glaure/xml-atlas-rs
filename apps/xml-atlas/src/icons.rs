@@ -1,12 +1,12 @@
 //! Row icons for the tree (`docs/spec/tree.md`, TREE-11).
 //!
-//! Drawn as small shapes rather than images, in the colours of the text view's palette, so
+//! Drawn as small shapes rather than images, in the theme's syntax colours (D29), so
 //! they follow the light and dark theme and stay sharp at any scale.
 
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
 use xml_atlas_engine::tree::RowKind;
 
-use crate::highlight::Palette;
+use crate::theme::Syntax;
 
 /// Width taken by an icon, including the gap to the name.
 pub const WIDTH: f32 = 16.0;
@@ -15,7 +15,7 @@ pub const WIDTH: f32 = 16.0;
 const SIZE: f32 = 10.0;
 
 /// Draws the icon for `kind` centred on `center`.
-pub fn draw(painter: &Painter, center: Pos2, kind: RowKind, palette: &Palette) {
+pub fn draw(painter: &Painter, center: Pos2, kind: RowKind, syntax: &Syntax) {
     let half = SIZE / 2.0;
     let square = Rect::from_center_size(center, vec2(SIZE, SIZE));
     let line = |a: Pos2, b: Pos2, color: Color32| {
@@ -29,35 +29,35 @@ pub fn draw(painter: &Painter, center: Pos2, kind: RowKind, palette: &Palette) {
             painter.rect_stroke(
                 back,
                 CornerRadius::same(2),
-                Stroke::new(1.2, palette.tag),
+                Stroke::new(1.2, syntax.tag),
                 StrokeKind::Inside,
             );
-            painter.rect_filled(front, CornerRadius::same(2), palette.tag);
+            painter.rect_filled(front, CornerRadius::same(2), syntax.tag);
         }
         RowKind::TextElement => {
             // A square with lines of text in it.
             painter.rect_stroke(
                 square,
                 CornerRadius::same(2),
-                Stroke::new(1.2, palette.tag),
+                Stroke::new(1.2, syntax.tag),
                 StrokeKind::Inside,
             );
             line(
                 pos2(center.x - 2.5, center.y - 1.5),
                 pos2(center.x + 2.5, center.y - 1.5),
-                palette.text,
+                syntax.text,
             );
             line(
                 pos2(center.x - 2.5, center.y + 1.5),
                 pos2(center.x + 1.0, center.y + 1.5),
-                palette.text,
+                syntax.text,
             );
         }
         RowKind::Empty => {
             painter.rect_stroke(
                 square.shrink(1.0),
                 CornerRadius::same(2),
-                Stroke::new(1.2, palette.tag.gamma_multiply(0.7)),
+                Stroke::new(1.2, syntax.tag.gamma_multiply(0.7)),
                 StrokeKind::Inside,
             );
         }
@@ -71,13 +71,13 @@ pub fn draw(painter: &Painter, center: Pos2, kind: RowKind, palette: &Palette) {
                     pos2(center.x, center.y + d),
                     pos2(center.x - d, center.y),
                 ],
-                palette.attr,
+                syntax.attribute_name,
                 Stroke::NONE,
             ));
         }
         RowKind::Text => {
             // Three lines of text, without a frame.
-            let c = palette.text.gamma_multiply(0.8);
+            let c = syntax.text.gamma_multiply(0.8);
             line(
                 pos2(center.x - half, center.y - 3.0),
                 pos2(center.x + half, center.y - 3.0),

@@ -1069,6 +1069,15 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   and a dark variant, chosen by the mode, instead of *Native light* and *Native dark*. Decided as
   above. The rules are WIN-7 to WIN-10 in `docs/spec/window.md`.
 
+- **Built, step 1 (2026-11-18):** `apps/xml-atlas/src/theme.rs`. A `Theme` holds egui's
+  `Visuals` and the colours the views paint themselves: the syntax colours (`Syntax`, which
+  replaces `highlight.rs`'s `Palette`), the selected element, the marked item and its
+  outline, the text selection and the hatching. `Theme::light()` and `Theme::dark()` are
+  built from egui's visuals and the colours used before; tests check that each equals what
+  the views computed before. `theme::install` hands both to egui once, at start;
+  `theme::current` gives the views the one the mode shows, from egui's memory (one lookup
+  a frame per view, and one per hatched grid cell). Spacing is not in the theme yet.
+
 ## Open questions
 
 None.
