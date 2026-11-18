@@ -118,7 +118,8 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   with the rank Alternate, so XML Atlas is in *Open with* without becoming the default. The
   release workflow opens two files with `open -a`, one at launch and one while running,
   with a space and non-ASCII letters in their names, and checks that both open in one
-  process. Not yet run on a Mac by a person.
+  process. Run on a Mac by the owner (2026-11-18): the 1.0.0 DMG works. That DMG predates
+  D26, so opening from Finder (double-click, *Open with*) is not yet tried by a person.
 - **PKG-21** `[planned]` The app is signed with the Developer ID of the owner's employer's
   Apple developer account and notarized, so Gatekeeper opens it without a warning. As for
   Windows (PKG-14), this is a manual step, and the account's credentials never go into CI:
