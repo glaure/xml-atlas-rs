@@ -203,6 +203,14 @@ fn lists_come_in_pages() {
     );
     assert_eq!(found["total"], 250);
     assert_eq!(found["matches"].as_array().unwrap().len(), 5);
+    // Within one element: only the match in its tag, not the 249 others.
+    let found = run(
+        &mut docs,
+        "find",
+        json!({"document": doc, "query": "item", "within": "/list/item[201]"}),
+    );
+    assert_eq!(found["total"], 1);
+    assert_eq!(found["matches"][0]["path"], "/list/item[201]");
 }
 
 #[test]

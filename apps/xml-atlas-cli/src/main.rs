@@ -1,7 +1,7 @@
 //! `xml-atlas-cli`: the engine's commands without a window.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod mcp;
@@ -108,6 +108,9 @@ enum Command {
         match_case: bool,
         #[arg(long)]
         whole_word: bool,
+        /// Only inside this element (its tags included), by path: `/root/child[2]`.
+        #[arg(long, value_name = "PATH")]
+        within: Option<String>,
         /// Print at most this many matches; all are counted.
         #[arg(long, default_value_t = 20)]
         limit: usize,
@@ -233,6 +236,7 @@ fn main() -> anyhow::Result<()> {
             query,
             match_case,
             whole_word,
+            within,
             limit,
         } => find(
             &file,
@@ -241,6 +245,7 @@ fn main() -> anyhow::Result<()> {
                 match_case,
                 whole_word,
             },
+            within.as_deref(),
             limit,
         ),
         Command::Replace {
@@ -276,15 +281,7 @@ fn replace(
 ) -> anyhow::Result<()> {
     let mut doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
     let finder = Finder::new(query, options)?;
-    let range = match within {
-        Some(path) => {
-            if let Some(e) = &doc.index.error {
-                anyhow::bail!("{} is not well-formed: {e}", file.display());
-            }
-            doc.index.node(command::resolve(&doc, path)?).span()
-        }
-        None => 0..doc.src.len(),
-    };
+    let range = within_range(&doc, file, within)?;
     let was_broken = doc.index.error.is_some();
     match find_text::replace_all(&finder, &doc.src, range, with) {
         None => eprintln!("no matches"),
@@ -358,13 +355,21 @@ fn write_output(output: Option<PathBuf>, bytes: &[u8]) -> anyhow::Result<()> {
 /// Characters of a matching line that are printed.
 const FIND_LINE_CHARS: usize = 160;
 
-fn find(file: &PathBuf, query: &str, options: FindOptions, limit: usize) -> anyhow::Result<()> {
+/// Find (TEXT-12), in the whole file or within one element (TEXT-26), as the GUI's.
+fn find(
+    file: &PathBuf,
+    query: &str,
+    options: FindOptions,
+    within: Option<&str>,
+    limit: usize,
+) -> anyhow::Result<()> {
     let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
     let finder = Finder::new(query, options)?;
+    let range = within_range(&doc, file, within)?;
     let t = Instant::now();
     let mut count = 0usize;
-    let mut from = 0;
-    while let Some(found) = finder.next(&doc.src, from, Direction::Forward) {
+    let mut from = range.start;
+    while let Some(found) = finder.next_within(&doc.src, range.clone(), from, Direction::Forward) {
         if found.wrapped {
             break;
         }
@@ -379,6 +384,23 @@ fn find(file: &PathBuf, query: &str, options: FindOptions, limit: usize) -> anyh
     let noun = if count == 1 { "match" } else { "matches" };
     println!("{count} {noun} in {}", ms(t.elapsed()));
     Ok(())
+}
+
+/// The source bytes of the element at `within`, its tags included, or the whole file.
+fn within_range(
+    doc: &Document,
+    file: &Path,
+    within: Option<&str>,
+) -> anyhow::Result<std::ops::Range<usize>> {
+    match within {
+        Some(path) => {
+            if let Some(e) = &doc.index.error {
+                anyhow::bail!("{} is not well-formed: {e}", file.display());
+            }
+            Ok(doc.index.node(command::resolve(doc, path)?).span())
+        }
+        None => Ok(0..doc.src.len()),
+    }
 }
 
 fn stats(file: &PathBuf, repeat: u32) -> anyhow::Result<()> {

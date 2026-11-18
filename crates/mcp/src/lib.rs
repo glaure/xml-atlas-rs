@@ -11,6 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
@@ -227,11 +228,12 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "find",
-            description: "Find text in the source, tags and names included. Returns the total and a page of matches with line, column, the element's path and the line.",
+            description: "Find text in the source, tags and names included, in the whole source or within one element (its tags included). Returns the total and a page of matches with line, column, the element's path and the line.",
             schema: object(
                 page(find_options(props(&[
                     ("document", &document),
                     ("query", &string("The text to find.")),
+                    ("within", &string("Only inside this element, by path.")),
                 ]))),
                 &["document", "query"],
             ),
@@ -413,8 +415,9 @@ pub fn call(
             let d = doc(docs, number(args, "document")?)?;
             let finder = Finder::new(string(args, "query")?, find_options(args))
                 .map_err(|e| ToolError::Refused(e.to_string()))?;
+            let within = within(d, args)?;
             let (offset, limit) = page(args);
-            Ok(find(d, &finder, offset, limit))
+            Ok(find(d, &finder, within, offset, limit))
         }
         "problems" => {
             let d = doc(docs, number(args, "document")?)?;
@@ -629,11 +632,11 @@ fn text(d: &Document, from: usize, lines: usize) -> Value {
     })
 }
 
-fn find(d: &Document, finder: &Finder, offset: usize, limit: usize) -> Value {
+fn find(d: &Document, finder: &Finder, within: Range<usize>, offset: usize, limit: usize) -> Value {
     let mut total = 0usize;
     let mut matches = Vec::new();
-    let mut from = 0;
-    while let Some(found) = finder.next(&d.src, from, Direction::Forward) {
+    let mut from = within.start;
+    while let Some(found) = finder.next_within(&d.src, within.clone(), from, Direction::Forward) {
         if found.wrapped {
             break;
         }
@@ -653,6 +656,21 @@ fn find(d: &Document, finder: &Finder, offset: usize, limit: usize) -> Value {
         from = found.range.end.max(found.range.start + 1);
     }
     json!({"total": total, "matches": matches})
+}
+
+/// The source bytes of the element at `within`, its tags included, or the whole source.
+fn within(d: &Document, args: &Map<String, Value>) -> Result<Range<usize>, ToolError> {
+    match args.get("within").and_then(Value::as_str) {
+        Some(path) => {
+            if let Some(e) = &d.index.error {
+                return Err(ToolError::Refused(format!(
+                    "the document is not well-formed: {e}"
+                )));
+            }
+            Ok(d.index.node(command::resolve(d, path)?).span())
+        }
+        None => Ok(0..d.src.len()),
+    }
 }
 
 /// A structured edit (EDIT-5 to EDIT-10) on the element at `path`, as one undo step. Refused
@@ -680,17 +698,7 @@ fn replace(docs: &mut impl Documents, args: &Map<String, Value>) -> Result<Value
     let d = doc(docs, id)?;
     let finder = Finder::new(string(args, "query")?, find_options(args))
         .map_err(|e| ToolError::Refused(e.to_string()))?;
-    let range = match args.get("within").and_then(Value::as_str) {
-        Some(path) => {
-            if let Some(e) = &d.index.error {
-                return Err(ToolError::Refused(format!(
-                    "the document is not well-formed: {e}"
-                )));
-            }
-            d.index.node(command::resolve(d, path)?).span()
-        }
-        None => 0..d.src.len(),
-    };
+    let range = within(d, args)?;
     match find_text::replace_all(&finder, &d.src, range, string(args, "with")?) {
         None => Ok(json!({"replaced": 0})),
         Some((edit, count)) => {

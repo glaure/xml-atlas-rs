@@ -1,10 +1,13 @@
-//! Find bar above the text view (`docs/spec/text.md`, TEXT-12, TEXT-14).
+//! Find bar above the text view (`docs/spec/text.md`, TEXT-12, TEXT-14, TEXT-26).
 //!
-//! Ctrl+F opens it, Ctrl+H opens it with a Replace row, Escape closes it. Enter or F3 finds
+//! Ctrl+F opens it, Ctrl+H opens it with a Replace row, Escape closes it. Ctrl+Shift+F, or
+//! Find in element… in the tree, keeps Find to the selected element until the bar closes. Enter or F3 finds
 //! the next match, Shift+Enter or Shift+F3 the previous one. A match selects the element that
 //! contains it, so tree and grid follow, and is outlined in the text. Replace replaces the
 //! outlined match and finds the next; Replace All replaces every match, in the whole document
 //! or in the selected element, as one undo step.
+
+use std::ops::Range;
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::find::{self, Direction, FindOptions, Finder};
@@ -17,6 +20,8 @@ use crate::app::{Note, Open};
 const COUNT_LIMIT: usize = 1_000_000;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+const OPEN_WITHIN: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
 const OPEN_REPLACE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
 const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
 const PREVIOUS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::SHIFT, Key::F3);
@@ -31,9 +36,11 @@ pub struct FindBar {
     /// Where each match in the document starts, in order, up to [`COUNT_LIMIT`]; shown after
     /// the buttons as the count and the position of the current match.
     starts: Vec<usize>,
-    /// The document `count` belongs to (address and length of its source, and its revision),
-    /// so that it is recounted when another file is opened or the document changes.
-    counted: Option<(usize, usize, u64)>,
+    /// The document and scope `starts` belong to, so that they are counted again when another
+    /// file is opened, the document changes or Find keeps to another element.
+    counted: Option<DocKey>,
+    /// The path of the element Find keeps to, shown in the bar.
+    within_label: String,
     /// Where the match the bar last went to starts, while it is outlined (`Open::mark`).
     current: Option<u64>,
     /// What the last search said: "not found", "continued from the top".
@@ -65,8 +72,20 @@ impl FindBar {
         self.compiled = None;
     }
 
-    /// Shows the bar and puts the cursor in its field.
-    pub fn open(&mut self) {
+    /// Shows the bar and puts the cursor in its field, to find in the whole document.
+    pub fn open(&mut self, open: Option<&mut Open>) {
+        if let Some(open) = open {
+            open.find_within = None;
+        }
+        self.visible = true;
+        self.focus_field = true;
+    }
+
+    /// Shows the bar to find only in the selected element (TEXT-26), or in the whole
+    /// document when none is selected.
+    pub fn open_within(&mut self, open: &mut Open) {
+        open.find_within = open.selected;
+        open.mark = None;
         self.visible = true;
         self.focus_field = true;
     }
@@ -85,13 +104,24 @@ impl FindBar {
 
     /// Global shortcuts; call once per frame before the panels are drawn.
     pub fn shortcuts(&mut self, ctx: &egui::Context, open: Option<&mut Open>) {
-        if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
-            self.open();
+        let Some(open) = open else {
+            if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
+                self.open(None);
+            }
+            if ctx.input_mut(|i| i.consume_shortcut(&OPEN_REPLACE)) {
+                self.open_replace();
+            }
+            return;
+        };
+        // Ctrl+Shift+F first: the plain Ctrl+F shortcut would also match it.
+        if ctx.input_mut(|i| i.consume_shortcut(&OPEN_WITHIN)) {
+            self.open_within(open);
+        } else if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
+            self.open(Some(open));
         }
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN_REPLACE)) {
             self.open_replace();
         }
-        let Some(open) = open else { return };
         // Shift+F3 first: the plain F3 shortcut would also match it.
         if ctx.input_mut(|i| i.consume_shortcut(&PREVIOUS)) {
             self.visible = true;
@@ -119,6 +149,16 @@ impl FindBar {
             }
             if field.changed() {
                 self.recount(open);
+            }
+            if open.find_within.is_some() {
+                ui.label(RichText::new(format!("in {}", self.within_label)).strong());
+                if ui
+                    .small_button("✕")
+                    .on_hover_text("Find in the whole document")
+                    .clicked()
+                {
+                    open.find_within = None;
+                }
             }
             if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 let back = ui.input(|i| i.modifiers.shift);
@@ -206,14 +246,18 @@ impl FindBar {
                 if ui.button("Replace All").clicked() {
                     action = Some(true);
                 }
-                ui.add_enabled(
-                    scope(open).is_some(),
-                    egui::Checkbox::new(&mut self.in_selection, "In selection"),
-                )
-                .on_hover_text(
-                    "Replace All only inside the text selected in the text view or, when none \
-                     is, the element selected in tree or grid",
-                );
+                if open.find_within.is_some() {
+                    ui.label(RichText::new("Replace All keeps to the element too").weak());
+                } else {
+                    ui.add_enabled(
+                        scope(open).is_some(),
+                        egui::Checkbox::new(&mut self.in_selection, "In selection"),
+                    )
+                    .on_hover_text(
+                        "Replace All only inside the text selected in the text view or, when \
+                         none is, the element selected in tree or grid",
+                    );
+                }
             });
         }
         if let Some(d) = direction {
@@ -223,6 +267,10 @@ impl FindBar {
             Some(true) => self.replace_all(open),
             Some(false) => self.replace(open),
             None => {}
+        }
+        if !self.visible {
+            // Keeping to an element lasts while the bar is open.
+            open.find_within = None;
         }
     }
 
@@ -248,9 +296,12 @@ impl FindBar {
 
     /// Replaces every match, in the selected element or the whole document, as one step.
     fn replace_all(&mut self, open: &mut Open) {
-        let within = scope(open)
-            .filter(|_| self.in_selection)
-            .unwrap_or(0..open.doc.src.len());
+        let within = match open.find_within {
+            Some(_) => find_range(open),
+            None => scope(open)
+                .filter(|_| self.in_selection)
+                .unwrap_or(0..open.doc.src.len()),
+        };
         let with = self.with.clone();
         let Some(finder) = self.finder() else {
             return;
@@ -299,7 +350,8 @@ impl FindBar {
             };
             return;
         };
-        let Some(found) = finder.next(&open.doc.src, from, direction) else {
+        let within = find_range(open);
+        let Some(found) = finder.next_within(&open.doc.src, within, from, direction) else {
             self.note = "Not found".into();
             return;
         };
@@ -310,10 +362,13 @@ impl FindBar {
         open.scroll_text_to = Some(range.start);
         self.current = Some(range.start);
         open.mark = Some(range);
-        self.note = match (found.wrapped, direction) {
-            (true, Direction::Forward) => "Continued from the top".into(),
-            (true, Direction::Backward) => "Continued from the bottom".into(),
-            (false, _) => String::new(),
+        let element = open.find_within.is_some();
+        self.note = match (found.wrapped, direction, element) {
+            (false, _, _) => String::new(),
+            (true, Direction::Forward, false) => "Continued from the top".into(),
+            (true, Direction::Backward, false) => "Continued from the bottom".into(),
+            (true, Direction::Forward, true) => "Continued from the element's start".into(),
+            (true, Direction::Backward, true) => "Continued from the element's end".into(),
         };
     }
 
@@ -349,13 +404,19 @@ impl FindBar {
     fn recount(&mut self, open: &Open) {
         self.counted = Some(doc_key(open));
         self.note.clear();
+        self.within_label = open
+            .find_within
+            .map(|id| open.doc.index.path(&open.doc.src, id))
+            .unwrap_or_default();
         let mut starts = std::mem::take(&mut self.starts);
         starts.clear();
         let src = &open.doc.src;
+        let within = find_range(open);
         if let Some(finder) = self.finder() {
-            let mut from = 0;
+            let mut from = within.start;
             while starts.len() < COUNT_LIMIT
-                && let Some(found) = finder.next(src, from, Direction::Forward)
+                && let Some(found) =
+                    finder.next_within(src, within.clone(), from, Direction::Forward)
                 && !found.wrapped
             {
                 starts.push(found.range.start);
@@ -389,12 +450,25 @@ fn count_label(starts: &[usize], current: Option<u64>) -> String {
     }
 }
 
-fn doc_key(open: &Open) -> (usize, usize, u64) {
+/// Address and length of the source, its revision, and the element Find keeps to.
+type DocKey = (usize, usize, u64, Option<xml_atlas_engine::xml::NodeId>);
+
+fn doc_key(open: &Open) -> DocKey {
     (
         open.doc.src.as_ptr() as usize,
         open.doc.src.len(),
         open.doc.revision(),
+        open.find_within,
     )
+}
+
+/// Where Find searches: the element it keeps to, its tags included (TEXT-26), or the whole
+/// document.
+fn find_range(open: &Open) -> Range<usize> {
+    match open.find_within {
+        Some(id) => open.doc.index.node(id).span(),
+        None => 0..open.doc.src.len(),
+    }
 }
 
 /// Applies a replacement as one undo step and says what it did. Replacing is plain text, so
@@ -415,7 +489,7 @@ fn apply(open: &mut Open, edit: Edit, done: String) {
 
 /// What *In selection* limits Replace All to (TEXT-14): the text selected in the text view,
 /// or when none is, the element selected in tree or grid, its tags included.
-fn scope(open: &Open) -> Option<std::ops::Range<usize>> {
+fn scope(open: &Open) -> Option<Range<usize>> {
     match open.text_sel.filter(|s| !s.is_empty()) {
         Some(s) => Some(s.range()),
         None => open.selected.map(|id| open.doc.index.node(id).span()),
@@ -463,6 +537,77 @@ mod tests {
         assert_eq!(bar.note, "Continued from the bottom");
         open.mark = Some(0..3);
         assert_eq!(label(&bar, &open), "3 matches");
+    }
+
+    /// Find in element (TEXT-26): count, position and wrapping keep to the element, the
+    /// scope follows an edit before it and ends with the element, and Replace All keeps to it.
+    #[test]
+    fn find_in_element_keeps_to_it() {
+        use xml_atlas_engine::command;
+        let src = "\u{feff}<r>\r\n  <a>Söhne</a>\r\n  <b><c>söhne</c><c>x</c></b>\r\n  \
+                   <b><c>SÖHNE</c><c>söhne</c></b>\r\n</r>\r\n";
+        let doc = xml_atlas_engine::Document::from_bytes(src.as_bytes().to_vec());
+        let mut open = Open::new(doc, egui::Id::unique("find-within"));
+        let b2 = command::resolve(&open.doc, "/r/b[2]").unwrap();
+        open.select(b2);
+        let mut bar = FindBar {
+            query: "söhne".into(),
+            ..FindBar::default()
+        };
+        bar.open_within(&mut open);
+        bar.recount(&open);
+        assert_eq!(
+            (bar.count(&open).as_str(), bar.within_label.as_str()),
+            ("2 matches", "/r/b[2]")
+        );
+        let text = |open: &Open| {
+            let m = open.mark.clone().unwrap();
+            String::from_utf8_lossy(&open.doc.src[m.start as usize..m.end as usize]).into_owned()
+        };
+        bar.find(&mut open, Direction::Forward);
+        assert_eq!(
+            (bar.count(&open), text(&open)),
+            ("1 of 2 matches".into(), "SÖHNE".into())
+        );
+        bar.find(&mut open, Direction::Forward);
+        assert_eq!(bar.count(&open), "2 of 2 matches");
+        // A match selects its `c`, yet Find still keeps to `b[2]`.
+        assert_ne!(open.selected, Some(b2));
+        bar.find(&mut open, Direction::Forward);
+        assert_eq!(bar.count(&open), "1 of 2 matches");
+        assert_eq!(bar.note, "Continued from the element's start");
+
+        // Deleting the `b` before it: the scope follows its element, now `b[1]`.
+        let b1 = command::resolve(&open.doc, "/r/b[1]").unwrap();
+        let p = open.doc.index.element_position(b1);
+        open.command(
+            "delete",
+            |d| command::delete(d, b1).map(Some),
+            crate::app::Shift::Remove(p),
+        );
+        bar.recount(&open);
+        assert_eq!(
+            (bar.count(&open).as_str(), bar.within_label.as_str()),
+            ("2 matches", "/r/b")
+        );
+
+        // Replace All changes only the element's matches; every other byte stays.
+        bar.with = "Sons".into();
+        bar.replace_all(&mut open);
+        let want = src
+            .replace("  <b><c>söhne</c><c>x</c></b>\r\n", "")
+            .replace("<c>SÖHNE</c><c>söhne</c>", "<c>Sons</c><c>Sons</c>");
+        assert_eq!(String::from_utf8_lossy(&open.doc.src), want);
+
+        // Deleting the element itself ends the scope.
+        let b = command::resolve(&open.doc, "/r/b").unwrap();
+        let p = open.doc.index.element_position(b);
+        open.command(
+            "delete",
+            |d| command::delete(d, b).map(Some),
+            crate::app::Shift::Remove(p),
+        );
+        assert_eq!(open.find_within, None);
     }
 
     #[test]
