@@ -138,6 +138,10 @@ pub struct Open {
     pub(crate) references_due: Option<Instant>,
     /// The reference preview of the selected element (REF-5), kept until it changes.
     pub reference_preview: Option<crate::ref_preview::Cached>,
+    /// The sections chosen for `nearest` contexts in this tab (REF-9).
+    pub reference_choices: Vec<crate::ref_preview::StoredChoice>,
+    /// The sections around the selected element, and the element and revision they are for.
+    pub reference_sections: Option<(NodeId, u64, Vec<references::Sections>)>,
     /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
     pub keys: Pane,
     /// Grid row to scroll into view on the next frame.
@@ -1936,6 +1940,8 @@ impl Open {
             reference_problems: Vec::new(),
             references_due: None,
             reference_preview: None,
+            reference_choices: Vec::new(),
+            reference_sections: None,
             keys: Pane::Tree,
             grid_scroll_to: None,
             grid_reveal_cell: false,
@@ -2093,6 +2099,11 @@ impl Open {
         let find_within = self
             .find_within
             .and_then(|id| shift.remap(&idx.element_position(id)));
+        let choices: Vec<_> = self
+            .reference_choices
+            .iter()
+            .filter_map(|c| c.remap(shift))
+            .collect();
         let column = self
             .grid
             .as_ref()
@@ -2124,6 +2135,7 @@ impl Open {
         }
         // Gone when the element was deleted.
         self.find_within = find_within.and_then(|p| idx.element_at_position(&p));
+        self.reference_choices = choices;
         self.check_references();
         self.focus = None;
         self.mark = None;
@@ -2165,6 +2177,7 @@ impl Open {
     pub fn type_edit(&mut self, edit: Edit) -> Result<(), EditError> {
         let selected_start = self.selected.map(|id| self.doc.index.node(id).start);
         let within_start = self.find_within.map(|id| self.doc.index.node(id).start);
+        let choices = crate::ref_preview::chosen(self);
         self.doc.apply_typed(edit)?;
         let Some(ns) = self.doc.node_splice() else {
             // Not expected for a typed change; build the views again.
@@ -2172,6 +2185,16 @@ impl Open {
             return Ok(());
         };
         self.tree.follow(&self.doc, &ns);
+        let choices: Vec<_> = choices
+            .iter()
+            .filter_map(|c| {
+                Some(references::Choice {
+                    scope: ns.map(c.scope)?,
+                    chosen: ns.map(c.chosen)?,
+                })
+            })
+            .collect();
+        crate::ref_preview::store(self, &choices);
         let moved = |start: u64| match self.doc.last_change() {
             Some(c) if start >= (c.at + c.removed) as u64 => {
                 start + c.inserted as u64 - c.removed as u64
