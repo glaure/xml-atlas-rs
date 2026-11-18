@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
@@ -20,6 +21,7 @@ use crate::tool_icons::{self, Tool};
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
+use xml_atlas_engine::references::{self, Rules};
 
 /// Time a frame spends looking at a long grid's rows for columns (GRID-3).
 const GRID_SCAN_TIME: Duration = Duration::from_millis(6);
@@ -124,8 +126,18 @@ pub struct Open {
     /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
     /// word wrap its row, goes near the top, and a long line scrolls sideways to it.
     pub scroll_text_to: Option<u64>,
-    /// Warnings and errors, in document order (OPEN-13).
+    /// Warnings and errors, in document order (OPEN-13), with the references that find
+    /// nothing (REF-4).
     pub problems: Vec<Problem>,
+    /// The reference rules for this file (REF-1), read when it opened, or why they could
+    /// not be read.
+    pub references: Option<Result<(PathBuf, Arc<Rules>), String>>,
+    /// References that find nothing, as of the last check.
+    reference_problems: Vec<Problem>,
+    /// When to check the references again: typing waits for a pause.
+    pub(crate) references_due: Option<Instant>,
+    /// The reference preview of the selected element (REF-5), kept until it changes.
+    pub reference_preview: Option<crate::ref_preview::Cached>,
     /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
     pub keys: Pane,
     /// Grid row to scroll into view on the next frame.
@@ -1399,6 +1411,14 @@ impl App {
                     "Cell pane beside the grid (experiment)",
                 );
                 ui.checkbox(&mut self.settings.toolbar, "Toolbar");
+                ui.checkbox(
+                    &mut self.settings.reference_preview,
+                    "Preview with references resolved",
+                )
+                .on_hover_text(
+                    "A pane with the selected element as it reads with its references \
+                     resolved, from the rules in xml-atlas-references.json (REF-5)",
+                );
                 ui.checkbox(&mut self.settings.agents, "Allow AI agents (MCP)")
                     .on_hover_text(
                         "Agents such as Claude Code may read and edit the open documents, \
@@ -1812,6 +1832,7 @@ impl eframe::App for App {
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
+        let reference_preview = self.settings.reference_preview;
         let wrap = open.wraps(self.settings.word_wrap);
         let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
@@ -1852,6 +1873,16 @@ impl eframe::App for App {
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }
+            if reference_preview {
+                let width = ui.available_width() * 0.45;
+                egui::Panel::right("reference-preview")
+                    .frame(theme.view_frame(ui.style(), false))
+                    .resizable(true)
+                    .default_size(width)
+                    .show(ui, |ui| {
+                        ui.push_id(open.id, |ui| crate::ref_preview::show(ui, open, &text_font));
+                    });
+            }
             egui::CentralPanel::default()
                 .frame(theme.view_frame(ui.style(), true))
                 .show(ui, |ui| {
@@ -1887,6 +1918,10 @@ impl Open {
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),
+            references: None,
+            reference_problems: Vec::new(),
+            references_due: None,
+            reference_preview: None,
             keys: Pane::Tree,
             grid_scroll_to: None,
             grid_reveal_cell: false,
@@ -1910,8 +1945,45 @@ impl Open {
             wrap: minified.then_some(true),
             minified_notice: minified,
         };
-        open.problems = open.doc.problems();
+        open.references = open.doc.path.as_deref().and_then(load_rules);
+        open.check_references();
         open
+    }
+
+    /// The rules, when there are any and they could be read.
+    pub fn rules(&self) -> Option<&Arc<Rules>> {
+        match &self.references {
+            Some(Ok((_, rules))) => Some(rules),
+            _ => None,
+        }
+    }
+
+    /// Checks the references again (REF-4) and rebuilds the problems list. Waits while the
+    /// index lags behind typing (D19).
+    pub(crate) fn check_references(&mut self) {
+        if self.doc.stale().is_some() {
+            self.references_due = Some(Instant::now() + xml_atlas_engine::REPARSE_PAUSE);
+            return;
+        }
+        self.references_due = None;
+        self.reference_problems = match self.rules() {
+            Some(rules) => {
+                let t = Instant::now();
+                let p = references::problems(&self.doc, rules);
+                log::debug!("references checked in {:?}", t.elapsed());
+                p
+            }
+            None => Vec::new(),
+        };
+        self.update_problems();
+    }
+
+    /// The problems list: the document's own, and the references that find nothing.
+    fn update_problems(&mut self) {
+        let mut all = self.doc.problems();
+        all.extend(self.reference_problems.iter().cloned());
+        all.sort_by_key(|p| p.offset);
+        self.problems = all;
     }
 
     /// Whether this tab wraps lines: its own choice when it has one, else the `setting`.
@@ -2036,11 +2108,11 @@ impl Open {
         for id in found {
             self.tree.expand(id);
         }
-        self.problems = self.doc.problems();
-        self.focus = None;
-        self.mark = None;
         // Gone when the element was deleted.
         self.find_within = find_within.and_then(|p| idx.element_at_position(&p));
+        self.check_references();
+        self.focus = None;
+        self.mark = None;
         let selected = selected
             .and_then(|p| nearest_element(&self.doc, p))
             .or_else(|| self.doc.index.root_element());
@@ -2125,7 +2197,12 @@ impl Open {
             self.grid_cell = None;
         }
         self.grid_edit = None;
-        self.problems = self.doc.problems();
+        // Checking every reference per key costs too much on a large file: after a pause.
+        self.reference_problems.clear();
+        self.update_problems();
+        if self.rules().is_some() {
+            self.references_due = Some(Instant::now() + xml_atlas_engine::REPARSE_PAUSE);
+        }
         Ok(())
     }
 
@@ -2133,6 +2210,14 @@ impl Open {
     /// on this thread up to [`REPARSE_INLINE_BYTES`], else on a worker thread with a copy of
     /// the source. Call once per frame for every open document.
     pub fn reparse_when_due(&mut self, ctx: &egui::Context) {
+        if let Some(due) = self.references_due {
+            let now = Instant::now();
+            if now >= due {
+                self.check_references();
+            } else {
+                ctx.request_repaint_after(due - now);
+            }
+        }
         if let Some(rx) = &self.reparse {
             match rx.try_recv() {
                 Ok(done) => {
@@ -2332,6 +2417,22 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// What happened to the file, after its name.
+/// The reference rules for a document at `path` (REF-1): the rules file next to it or above
+/// it, if there is one.
+fn load_rules(path: &Path) -> Option<Result<(PathBuf, Arc<Rules>), String>> {
+    let file = Rules::find(&std::path::absolute(path).ok()?)?;
+    Some(match Rules::read(&file) {
+        Ok(rules) => {
+            log::info!("reference rules from {}", file.display());
+            Ok((file, Arc::new(rules)))
+        }
+        Err(e) => {
+            log::warn!("reference rules in {}: {e}", file.display());
+            Err(format!("{}: {e}", file.display()))
+        }
+    })
+}
+
 fn disk_text(change: DiskChange) -> &'static str {
     match change {
         DiskChange::Changed => "changed on disk",

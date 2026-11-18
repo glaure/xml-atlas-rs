@@ -66,6 +66,12 @@ pub fn line_job(line: &str, font: &FontId, p: &Syntax, start: State) -> (LayoutJ
     (job, end)
 }
 
+/// The state at the end of `line`, which starts in `start`, without laying it out: for a
+/// view that keeps each line's start state, such as the reference preview (REF-5).
+pub fn end_state(line: &str, start: State) -> State {
+    walk(line.as_bytes(), start, |_, _| {})
+}
+
 /// The state a line starts in after a line that ended in `end`: the line break after an
 /// element name ends the name.
 pub fn after_line_break(end: State) -> State {

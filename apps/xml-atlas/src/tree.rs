@@ -5,6 +5,7 @@ use std::ops::Range;
 use egui::{Align2, Color32, FontId, Key, Rect, Sense, Shape, Ui, pos2, vec2};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::command::{self, Direction};
+use xml_atlas_engine::references::{self, RefKind, Rules};
 use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
@@ -47,6 +48,8 @@ pub enum TreeCommand {
     CollapseAll,
     /// Ctrl+Shift+F: Find only inside the element (TEXT-26); not an edit.
     FindIn,
+    /// F12: select what the reference finds (REF-3); not an edit.
+    GoToReference,
 }
 
 /// An element being renamed in place. Enter saves, Escape or a click elsewhere cancels.
@@ -292,6 +295,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
     let mut renamed = None;
     let mut rename_shown = false;
     let stale = open.doc.stale().unwrap_or(NONE);
+    let rules = open.rules().cloned();
     area.show_rows(ui, row_h, open.tree.rows.len(), |ui, range| {
         open.tree.visible = range.clone();
         for i in range {
@@ -368,7 +372,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
                 clicked = Some(row);
             }
             resp.context_menu(|ui| {
-                if let Some(command) = context_menu(ui, doc, row) {
+                if let Some(command) = context_menu(ui, doc, rules.as_deref(), row) {
                     chosen = Some((row, command));
                 }
             });
@@ -421,6 +425,7 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
         (TreeCommand::CollapseAll, _) => open.tree.collapse_all(&open.doc),
         // The app opens the Find bar on the selection, which the click made this element.
         (TreeCommand::FindIn, _) => open.find_requested = element.is_some(),
+        (TreeCommand::GoToReference, _) => crate::ref_preview::go_to_target(open),
         (TreeCommand::Rename, _) => match element {
             Some(id) => {
                 let name = String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned();
@@ -529,7 +534,12 @@ fn finish_rename(open: &mut Open, save: bool) {
 }
 
 /// The right-click menu of a row. Returns the command chosen.
-fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
+fn context_menu(
+    ui: &mut Ui,
+    doc: &Document,
+    rules: Option<&Rules>,
+    row: Row,
+) -> Option<TreeCommand> {
     let idx = &doc.index;
     let mut chosen = None;
     let mut item = |ui: &mut Ui, enabled: bool, text: &str, command| {
@@ -537,6 +547,16 @@ fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
             chosen = Some(command);
         }
     };
+    // A reference first: where it goes is what a right-click on one is most often for.
+    if rules.is_some_and(|r| is_reference(doc, r, row)) {
+        item(
+            ui,
+            true,
+            "Go to reference target    F12",
+            TreeCommand::GoToReference,
+        );
+        ui.separator();
+    }
     match row {
         Row::Node(id) if idx.node(id).kind == NodeKind::Element => {
             let inner = Some(id) != idx.root_element();
@@ -575,6 +595,18 @@ fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
         ui.close();
     }
     chosen
+}
+
+/// Whether `row` is a reference (REF-2): an include element, or an attribute row whose
+/// value is one.
+fn is_reference(doc: &Document, rules: &Rules, row: Row) -> bool {
+    match row {
+        Row::Node(id) => references::include_at(doc, rules, id).is_some(),
+        Row::Attribute { element, index } => references::references(doc, rules, element)
+            .iter()
+            .any(|r| r.site == element && r.kind == RefKind::Attribute(index as usize)),
+        Row::FoldedText(_) => false,
+    }
 }
 
 /// Whether element `id` has an element sibling before or after it, so it can move there.

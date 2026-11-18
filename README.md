@@ -61,6 +61,20 @@ cargo run --release -p xml-atlas-cli -- stats file.xml --repeat 5   # timings, m
 cargo run --release -p xml-atlas-cli -- format file.xml -o out.xml
 ```
 
+## References
+
+A file can point from one part to another with conventions of its own, such as
+`<Include src="Shared:Parts/*"/>`. Put `xml-atlas-references.json` next to it, or in a folder
+above it, to say what is a reference (`docs/spec/references.md`). Then F12 goes to what the
+selected reference finds, the ones that find nothing are listed as problems, and View >
+Preview with references resolved shows the selected element with them resolved. The file is
+never changed.
+
+```sh
+cargo run --release -p xml-atlas-cli -- references file.xml          # check them all
+cargo run --release -p xml-atlas-cli -- preview file.xml /Doc/Unit   # one element resolved
+```
+
 ## For AI agents (MCP)
 
 `xml-atlas-cli mcp` serves XML Atlas's tools over the Model Context Protocol: open a file,

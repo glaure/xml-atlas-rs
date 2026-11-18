@@ -56,6 +56,8 @@ pub struct Settings {
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
     pub toolbar: bool,
+    /// The pane with the selected element's references resolved (REF-5).
+    pub reference_preview: bool,
     /// The text view's font (TEXT-25).
     pub text_font: crate::fonts::TextFont,
     /// View > Allow AI agents (MCP) (D28).
@@ -76,6 +78,7 @@ impl Default for Settings {
             cell_pane: true,
             word_wrap: false,
             toolbar: true,
+            reference_preview: false,
             text_font: Default::default(),
             agents: false,
             find: FindOptions::default(),
@@ -161,6 +164,7 @@ impl Settings {
              cell_pane = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
+             reference_preview = {}\n\
              agents = {}\n\
              \n\
              [text]\n\
@@ -185,6 +189,7 @@ impl Settings {
             self.cell_pane,
             self.word_wrap,
             self.toolbar,
+            self.reference_preview,
             self.agents,
             quote(self.text_font.family.as_deref().unwrap_or("")),
             self.text_font.face.name(),
@@ -281,6 +286,7 @@ impl Settings {
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
+                ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
                 ("view", "agents") => set(&mut s.agents, boolean(value)),
                 ("text", "font") => set(
                     &mut s.text_font.family,
@@ -400,6 +406,7 @@ mod tests {
             cell_pane: false,
             word_wrap: true,
             toolbar: false,
+            reference_preview: true,
             agents: true,
             text_font: crate::fonts::TextFont {
                 family: Some("DejaVu Sans Mono \"Größe\"".into()),

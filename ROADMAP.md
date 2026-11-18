@@ -78,6 +78,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] XPath query panel
 - [ ] Schema (XSD) validation
 - [ ] Import other XML files: follow XInclude references (`docs/spec/open.md`)
+- [x] References a rules file defines: go to target (F12), the ones that find nothing as
+      problems, a preview with them resolved, and the CLI's `references` and `preview` (D32)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
