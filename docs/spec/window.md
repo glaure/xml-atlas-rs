@@ -33,7 +33,7 @@ How the views are laid out, and how the window looks.
   works offline; its text is `apps/xml-atlas/assets/help.md`, kept up to date with the
   features. *About XML Atlas* shows the version, what the program is, its licenses (and
   where the libraries' licenses are), and links to the project page and the releases.
-  Checking for a newer version (PKG-7) is to come in this menu.
+  *Check for updates now* is to come in this menu (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
   Cut, Copy, Paste | Undo, Redo, Find | Drill Up, Drill Down, Format. Each button does what
   its menu entry or key does and is greyed out when that is: Save without changes, Cut and
@@ -85,6 +85,16 @@ How the views are laid out, and how the window looks.
   writes the current style as a file to start from; *Open the themes folder* shows the
   folder. A changed file is read again when the window gets the focus back. A missing or
   unreadable colour or part comes from the XML Atlas style, with a warning in the log.
+- **WIN-11** `[planned]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
+  every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
+  font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
+  the cell pane, word wrap for new tabs), *Format* (as Edit > Format options…), *Updates*
+  (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). A change
+  applies and is saved at once, without OK and Cancel; each section has *Reset to defaults*.
+  The View menu keeps word wrap, the layout, the cell pane, attribute rows, the toolbar and
+  the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
+  only in Settings. Not in Settings: the recent files, window and pane sizes, the find
+  options (`docs/decisions.md`, D31).
 
 ## Acceptance tests
 
