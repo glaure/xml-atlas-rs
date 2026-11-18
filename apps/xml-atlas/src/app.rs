@@ -16,6 +16,7 @@ use xml_atlas_engine::{
 use crate::disk_watch::DiskWatch;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::tabs::Tabs;
+use crate::tool_icons::{self, Tool};
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
@@ -1522,47 +1523,47 @@ impl App {
         let undo = history.is_some_and(|h| h.undo_label().is_some());
         let redo = history.is_some_and(|h| h.redo_label().is_some());
         ui.horizontal(|ui| {
-            if tool(ui, true, "🗋", "New    Ctrl+N") {
+            if tool_icons::button(ui, true, Tool::New, "New    Ctrl+N") {
                 self.new_document();
             }
-            if tool(ui, true, "🗁", "Open    Ctrl+O") {
+            if tool_icons::button(ui, true, Tool::Open, "Open    Ctrl+O") {
                 self.pick_file(&ctx);
             }
-            if tool(ui, modified, "💾", "Save    Ctrl+S") {
+            if tool_icons::button(ui, modified, Tool::Save, "Save    Ctrl+S") {
                 self.save();
             }
             ui.separator();
-            if tool(ui, selected, "✂", "Cut    Ctrl+X") {
+            if tool_icons::button(ui, selected, Tool::Cut, "Cut    Ctrl+X") {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCut));
             }
-            if tool(ui, selected, "🗐", "Copy    Ctrl+C") {
+            if tool_icons::button(ui, selected, Tool::Copy, "Copy    Ctrl+C") {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCopy));
             }
-            if tool(ui, open, "📋", "Paste    Ctrl+V") {
+            if tool_icons::button(ui, open, Tool::Paste, "Paste    Ctrl+V") {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestPaste));
             }
             ui.separator();
-            if tool(ui, undo, "⟲", "Undo    Ctrl+Z") {
+            if tool_icons::button(ui, undo, Tool::Undo, "Undo    Ctrl+Z") {
                 self.undo();
             }
-            if tool(ui, redo, "⟳", "Redo    Ctrl+Y") {
+            if tool_icons::button(ui, redo, Tool::Redo, "Redo    Ctrl+Y") {
                 self.redo();
             }
-            if tool(ui, open, "🔍", "Find    Ctrl+F") {
+            if tool_icons::button(ui, open, Tool::Find, "Find    Ctrl+F") {
                 self.find.open();
             }
             ui.separator();
-            if tool(ui, open, "⏶", "Drill Up    Alt+Up")
+            if tool_icons::button(ui, open, Tool::DrillUp, "Drill Up    Alt+Up")
                 && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_up(open);
             }
-            if tool(ui, open, "⏷", "Drill Down    Alt+Down")
+            if tool_icons::button(ui, open, Tool::DrillDown, "Drill Down    Alt+Down")
                 && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_down(open);
             }
-            if tool(ui, open, "☰", "Format") {
+            if tool_icons::button(ui, open, Tool::Format, "Format") {
                 self.format_document();
             }
         });
@@ -2325,16 +2326,6 @@ fn no_animations(ctx: &egui::Context) {
 }
 
 /// A toolbar button: `icon`, with `tip` when the pointer rests on it, also while disabled.
-fn tool(ui: &mut Ui, enabled: bool, icon: &str, tip: &str) -> bool {
-    ui.add_enabled(
-        enabled,
-        egui::Button::new(RichText::new(icon).size(17.0)).frame(false),
-    )
-    .on_hover_text(tip)
-    .on_disabled_hover_text(tip)
-    .clicked()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

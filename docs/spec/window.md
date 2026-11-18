@@ -39,7 +39,10 @@ How the views are laid out, and how the window looks.
   its menu entry or key does and is greyed out when that is: Save without changes, Cut and
   Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest
   without an open document (except New and Open). Resting the pointer on a button names it
-  and its key. The icons are symbols from egui's own fonts, no images. View > Toolbar shows
+  and its key. The icons are drawn as shapes in the button's text colour, as the tree's are
+  (TREE-11), no images and no font symbols: egui 0.37 takes symbols missing from its own
+  fonts from the system's, and Windows has no font it finds for New, Open, Copy, Drill Up,
+  Drill Down and Format, so 1.0.0 showed boxes there (reported 2026-11-18). View > Toolbar shows
   or hides it, remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree
   follows the selection by itself, and the toolbar stays under the menu; egui cannot move it.
 - **WIN-6** `[built]` View > Allow AI agents (MCP), off by default and remembered (WIN-3),
