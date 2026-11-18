@@ -131,7 +131,8 @@ of it.
   plain text; without match case, case is ignored by Unicode rules (`SÖHNE` finds `Söhne`).
   Whole word means the characters next to the match are not letters, digits or `_`. A match
   selects the element that contains it, so tree and grid follow, and is outlined in the text
-  (TEXT-11). The bar shows how many matches the document has. Escape closes it. The CLI has
+  (TEXT-11). The bar shows how many matches the document has and, while a match it found is
+  outlined, which one that is: `3 of 120 matches` (issue #102). Escape closes it. The CLI has
   the same search: `xml-atlas-cli find FILE TEXT [--match-case] [--whole-word]`.
 - **TEXT-14** `[done]` Replace and Replace All (XM-46): Ctrl+H, or Edit > Replace, opens the
   Find bar with a Replace row; the same options as Find. Replace replaces the outlined match
@@ -178,7 +179,8 @@ of it.
   `<b><c/><c/></b>` is outlined, inside the root's highlight.
 - Click an attribute row in the tree: only that attribute's `name="value"` is outlined.
 - In the 100 MiB fixture, find `Customer 49857`: the bar says 4 matches. Enter goes to line 6
-  and selects that `name`; Shift+F3 then continues from the bottom to line 2,060,923.
+  and selects that `name`, 1 of 4 matches; Shift+F3 then continues from the bottom to line
+  2,060,923, 4 of 4 matches. A click in the grid leaves only 4 matches.
 - Find `söhne` in `crates/engine/tests/corpus/utf8_bom_crlf.xml`: one match, `Söhne`.
 - In `utf8_bom_crlf.xml`, put the cursor after `Söhne`, press Backspace twice and type `ne`:
   the text reads `Söhne` again, the file saves byte for byte as before, and one Ctrl+Z undoes
