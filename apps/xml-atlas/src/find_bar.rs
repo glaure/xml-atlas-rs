@@ -28,11 +28,14 @@ pub struct FindBar {
     options: FindOptions,
     /// The compiled query, and the query and options it was built from.
     compiled: Option<Compiled>,
-    /// Number of matches in the document, shown after the buttons.
-    count: String,
+    /// Where each match in the document starts, in order, up to [`COUNT_LIMIT`]; shown after
+    /// the buttons as the count and the position of the current match.
+    starts: Vec<usize>,
     /// The document `count` belongs to (address and length of its source, and its revision),
     /// so that it is recounted when another file is opened or the document changes.
     counted: Option<(usize, usize, u64)>,
+    /// Where the match the bar last went to starts, while it is outlined (`Open::mark`).
+    current: Option<u64>,
     /// What the last search said: "not found", "continued from the top".
     note: String,
     focus_field: bool,
@@ -150,7 +153,8 @@ impl FindBar {
             if ui.button("⬇").on_hover_text("Next (F3)").clicked() {
                 direction = Some(Direction::Forward);
             }
-            let status = [self.count.as_str(), self.note.as_str()]
+            let count = self.count(open);
+            let status = [count.as_str(), self.note.as_str()]
                 .into_iter()
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
@@ -304,6 +308,7 @@ impl FindBar {
             open.select(id);
         }
         open.scroll_text_to = Some(range.start);
+        self.current = Some(range.start);
         open.mark = Some(range);
         self.note = match (found.wrapped, direction) {
             (true, Direction::Forward) => "Continued from the top".into(),
@@ -328,30 +333,59 @@ impl FindBar {
         self.compiled.as_ref()?.finder.as_ref()
     }
 
+    /// The count after the buttons, with the position of the match the bar went to while it
+    /// is still outlined; empty while there is nothing to search for.
+    fn count(&self, open: &Open) -> String {
+        if !self.compiled.as_ref().is_some_and(|c| c.finder.is_some()) {
+            return String::new();
+        }
+        let current = self
+            .current
+            .filter(|&c| open.mark.as_ref().is_some_and(|m| m.start == c));
+        count_label(&self.starts, current)
+    }
+
     /// Counts the matches of the current query for the status line.
     fn recount(&mut self, open: &Open) {
         self.counted = Some(doc_key(open));
         self.note.clear();
+        let mut starts = std::mem::take(&mut self.starts);
+        starts.clear();
         let src = &open.doc.src;
-        let Some(finder) = self.finder() else {
-            self.count.clear();
-            return;
-        };
-        let mut count = 0;
-        let mut from = 0;
-        while count < COUNT_LIMIT
-            && let Some(found) = finder.next(src, from, Direction::Forward)
-            && !found.wrapped
-        {
-            count += 1;
-            from = found.range.end.max(found.range.start + 1);
+        if let Some(finder) = self.finder() {
+            let mut from = 0;
+            while starts.len() < COUNT_LIMIT
+                && let Some(found) = finder.next(src, from, Direction::Forward)
+                && !found.wrapped
+            {
+                starts.push(found.range.start);
+                from = found.range.end.max(found.range.start + 1);
+            }
         }
-        self.count = match count {
-            0 => "No matches".into(),
-            1 => "1 match".into(),
-            n if n >= COUNT_LIMIT => format!("{COUNT_LIMIT}+ matches"),
-            n => format!("{n} matches"),
-        };
+        self.starts = starts;
+    }
+}
+
+/// The count after the buttons: "No matches", "120 matches", or with the outlined match
+/// `current` (where it starts) "3 of 120 matches" (TEXT-12). A match the count skipped, such
+/// as one overlapping the one before, or one past [`COUNT_LIMIT`], has no position.
+fn count_label(starts: &[usize], current: Option<u64>) -> String {
+    let total = match starts.len() {
+        0 => return "No matches".into(),
+        n if n >= COUNT_LIMIT => format!("{COUNT_LIMIT}+"),
+        n => n.to_string(),
+    };
+    let unit = if starts.len() == 1 {
+        "match"
+    } else {
+        "matches"
+    };
+    let position = current
+        .and_then(|c| usize::try_from(c).ok())
+        .and_then(|c| starts.binary_search(&c).ok());
+    match position {
+        Some(i) => format!("{} of {total} {unit}", i + 1),
+        None => format!("{total} {unit}"),
     }
 }
 
@@ -385,5 +419,55 @@ fn scope(open: &Open) -> Option<std::ops::Range<usize>> {
     match open.text_sel.filter(|s| !s.is_empty()) {
         Some(s) => Some(s.range()),
         None => open.selected.map(|id| open.doc.index.node(id).span()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_label_shows_the_position_of_the_outlined_match() {
+        assert_eq!(count_label(&[], None), "No matches");
+        assert_eq!(count_label(&[7], None), "1 match");
+        assert_eq!(count_label(&[7], Some(7)), "1 of 1 match");
+        let starts = [3, 10, 42];
+        assert_eq!(count_label(&starts, None), "3 matches");
+        assert_eq!(count_label(&starts, Some(3)), "1 of 3 matches");
+        assert_eq!(count_label(&starts, Some(42)), "3 of 3 matches");
+        // Not where a counted match starts: only the count.
+        assert_eq!(count_label(&starts, Some(11)), "3 matches");
+    }
+
+    /// F3 and Shift+F3 move the position, and it goes on from the other end; a grid click
+    /// that outlines something else leaves only the count.
+    #[test]
+    fn find_moves_the_position() {
+        let src = "\u{feff}<r>\r\n  <a>Söhne</a>\r\n  <a>SÖHNE</a>\r\n  <a>söhne</a>\r\n</r>";
+        let doc = xml_atlas_engine::Document::from_bytes(src.as_bytes().to_vec());
+        let mut open = Open::new(doc, egui::Id::unique("find-position"));
+        let mut bar = FindBar {
+            query: "söhne".into(),
+            ..FindBar::default()
+        };
+        bar.recount(&open);
+        let label = |bar: &FindBar, open: &Open| bar.count(open);
+        assert_eq!(label(&bar, &open), "3 matches");
+        bar.find(&mut open, Direction::Forward);
+        assert_eq!(label(&bar, &open), "1 of 3 matches");
+        bar.find(&mut open, Direction::Forward);
+        assert_eq!(label(&bar, &open), "2 of 3 matches");
+        bar.find(&mut open, Direction::Backward);
+        bar.find(&mut open, Direction::Backward);
+        assert_eq!(label(&bar, &open), "3 of 3 matches");
+        assert_eq!(bar.note, "Continued from the bottom");
+        open.mark = Some(0..3);
+        assert_eq!(label(&bar, &open), "3 matches");
+    }
+
+    #[test]
+    fn count_label_past_the_limit() {
+        let starts: Vec<usize> = (0..COUNT_LIMIT).collect();
+        assert_eq!(count_label(&starts, Some(4)), "5 of 1000000+ matches");
     }
 }
