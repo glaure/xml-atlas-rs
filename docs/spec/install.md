@@ -76,7 +76,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   feature puts `xml-atlas-cli` on the PATH, the window also starts with
   `XML_ATLAS_RENDERER=wgpu`, and uninstalling works. The 0.1.1 MSI installed over 0.1.0
   replaces it in place and keeps the settings and recent files (PKG-5, 2026-11-16). The MSI
-  is not signed yet (PKG-13).
+  is not signed yet (PKG-13). `xml-atlas.exe` is a window program (the Windows GUI
+  subsystem), so no console opens beside the window; 1.0.0 opened one (reported by the owner,
+  2026-11-18). A test reads the subsystem from the built exe.
 - **PKG-11** `[done]` The MSI has an upgrade code of its own, not the Qt XML Atlas's
   (QT-13): the Qt version has no install base to carry over, so the two are separate
   programs to Windows. Ours is `7DA64DFB-4246-4B3A-B6E3-9860CABB8C81`; it never changes.

@@ -1,5 +1,10 @@
 //! XML Atlas desktop app.
 
+// A window program on Windows: without this, Windows opens a console beside the window when the
+// app is started from the Start menu, Explorer or a file. Log output still goes to stderr when
+// it is redirected.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod agent;
 mod app;
 mod cell_pane;
