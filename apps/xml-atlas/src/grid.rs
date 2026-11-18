@@ -1,7 +1,7 @@
 //! The grid view: draws an engine [`Grid`] (`docs/spec/grid.md`). Cells are decoded only for
 //! visible rows.
 
-use egui::{Color32, Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
 use egui_extras::{Column as TableColumn, TableBuilder};
 use xml_atlas_engine::command;
 use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
@@ -550,8 +550,7 @@ fn nested_text(ui: &Ui, s: String) -> RichText {
 /// Diagonal lines over `rect`: the row has no such attribute, child or text (GRID-13).
 fn hatch(ui: &Ui, rect: Rect) {
     let painter = ui.painter_at(rect);
-    let color: Color32 = ui.visuals().weak_text_color().gamma_multiply(0.35);
-    let stroke = Stroke::new(1.0, color);
+    let stroke = Stroke::new(1.0, crate::theme::current(ui).hatch);
     let h = rect.height();
     let mut x = rect.left() - h;
     while x < rect.right() {

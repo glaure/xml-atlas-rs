@@ -267,6 +267,11 @@ impl App {
     ) -> Self {
         stop_at_the_edge(&cc.egui_ctx);
         no_animations(&cc.egui_ctx);
+        crate::theme::install(
+            &cc.egui_ctx,
+            crate::theme::Theme::light(),
+            crate::theme::Theme::dark(),
+        );
         let settings = Settings::load();
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);

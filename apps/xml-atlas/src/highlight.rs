@@ -9,42 +9,11 @@
 
 use std::ops::Range;
 
+use egui::FontId;
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Color32, FontId};
 use xml_atlas_engine::xml::{Folded, Index, NodeKind, ROOT};
 
-pub struct Palette {
-    pub text: Color32,
-    pub tag: Color32,
-    pub attr: Color32,
-    pub value: Color32,
-    pub comment: Color32,
-    pub punct: Color32,
-}
-
-impl Palette {
-    pub fn new(dark: bool) -> Self {
-        if dark {
-            Self {
-                text: Color32::from_rgb(0xd4, 0xd4, 0xd4),
-                tag: Color32::from_rgb(0x56, 0x9c, 0xd6),
-                attr: Color32::from_rgb(0x9c, 0xdc, 0xfe),
-                value: Color32::from_rgb(0xce, 0x91, 0x78),
-                comment: Color32::from_rgb(0x6a, 0x99, 0x55),
-                punct: Color32::from_rgb(0x80, 0x80, 0x80),
-            }
-        } else {
-            Self {
-                text: Color32::from_rgb(0x1f, 0x1f, 0x1f),
-                tag: Color32::from_rgb(0x00, 0x00, 0xb0),
-                attr: Color32::from_rgb(0xa0, 0x30, 0x00),
-                value: Color32::from_rgb(0x00, 0x70, 0x30),
-                comment: Color32::from_rgb(0x70, 0x70, 0x70),
-                punct: Color32::from_rgb(0x60, 0x60, 0x60),
-            }
-        }
-    }
-}
+use crate::theme::Syntax;
 
 /// Where in the markup a line starts or ends.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -73,16 +42,16 @@ enum Role {
 /// Lays out `line`, which starts in state `start`. Returns the job and the state at its end:
 /// what the next row of a wrapped line starts in (TEXT-13). The next line starts in
 /// [`after_line_break`] of it.
-pub fn line_job(line: &str, font: &FontId, p: &Palette, start: State) -> (LayoutJob, State) {
+pub fn line_job(line: &str, font: &FontId, p: &Syntax, start: State) -> (LayoutJob, State) {
     let mut job = LayoutJob::default();
     let end = walk(line.as_bytes(), start, |r, role| {
         let color = match role {
             Role::Text => p.text,
             Role::Tag => p.tag,
-            Role::Attr => p.attr,
-            Role::Value => p.value,
+            Role::Attr => p.attribute_name,
+            Role::Value => p.attribute_value,
             Role::Comment => p.comment,
-            Role::Punct => p.punct,
+            Role::Punct => p.punctuation,
         };
         job.append(
             &line[r],
@@ -241,13 +210,15 @@ fn walk(b: &[u8], mut state: State, mut emit: impl FnMut(Range<usize>, Role)) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Theme;
+    use egui::Color32;
 
     fn pieces(line: &str) -> Vec<(String, Color32)> {
         pieces_from(line, State::Text).0
     }
 
     fn pieces_from(line: &str, start: State) -> (Vec<(String, Color32)>, State) {
-        let (job, end) = line_job(line, &FontId::monospace(13.0), &Palette::new(true), start);
+        let (job, end) = line_job(line, &FontId::monospace(13.0), &Theme::dark().syntax, start);
         let pieces = job
             .sections
             .iter()
@@ -281,7 +252,7 @@ mod tests {
     /// (TEXT-3).
     #[test]
     fn constructs_over_lines_keep_their_colour() {
-        let p = Palette::new(true);
+        let p = Theme::dark().syntax;
         let mut state = State::Text;
         let mut got = Vec::new();
         for (_, line) in lines(SPANNING) {
@@ -295,16 +266,16 @@ mod tests {
         // Line 5: `<b x="` inside CDATA is text; then `]]>` ends it.
         assert_eq!(at(5), [("<b x=\"".to_string(), p.text)]);
         // egui joins neighbouring pieces of one colour.
-        assert_eq!(at(6)[0], ("]]></".to_string(), p.punct));
+        assert_eq!(at(6)[0], ("]]></".to_string(), p.punctuation));
         assert_eq!(at(6)[1], ("c".to_string(), p.tag));
         // Line 8: `zwei"` closes the value; ` u` is an attribute again.
-        assert_eq!(at(8)[0], ("zwei\"".to_string(), p.value));
-        assert_eq!(at(8)[1], (" u".to_string(), p.attr));
+        assert_eq!(at(8)[0], ("zwei\"".to_string(), p.attribute_value));
+        assert_eq!(at(8)[1], (" u".to_string(), p.attribute_name));
         // Line 9: `'>Öl</d>`: a value that is only its closing quote.
-        assert_eq!(at(9)[0], ("'".to_string(), p.value));
+        assert_eq!(at(9)[0], ("'".to_string(), p.attribute_value));
         assert_eq!(at(9)[2], ("Öl".to_string(), p.text));
         // Line 11: `  k="v"/>`, an attribute after a line break in the start tag.
-        assert_eq!(at(11)[0], ("  k".to_string(), p.attr));
+        assert_eq!(at(11)[0], ("  k".to_string(), p.attribute_name));
         assert_eq!(state, State::Text);
     }
 
@@ -342,19 +313,19 @@ mod tests {
 
     #[test]
     fn colours_each_part() {
-        let p = Palette::new(true);
+        let p = Theme::dark().syntax;
         let got = pieces("<a x=\"1\">t</a><!-- c -->");
         let want = [
-            ("<", p.punct),
+            ("<", p.punctuation),
             ("a", p.tag),
-            (" x", p.attr),
-            ("=", p.punct),
-            ("\"1\"", p.value),
-            (">", p.punct),
+            (" x", p.attribute_name),
+            ("=", p.punctuation),
+            ("\"1\"", p.attribute_value),
+            (">", p.punctuation),
             ("t", p.text),
-            ("</", p.punct),
+            ("</", p.punctuation),
             ("a", p.tag),
-            (">", p.punct),
+            (">", p.punctuation),
             ("<!-- c -->", p.comment),
         ];
         let want: Vec<_> = want.iter().map(|(t, c)| (t.to_string(), *c)).collect();

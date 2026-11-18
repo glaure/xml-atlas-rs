@@ -19,6 +19,7 @@ mod settings;
 mod system_theme;
 mod tabs;
 mod text_view;
+mod theme;
 mod tree;
 
 /// Set to `wgpu` to draw with wgpu instead of OpenGL (D21). The app sets it itself when

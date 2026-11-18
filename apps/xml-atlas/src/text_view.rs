@@ -17,9 +17,10 @@ use xml_atlas_engine::wrap::{RowPos, Wrap};
 use xml_atlas_engine::{Document, FormatOptions};
 
 use crate::app::{Note, Open};
-use crate::highlight::{self, Palette, after_line_break, line_job};
+use crate::highlight::{self, after_line_break, line_job};
 use crate::problems_panel;
 use crate::scroll::{self, BAR, BarMove, RowScroll};
+use crate::theme;
 
 /// Lines up to this long are laid out whole. Of a longer one only the columns on screen are,
 /// with [`MARGIN_COLUMNS`] on each side, so a minified file of one huge line stays as quick
@@ -100,8 +101,8 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
         char_w * 2.0
     };
     let gutter = digits * char_w + 16.0 + marker_w;
-    let palette = Palette::new(ui.visuals().dark_mode);
-    let visuals = ui.visuals().clone();
+    let theme = theme::current(ui);
+    let visuals = &theme.visuals;
 
     let id = focus_id(open.id);
     // The whole text is one widget with the keyboard focus id; the lines only paint. egui
@@ -170,10 +171,10 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
         n.start..n.end
     });
     let mark = open.mark.clone();
-    let selected_fill = visuals.selection.bg_fill.gamma_multiply(0.35);
-    let mark_fill = visuals.selection.bg_fill.gamma_multiply(0.7);
-    let mark_stroke = Stroke::new(1.0, visuals.selection.stroke.color.gamma_multiply(0.8));
-    let text_fill = visuals.selection.bg_fill;
+    let selected_fill = theme.selected_element;
+    let mark_fill = theme.marked_item;
+    let mark_stroke = Stroke::new(1.0, theme.marked_item_outline);
+    let text_fill = theme.text_selection;
     let cursor_stroke = Stroke::new(2.0, visuals.text_cursor.stroke.color);
 
     let total = open.doc.line_count();
@@ -309,7 +310,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
             };
             let line = line.replace('\t', &" ".repeat(TAB_WIDTH));
             let state = carry.unwrap_or_else(|| highlight::state_at(&doc.index, &doc.src, start));
-            let (job, end) = line_job(&line, &font, &palette, state);
+            let (job, end) = line_job(&line, &font, &theme.syntax, state);
             let end = if row.last { after_line_break(end) } else { end };
             carry = (long.is_none() && pre.is_none()).then_some(end);
             let galley = painter.layout_job(job);
@@ -393,7 +394,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
                 .take_while(|p| p.offset <= whole_line.end)
                 .collect();
             for p in &here {
-                let color = problems_panel::color(&visuals, p.severity);
+                let color = problems_panel::color(visuals, p.severity);
                 if row.first {
                     numbers.text(
                         pos2(rect.left() + 2.0, rect.center().y),

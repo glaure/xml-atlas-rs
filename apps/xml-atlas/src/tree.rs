@@ -9,8 +9,8 @@ use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
 use crate::app::{Note, Open, Shift};
-use crate::highlight::Palette;
 use crate::icons;
+use crate::theme;
 
 const INDENT: f32 = 14.0;
 
@@ -269,8 +269,8 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
     if let Some(top) = open.tree.scroll_to.take() {
         area = area.vertical_scroll_offset(top as f32 * row_h);
     }
-    let visuals = ui.visuals().clone();
-    let palette = Palette::new(visuals.dark_mode);
+    let theme = theme::current(ui);
+    let visuals = &theme.visuals;
     let mut toggle = None;
     let mut clicked = None;
     let mut chosen = None;
@@ -314,7 +314,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
                 painter,
                 pos2(x + INDENT + 2.0 + icons::WIDTH / 2.0 - 2.0, rect.center().y),
                 tree::kind(doc, row),
-                &palette,
+                &theme.syntax,
             );
             let left = pos2(x + INDENT + 2.0 + icons::WIDTH, rect.center().y);
             let text = |pos, s: &str, color| {

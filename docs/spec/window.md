@@ -59,6 +59,9 @@ How the views are laid out, and how the window looks.
   (OPEN-13); also corner rounding and spacing. Changing the theme changes all of them at
   once and costs nothing per frame. Every built-in theme passes a contrast check: 4.5:1 for
   text and syntax colours, 3:1 for weak text, on their backgrounds (`docs/decisions.md`, D29).
+  So far (D29 step 1): the colours are in one `Theme` in `apps/xml-atlas/src/theme.rs`,
+  built from the ones before, so the window looks the same. Spacing and the contrast check
+  are still to come.
 - **WIN-8** `[planned]` A softer Light: panels in a mid grey, the text and grid areas
   off-white rather than pure white, darker separators, so the views stand apart and the
   window glares less. Chosen by the owner from candidates in the running program. Dark
