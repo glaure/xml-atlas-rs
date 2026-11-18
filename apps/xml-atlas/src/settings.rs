@@ -32,11 +32,22 @@ pub enum ThemeChoice {
     Dark,
 }
 
+/// How Light looks (WIN-8).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LightStyle {
+    /// Greys that set the views apart from the menus; the default.
+    #[default]
+    Soft,
+    /// Light as in 1.0: egui's own, nearly white throughout.
+    Classic,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub format: FormatOptions,
     pub layout: Layout,
     pub theme: ThemeChoice,
+    pub light_style: LightStyle,
     /// Attribute rows in the tree (TREE-1).
     pub tree_attributes: bool,
     /// The pane beside the grid for the clicked cell (GRID-16).
@@ -60,6 +71,7 @@ impl Default for Settings {
             format: FormatOptions::default(),
             layout: Layout::default(),
             theme: ThemeChoice::default(),
+            light_style: LightStyle::default(),
             tree_attributes: true,
             cell_pane: true,
             word_wrap: false,
@@ -127,6 +139,10 @@ impl Settings {
             ThemeChoice::Light => "light",
             ThemeChoice::Dark => "dark",
         };
+        let light_style = match self.light_style {
+            LightStyle::Soft => "soft",
+            LightStyle::Classic => "classic",
+        };
         format!(
             "# XML Atlas settings. The program rewrites this file when a setting changes.\n\
              \n\
@@ -140,6 +156,7 @@ impl Settings {
              [view]\n\
              layout = \"{layout}\"\n\
              theme = \"{theme}\"\n\
+             light_style = \"{light_style}\"\n\
              tree_attributes = {}\n\
              cell_pane = {}\n\
              word_wrap = {}\n\
@@ -249,6 +266,14 @@ impl Settings {
                         Some("system") => Some(ThemeChoice::System),
                         Some("light") => Some(ThemeChoice::Light),
                         Some("dark") => Some(ThemeChoice::Dark),
+                        _ => None,
+                    },
+                ),
+                ("view", "light_style") => set(
+                    &mut s.light_style,
+                    match string(value) {
+                        Some("soft") => Some(LightStyle::Soft),
+                        Some("classic") => Some(LightStyle::Classic),
                         _ => None,
                     },
                 ),
@@ -370,6 +395,7 @@ mod tests {
             },
             layout: Layout::GridAbove,
             theme: ThemeChoice::Light,
+            light_style: LightStyle::Classic,
             tree_attributes: false,
             cell_pane: false,
             word_wrap: true,

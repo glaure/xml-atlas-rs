@@ -14,7 +14,7 @@ use xml_atlas_engine::{
 };
 
 use crate::disk_watch::DiskWatch;
-use crate::settings::{Layout, Settings, ThemeChoice};
+use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::tabs::Tabs;
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
@@ -43,6 +43,8 @@ pub struct App {
     desktop_theme_rx: Option<Receiver<egui::Theme>>,
     /// The theme last handed to egui, so it is set only when it changes.
     applied_theme: Option<ThemePreference>,
+    /// The light style handed to egui last (WIN-8).
+    applied_light: Option<LightStyle>,
     /// An action waiting for the answer to "save changes?" about the tab shown (OPEN-11).
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
@@ -267,11 +269,6 @@ impl App {
     ) -> Self {
         stop_at_the_edge(&cc.egui_ctx);
         no_animations(&cc.egui_ctx);
-        crate::theme::install(
-            &cc.egui_ctx,
-            crate::theme::Theme::light(),
-            crate::theme::Theme::dark(),
-        );
         let settings = Settings::load();
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);
@@ -284,6 +281,7 @@ impl App {
             desktop_theme: None,
             desktop_theme_rx: crate::system_theme::watch(cc.egui_ctx.clone()),
             applied_theme: None,
+            applied_light: None,
             confirm: None,
             quitting: false,
             find,
@@ -518,7 +516,7 @@ impl App {
         }
     }
 
-    /// Light, dark, or the desktop's preference (WIN-2). On Linux the desktop's preference comes
+    /// Light, dark, or the desktop's preference (WIN-2), and the light style (WIN-8). On Linux the desktop's preference comes
     /// from the settings portal; elsewhere egui follows the system by itself.
     fn apply_theme(&mut self, ctx: &egui::Context) {
         if let Some(rx) = &self.desktop_theme_rx {
@@ -532,6 +530,11 @@ impl App {
             (ThemeChoice::System, Some(theme)) => theme.into(),
             (ThemeChoice::System, None) => ThemePreference::System,
         };
+        if self.applied_light != Some(self.settings.light_style) {
+            let light = crate::theme::Theme::light_in(self.settings.light_style);
+            crate::theme::install(ctx, light, crate::theme::Theme::dark());
+            self.applied_light = Some(self.settings.light_style);
+        }
         if self.applied_theme != Some(wanted) {
             ctx.set_theme(wanted);
             self.applied_theme = Some(wanted);
@@ -1394,6 +1397,17 @@ impl App {
                 );
                 ui.radio_value(&mut self.settings.theme, ThemeChoice::Light, "Light");
                 ui.radio_value(&mut self.settings.theme, ThemeChoice::Dark, "Dark");
+                ui.label("Light style");
+                ui.radio_value(
+                    &mut self.settings.light_style,
+                    LightStyle::Soft,
+                    "Soft grey",
+                );
+                ui.radio_value(
+                    &mut self.settings.light_style,
+                    LightStyle::Classic,
+                    "Classic, as in 1.0",
+                );
                 ui.separator();
                 ui.label("Layout");
                 ui.radio_value(
@@ -1756,7 +1770,9 @@ impl eframe::App for App {
 
         // The font chosen in View > Font… for tree, grid and cell pane too (TEXT-25).
         let view_font = self.settings.text_font.view_font_id();
+        let theme = crate::theme::current(ui);
         egui::Panel::left("tree")
+            .frame(theme.view_frame(ui.style(), false))
             .resizable(true)
             .default_size(320.0)
             .show(ui, |ui| {
@@ -1776,7 +1792,8 @@ impl eframe::App for App {
                 Layout::GridAbove => egui::Panel::top("grid"),
                 Layout::TextAbove => egui::Panel::bottom("grid-below"),
             };
-            grid.resizable(true)
+            grid.frame(theme.view_frame(ui.style(), false))
+                .resizable(true)
                 .default_size(total * 0.45)
                 .show(ui, |ui| {
                     crate::fonts::use_in_views(ui, view_font.as_ref());
@@ -1784,13 +1801,16 @@ impl eframe::App for App {
                         if cell_pane {
                             let width = ui.available_width() * 0.35;
                             egui::Panel::right("cell-pane")
+                                .frame(theme.view_frame(ui.style(), false))
                                 .resizable(true)
                                 .default_size(width)
                                 .show(ui, |ui| {
                                     ui.push_id("cell-pane", |ui| crate::cell_pane::show(ui, open));
                                 });
                         }
-                        egui::CentralPanel::default().show(ui, |ui| crate::grid::show(ui, open));
+                        egui::CentralPanel::default()
+                            .frame(theme.view_frame(ui.style(), true))
+                            .show(ui, |ui| crate::grid::show(ui, open));
                     });
                 });
             if !open.problems.is_empty() {
@@ -1803,11 +1823,13 @@ impl eframe::App for App {
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
             }
-            egui::CentralPanel::default().show(ui, |ui| {
-                ui.push_id(open.id, |ui| {
-                    crate::text_view::show(ui, open, &format, wrap, &text_font)
+            egui::CentralPanel::default()
+                .frame(theme.view_frame(ui.style(), true))
+                .show(ui, |ui| {
+                    ui.push_id(open.id, |ui| {
+                        crate::text_view::show(ui, open, &format, wrap, &text_font)
+                    });
                 });
-            });
         });
         if let Some(note) = open.note.take() {
             self.notice = Some(note);
