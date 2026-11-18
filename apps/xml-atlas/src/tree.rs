@@ -45,6 +45,8 @@ pub enum TreeCommand {
     Move(Direction),
     /// Back to the tree as it opened (TREE-14); not an edit.
     CollapseAll,
+    /// Ctrl+Shift+F: Find only inside the element (TEXT-26); not an edit.
+    FindIn,
 }
 
 /// An element being renamed in place. Enter saves, Escape or a click elsewhere cancels.
@@ -417,6 +419,8 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
     let position = element.map(|id| doc.index.element_position(id));
     match (command, row) {
         (TreeCommand::CollapseAll, _) => open.tree.collapse_all(&open.doc),
+        // The app opens the Find bar on the selection, which the click made this element.
+        (TreeCommand::FindIn, _) => open.find_requested = element.is_some(),
         (TreeCommand::Rename, _) => match element {
             Some(id) => {
                 let name = String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned();
@@ -539,6 +543,13 @@ fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
             item(ui, true, "Rename    F2", TreeCommand::Rename);
             item(ui, inner, "Delete    Del", TreeCommand::Delete);
             item(ui, inner, "Duplicate    Ctrl+D", TreeCommand::Duplicate);
+            ui.separator();
+            item(
+                ui,
+                true,
+                "Find in element…    Ctrl+Shift+F",
+                TreeCommand::FindIn,
+            );
             ui.separator();
             let up = inner && has_sibling(doc, id, Direction::Up);
             let down = inner && has_sibling(doc, id, Direction::Down);

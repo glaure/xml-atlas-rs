@@ -133,7 +133,8 @@ of it.
   selects the element that contains it, so tree and grid follow, and is outlined in the text
   (TEXT-11). The bar shows how many matches the document has and, while a match it found is
   outlined, which one that is: `3 of 120 matches` (issue #102). Escape closes it. The CLI has
-  the same search: `xml-atlas-cli find FILE TEXT [--match-case] [--whole-word]`.
+  the same search: `xml-atlas-cli find FILE TEXT [--match-case] [--whole-word] [--within
+  PATH]`.
 - **TEXT-14** `[done]` Replace and Replace All (XM-46): Ctrl+H, or Edit > Replace, opens the
   Find bar with a Replace row; the same options as Find. Replace replaces the outlined match
   and finds the next; when nothing is outlined, or the outlined text is no longer a match, it
@@ -148,6 +149,15 @@ of it.
   CLI has it too: `xml-atlas-cli replace FILE TEXT WITH [--match-case] [--whole-word]
   [--within PATH] [-o OUT]`, which refuses a result that is not well-formed.
 - **TEXT-15** `[planned]` Regular expressions, and search by element name or attribute value.
+- **TEXT-26** `[done]` Find in element: the tree's right-click menu of an element, Edit > Find
+  in element…, or Ctrl+Shift+F on the selected element opens the Find bar keeping to that
+  element, its tags included, and the bar says which (`in /orders/order[2]`). A match lies
+  wholly inside it; the count and position (TEXT-12) are of its matches, and the search
+  continues from its other end. A match still selects the element that contains it, and Find
+  keeps to the element; edits move it with its element, and deleting it ends it. Replace All
+  then replaces only inside it. The ✕ next to it, Ctrl+F, Edit > Find… and closing the bar
+  return to the whole document. The CLI's `find --within PATH` and the agents' `find` with
+  `within` do the same. Asked for in issue #104.
 - **TEXT-13** `[done]` Word wrap: View > Word wrap, or Alt+Z, turns it on and off for every
   tab, remembered with the other settings; off at first. Lines wrap at the view's width,
   after a blank or before a `<`, at the last such place that fits; a word wider than the view
@@ -182,6 +192,9 @@ of it.
   and selects that `name`, 1 of 4 matches; Shift+F3 then continues from the bottom to line
   2,060,923, 4 of 4 matches. A click in the grid leaves only 4 matches.
 - Find `söhne` in `crates/engine/tests/corpus/utf8_bom_crlf.xml`: one match, `Söhne`.
+- In the 100 MiB fixture, right-click `order` 100,000 in the tree > Find in element…, find
+  `order`: 2 matches, its start and end tag; F3 three times goes 1, 2, then 1 of 2 matches,
+  continued from the element's start. ✕: 422,768 matches.
 - In `utf8_bom_crlf.xml`, put the cursor after `Söhne`, press Backspace twice and type `ne`:
   the text reads `Söhne` again, the file saves byte for byte as before, and one Ctrl+Z undoes
   the typing, a second the deleting.

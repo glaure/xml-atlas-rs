@@ -114,6 +114,11 @@ pub struct Open {
     /// Source bytes of what was clicked inside the selection (a grid row or cell, a tree text
     /// or attribute row). The text view draws it as a second highlight (TEXT-11).
     pub mark: Option<Range<u64>>,
+    /// The element Find keeps to (TEXT-26), while the Find bar is open; it stays when a match
+    /// selects another element, and follows edits as the selection does.
+    pub find_within: Option<NodeId>,
+    /// The tree asked for the Find bar, to find in `find_within`.
+    pub find_requested: bool,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
     /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
@@ -1327,7 +1332,21 @@ impl App {
                     .clicked()
                 {
                     ui.close();
-                    self.find.open();
+                    self.find.open(self.docs.active_mut());
+                }
+                let selected = self.docs.active().is_some_and(|o| o.selected.is_some());
+                if ui
+                    .add_enabled(
+                        selected,
+                        egui::Button::new("Find in element…    Ctrl+Shift+F"),
+                    )
+                    .on_hover_text("Find only inside the element selected in tree or grid")
+                    .clicked()
+                {
+                    ui.close();
+                    if let Some(open) = self.docs.active_mut() {
+                        self.find.open_within(open);
+                    }
                 }
                 if ui
                     .add_enabled(
@@ -1556,7 +1575,7 @@ impl App {
                 self.redo();
             }
             if tool_icons::button(ui, open, Tool::Find, "Find    Ctrl+F") {
-                self.find.open();
+                self.find.open(self.docs.active_mut());
             }
             ui.separator();
             if tool_icons::button(ui, open, Tool::DrillUp, "Drill Up    Alt+Up")
@@ -1787,6 +1806,9 @@ impl eframe::App for App {
                 crate::fonts::use_in_views(ui, view_font.as_ref());
                 ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
             });
+        if std::mem::take(&mut open.find_requested) {
+            self.find.open_within(open);
+        }
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
@@ -1860,6 +1882,8 @@ impl Open {
             selected: None,
             focus: None,
             mark: None,
+            find_within: None,
+            find_requested: false,
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),
@@ -1980,6 +2004,9 @@ impl Open {
             .map(|id| idx.element_position(id))
             .filter(|p| !p.is_empty())
             .and_then(|p| shift.remap(&p));
+        let find_within = self
+            .find_within
+            .and_then(|id| shift.remap(&idx.element_position(id)));
         let column = self
             .grid
             .as_ref()
@@ -2012,6 +2039,8 @@ impl Open {
         self.problems = self.doc.problems();
         self.focus = None;
         self.mark = None;
+        // Gone when the element was deleted.
+        self.find_within = find_within.and_then(|p| idx.element_at_position(&p));
         let selected = selected
             .and_then(|p| nearest_element(&self.doc, p))
             .or_else(|| self.doc.index.root_element());
@@ -2049,6 +2078,7 @@ impl Open {
     /// where it started.
     pub fn type_edit(&mut self, edit: Edit) -> Result<(), EditError> {
         let selected_start = self.selected.map(|id| self.doc.index.node(id).start);
+        let within_start = self.find_within.map(|id| self.doc.index.node(id).start);
         self.doc.apply_typed(edit)?;
         let Some(ns) = self.doc.node_splice() else {
             // Not expected for a typed change; build the views again.
@@ -2062,6 +2092,10 @@ impl Open {
             }
             _ => start,
         };
+        self.find_within = self
+            .find_within
+            .and_then(|id| ns.map(id))
+            .or_else(|| within_start.and_then(|s| self.element_at(moved(s))));
         let selected = self
             .selected
             .and_then(|id| ns.map(id))

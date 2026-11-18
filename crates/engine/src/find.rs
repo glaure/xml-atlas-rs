@@ -70,15 +70,30 @@ impl Finder {
     /// Backward: the last match that starts before `from`. When there is none, the search
     /// wraps around once.
     pub fn next(&self, src: &[u8], from: usize, direction: Direction) -> Option<Found> {
-        let from = from.min(src.len());
+        self.next_within(src, 0..src.len(), from, direction)
+    }
+
+    /// [`Finder::next`] inside `within` only, such as one element's span (TEXT-26): a match
+    /// lies wholly inside it, and the search wraps around at its ends. `from` outside it
+    /// starts at the nearer end. Whole word still looks at the characters next to the match,
+    /// inside `within` or not.
+    pub fn next_within(
+        &self,
+        src: &[u8],
+        within: Range<usize>,
+        from: usize,
+        direction: Direction,
+    ) -> Option<Found> {
+        let (start, end) = (within.start.min(src.len()), within.end.min(src.len()));
+        let from = from.clamp(start, end.max(start));
         let (found, wrapped) = match direction {
-            Direction::Forward => match self.forward(src, from, src.len()) {
+            Direction::Forward => match self.forward(src, from, end, end) {
                 Some(r) => (r, false),
-                None => (self.forward(src, 0, from)?, true),
+                None => (self.forward(src, start, from, end)?, true),
             },
-            Direction::Backward => match self.backward(src, 0, from) {
+            Direction::Backward => match self.backward(src, start, from, end) {
                 Some(r) => (r, false),
-                None => (self.backward(src, from, src.len())?, true),
+                None => (self.backward(src, from, end, end)?, true),
             },
         };
         Some(Found {
@@ -87,9 +102,10 @@ impl Finder {
         })
     }
 
-    /// First match starting in `start..end`.
-    fn forward(&self, src: &[u8], start: usize, end: usize) -> Option<Range<usize>> {
-        let hay = &src[..(end + self.max_len).min(src.len())];
+    /// First match starting in `start..end` and ending by `limit`.
+    fn forward(&self, src: &[u8], start: usize, end: usize, limit: usize) -> Option<Range<usize>> {
+        // The query is a literal, so a match in the cut haystack is one in `src`.
+        let hay = &src[..(end + self.max_len).min(limit)];
         let mut at = start;
         while let Some(m) = self.regex.find_at(hay, at) {
             if m.start() >= end {
@@ -103,16 +119,17 @@ impl Finder {
         None
     }
 
-    /// Last match starting in `start..end`. Looks back from `end` in growing windows, so a
-    /// match just before `end` is found without scanning the whole document.
-    fn backward(&self, src: &[u8], start: usize, end: usize) -> Option<Range<usize>> {
+    /// Last match starting in `start..end` and ending by `limit`. Looks back from `end` in
+    /// growing windows, so a match just before `end` is found without scanning the whole
+    /// document.
+    fn backward(&self, src: &[u8], start: usize, end: usize, limit: usize) -> Option<Range<usize>> {
         let mut window = BACKWARD_WINDOW;
         let mut stop = end;
         loop {
             let from = stop.saturating_sub(window).max(start);
             let mut last = None;
             let mut at = from;
-            let hay = &src[..(stop + self.max_len).min(src.len())];
+            let hay = &src[..(stop + self.max_len).min(limit)];
             while let Some(m) = self.regex.find_at(hay, at) {
                 if m.start() >= stop {
                     break;
@@ -137,7 +154,7 @@ impl Finder {
         let mut out = Vec::new();
         let mut at = within.start;
         while at < end
-            && let Some(m) = self.forward(src, at, end)
+            && let Some(m) = self.forward(src, at, end, src.len())
         {
             if m.end <= end {
                 at = m.end;
@@ -295,6 +312,46 @@ mod tests {
         // Backward from the first wraps to the last.
         let f = find("Söhne", o, first, Direction::Backward).unwrap();
         assert_eq!((f.range.start, f.wrapped), (third, true));
+    }
+
+    #[test]
+    fn next_within_keeps_to_the_range_and_wraps_at_its_ends() {
+        let o = FindOptions::default();
+        let f = Finder::new("söhne", o).unwrap();
+        let src = SRC.as_bytes();
+        // `<b>söhne</b><c>Söhnefeld</c>`: two matches, not those of `a` and `d`.
+        let b = SRC.find("<b>").unwrap();
+        let within = b..SRC.find("<d>").unwrap();
+        let inner = [SRC.find("söhne").unwrap(), SRC.find("Söhnefeld").unwrap()];
+        let at = |from, dir| {
+            f.next_within(src, within.clone(), from, dir)
+                .map(|x| (x.range.start, x.wrapped))
+        };
+        // From before the range: its first match; from after it, backward: its last.
+        assert_eq!(at(0, Direction::Forward), Some((inner[0], false)));
+        assert_eq!(
+            at(inner[0] + 1, Direction::Forward),
+            Some((inner[1], false))
+        );
+        assert_eq!(at(inner[1] + 1, Direction::Forward), Some((inner[0], true)));
+        assert_eq!(at(inner[1], Direction::Backward), Some((inner[0], false)));
+        assert_eq!(at(inner[0], Direction::Backward), Some((inner[1], true)));
+        assert_eq!(at(SRC.len(), Direction::Backward), Some((inner[1], false)));
+        // A match that runs past the end of the range is not inside it.
+        let cut = within.start..inner[1] + 3;
+        let x = f
+            .next_within(src, cut, inner[0] + 1, Direction::Forward)
+            .unwrap();
+        assert_eq!((x.range.start, x.wrapped), (inner[0], true));
+        // Whole word looks past the range: `Söhne` in `Söhnefeld` stays no word.
+        let w = Finder::new("söhne", WORD).unwrap();
+        let x = w.next_within(src, inner[1]..inner[1] + 6, 0, Direction::Forward);
+        assert_eq!(x, None);
+        // Only `a`'s match before `<b>`; nothing in a range too short, or empty.
+        let x = f.next_within(src, 0..b, 0, Direction::Forward).unwrap();
+        assert_eq!(x.range.start, 3);
+        assert_eq!(f.next_within(src, 1..2, 0, Direction::Forward), None);
+        assert_eq!(f.next_within(src, 5..5, 9, Direction::Backward), None);
     }
 
     #[test]
