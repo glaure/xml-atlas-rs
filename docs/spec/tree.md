@@ -54,6 +54,11 @@ The tree shows the structure of the document and is the main way to move around 
 - **TREE-13** `[planned]` Editor Select, from the tree's right-click menu (and Ctrl+E): selects
   the element's whole text in the text view, ready to copy (XM-23). It needs a text selection,
   so it comes with the editable text view (TEXT-9).
+- **TREE-14** `[done]` Collapse all, from the right-click menu of any row and View > Collapse
+  the tree: every element is collapsed except the root, as after opening (TREE-3), and the
+  tree scrolls to the top. The selection and the grid stay; the next key in the tree starts
+  again at the first row. It changes nothing in the document and is not an undo step.
+  Asked for in issue #103.
 
 ## Acceptance tests
 
@@ -70,6 +75,8 @@ The tree shows the structure of the document and is the main way to move around 
   `bestellung`, Enter; Ctrl+D; Alt+Shift+Down; right-click the next `order` > Delete. Both
   tags are renamed, the copy has the same indentation and line endings, the deleted lines
   are gone. Four Ctrl+Z restore the file byte for byte.
+- Expand several `order` elements and their `customer`, select one, right-click > Collapse
+  all: only `orders` is expanded, the tree shows its top, the grid still shows the selection.
 - F2, type `1x`, Enter: refused, "not a valid XML name"; the document is unchanged.
 
 ## Seen in the reference programs
@@ -105,6 +112,7 @@ Details and limits in `reference.md`.
 - The text hint of TREE-2 stays next to the text row, for now. (Owner.)
 - The attribute rows setting is remembered between sessions (WIN-3). (Owner.)
 - Editor Select in the tree (TREE-13). (Owner.)
+- Collapse all, back to the root (TREE-14). (Owner, issue #103.)
 
 ## Questions
 

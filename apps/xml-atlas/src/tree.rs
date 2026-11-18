@@ -43,6 +43,8 @@ pub enum TreeCommand {
     Duplicate,
     /// Alt+Shift+Up and Alt+Shift+Down.
     Move(Direction),
+    /// Back to the tree as it opened (TREE-14); not an edit.
+    CollapseAll,
 }
 
 /// An element being renamed in place. Enter saves, Escape or a click elsewhere cancels.
@@ -103,6 +105,17 @@ impl TreeState {
             *e = true;
             self.dirty = true;
         }
+    }
+
+    /// Collapses every element except the root, as after opening (TREE-3, TREE-14), and
+    /// scrolls to the top. The selection stays; the rows are made again on the next frame.
+    pub fn collapse_all(&mut self, doc: &Document) {
+        self.expanded.fill(false);
+        if let Some(root) = doc.index.root_element() {
+            self.expanded[root as usize] = true;
+        }
+        self.dirty = true;
+        self.scroll_to = Some(0);
     }
 
     /// Follows a change that replaced nodes (D19) instead of building the rows again: only
@@ -403,6 +416,7 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
     };
     let position = element.map(|id| doc.index.element_position(id));
     match (command, row) {
+        (TreeCommand::CollapseAll, _) => open.tree.collapse_all(&open.doc),
         (TreeCommand::Rename, _) => match element {
             Some(id) => {
                 let name = String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned();
@@ -544,6 +558,8 @@ fn context_menu(ui: &mut Ui, doc: &Document, row: Row) -> Option<TreeCommand> {
         Row::Attribute { .. } => item(ui, true, "Delete attribute    Del", TreeCommand::Delete),
         Row::Node(_) | Row::FoldedText(_) => item(ui, true, "Delete    Del", TreeCommand::Delete),
     }
+    ui.separator();
+    item(ui, true, "Collapse all", TreeCommand::CollapseAll);
     if chosen.is_some() {
         ui.close();
     }
@@ -669,6 +685,35 @@ mod tests {
         press(&doc, &mut t, TreeKey::Right);
         assert_eq!(press(&doc, &mut t, TreeKey::Right), "'t'");
         assert_eq!(press(&doc, &mut t, TreeKey::Left), "z");
+    }
+
+    #[test]
+    fn collapse_all_leaves_only_the_root_expanded() {
+        let (doc, mut t) = setup();
+        // Nothing selected yet: the first key selects the first row.
+        press(&doc, &mut t, TreeKey::Down);
+        press(&doc, &mut t, TreeKey::End);
+        press(&doc, &mut t, TreeKey::Right);
+        assert_eq!(press(&doc, &mut t, TreeKey::Right), "'t'");
+        press(&doc, &mut t, TreeKey::Home);
+        press(&doc, &mut t, TreeKey::Down);
+        press(&doc, &mut t, TreeKey::Down);
+        press(&doc, &mut t, TreeKey::Right);
+        assert_eq!(press(&doc, &mut t, TreeKey::Right), "y");
+        assert_eq!(t.rows.len(), 6);
+
+        t.collapse_all(&doc);
+        t.rebuild(&doc);
+        let names: Vec<_> = t.rows.iter().map(|&r| name(&doc, r)).collect();
+        assert_eq!(names, ["r", "@a", "x", "z"]);
+        assert_eq!(
+            t.expanded_ids().collect::<Vec<_>>(),
+            [doc.index.root_element().unwrap()]
+        );
+        assert_eq!(t.scroll_to, Some(0));
+        // The selection stays, though its row is hidden; a key starts again at the top.
+        assert_eq!(name(&doc, t.selected.unwrap()), "y");
+        assert_eq!(press(&doc, &mut t, TreeKey::Down), "r");
     }
 
     #[test]
