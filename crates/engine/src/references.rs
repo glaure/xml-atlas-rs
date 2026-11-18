@@ -134,6 +134,25 @@ pub struct Resolved {
     pub via: Option<NodeId>,
 }
 
+/// A section chosen for a `nearest` context (REF-9): inside `scope`, the element called
+/// `up_to`, the context is `chosen` and then the reference's own nearest one, never another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Choice {
+    pub scope: NodeId,
+    pub chosen: NodeId,
+}
+
+/// The sections a `nearest` context can be taken from around an element (REF-9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sections {
+    /// The context's name in the rules.
+    pub context: String,
+    /// The element called `up_to` the sections are in.
+    pub scope: NodeId,
+    /// The elements the context can be, in document order.
+    pub candidates: Vec<NodeId>,
+}
+
 /// The selected element with its references resolved, as text (REF-5).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Preview {
@@ -327,6 +346,18 @@ pub fn include_at(doc: &Document, rules: &Rules, id: NodeId) -> Option<Reference
 /// imported elements, the reference that imported them, which a `nearest` context is
 /// looked for around.
 pub fn resolve(doc: &Document, rules: &Rules, r: &Reference, anchor: NodeId) -> Resolved {
+    resolve_with(doc, rules, r, anchor, &[])
+}
+
+/// [`resolve`], with a `nearest` context taken from the chosen section where one is chosen
+/// (REF-9).
+pub fn resolve_with(
+    doc: &Document,
+    rules: &Rules,
+    r: &Reference,
+    anchor: NodeId,
+    choices: &[Choice],
+) -> Resolved {
     let idx = &doc.index;
     if r.kind == RefKind::Include
         && let Some(inc) = include_rule(doc, rules, r.site)
@@ -345,12 +376,12 @@ pub fn resolve(doc: &Document, rules: &Rules, r: &Reference, anchor: NodeId) -> 
         }
         // `[Context:path]` reads the same as `Context:path` here.
         let expr = bracketed(&r.expr).unwrap_or(&r.expr);
-        let first = resolve_expr(doc, rules, r.site, expr, anchor);
+        let first = resolve_expr(doc, rules, r.site, expr, anchor, choices);
         if let (Resolution::Unresolved(_), Some(fallback)) = (&first.resolution, &inc.fallback)
             && let Some((_, expr)) = attrs.iter().find(|(k, _)| k == fallback)
         {
             let expr = bracketed(expr).unwrap_or(expr);
-            let second = resolve_expr(doc, rules, r.site, expr, anchor);
+            let second = resolve_expr(doc, rules, r.site, expr, anchor, choices);
             if !matches!(second.resolution, Resolution::Unresolved(_)) {
                 return second;
             }
@@ -369,14 +400,14 @@ pub fn resolve(doc: &Document, rules: &Rules, r: &Reference, anchor: NodeId) -> 
     }
     // `${Context:path}` as the whole value: the text found there.
     if let Some(inner) = expr.strip_prefix("${").and_then(|e| e.strip_suffix('}')) {
-        let mut resolved = resolve_expr(doc, rules, r.site, inner, anchor);
+        let mut resolved = resolve_expr(doc, rules, r.site, inner, anchor, choices);
         if let Resolution::Nodes(nodes) = &resolved.resolution {
             resolved.resolution =
                 Resolution::Value(doc.index.element_text(&doc.src, nodes[0]).into_owned());
         }
         return resolved;
     }
-    let mut resolved = resolve_expr(doc, rules, r.site, expr, anchor);
+    let mut resolved = resolve_expr(doc, rules, r.site, expr, anchor, choices);
     // An attribute takes the text of the elements found.
     if let Resolution::Nodes(nodes) = &resolved.resolution {
         let text: String = nodes
@@ -386,6 +417,85 @@ pub fn resolve(doc: &Document, rules: &Rules, r: &Reference, anchor: NodeId) -> 
         resolved.resolution = Resolution::Value(text);
     }
     resolved
+}
+
+/// The sections to choose from for each `nearest` context around `at` (REF-9): `at` or its
+/// nearest ancestor called `up_to`, and the elements called `nearest` inside it.
+pub fn sections(doc: &Document, rules: &Rules, at: NodeId) -> Vec<Sections> {
+    let idx = &doc.index;
+    let named = |id: NodeId, n: &str| {
+        idx.node(id).kind == NodeKind::Element && idx.name(&doc.src, id) == n.as_bytes()
+    };
+    let mut out = Vec::new();
+    for (context, ctx) in &rules.contexts {
+        let Context::Nearest { name, up_to } = ctx else {
+            continue;
+        };
+        let mut cur = at;
+        while cur != ROOT && cur != xml_atlas_xml::NONE && !named(cur, up_to) {
+            cur = idx.node(cur).parent;
+        }
+        if cur == ROOT || cur == xml_atlas_xml::NONE {
+            continue;
+        }
+        let last = cur as usize + idx.node(cur).descendants as usize;
+        let candidates: Vec<NodeId> = (cur as usize + 1..=last)
+            .map(|d| d as NodeId)
+            .filter(|&d| named(d, name))
+            .collect();
+        if candidates.len() > 1 {
+            out.push(Sections {
+                context: context.clone(),
+                scope: cur,
+                candidates,
+            });
+        }
+    }
+    out
+}
+
+/// The choice that makes `chosen` the section of its `nearest` context (REF-9), if it is
+/// one: an element called `nearest` inside one called `up_to`.
+pub fn choice_for(doc: &Document, rules: &Rules, chosen: NodeId) -> Option<Choice> {
+    let idx = &doc.index;
+    let name = idx.name(&doc.src, chosen);
+    rules.contexts.iter().find_map(|(_, ctx)| {
+        let Context::Nearest {
+            name: wanted,
+            up_to,
+        } = ctx
+        else {
+            return None;
+        };
+        if wanted.as_bytes() != name {
+            return None;
+        }
+        let mut cur = idx.node(chosen).parent;
+        while cur != ROOT && cur != xml_atlas_xml::NONE {
+            if idx.name(&doc.src, cur) == up_to.as_bytes() {
+                return Some(Choice { scope: cur, chosen });
+            }
+            cur = idx.node(cur).parent;
+        }
+        None
+    })
+}
+
+/// How an element reads in a sentence: its start tag without the brackets, such as
+/// `Unit Name="a"`.
+pub fn element_label(doc: &Document, id: NodeId) -> String {
+    let idx = &doc.index;
+    let mut label = String::from_utf8_lossy(idx.name(&doc.src, id)).into_owned();
+    for (k, v) in idx.attributes(&doc.src, id) {
+        label.push_str(&format!(" {k}=\"{v}\""));
+    }
+    label
+}
+
+/// How a section reads in a list (REF-9): its parent's start tag without the brackets, such
+/// as `Sub Version="2"`, which tells sections of the same name apart.
+pub fn section_label(doc: &Document, section: NodeId) -> String {
+    element_label(doc, doc.index.node(section).parent)
 }
 
 /// The references that find nothing, as warnings (REF-4). References that resolve only
@@ -413,9 +523,21 @@ pub fn problems(doc: &Document, rules: &Rules) -> Vec<Problem> {
 /// [`MAX_DEPTH`]; a reference that loops is left as it is. What does not resolve stays and
 /// is followed by a comment saying why. Stops after about `limit` bytes.
 pub fn preview(doc: &Document, rules: &Rules, id: NodeId, limit: usize) -> Preview {
+    preview_with(doc, rules, id, limit, &[])
+}
+
+/// [`preview`], with the chosen sections (REF-9).
+pub fn preview_with(
+    doc: &Document,
+    rules: &Rules,
+    id: NodeId,
+    limit: usize,
+    choices: &[Choice],
+) -> Preview {
     let mut p = Previewer {
         doc,
         rules,
+        choices,
         newline: std::str::from_utf8(newline_style(&doc.src)).unwrap_or("\n"),
         limit,
         stack: Vec::new(),
@@ -430,6 +552,7 @@ pub fn preview(doc: &Document, rules: &Rules, id: NodeId, limit: usize) -> Previ
 struct Previewer<'a> {
     doc: &'a Document,
     rules: &'a Rules,
+    choices: &'a [Choice],
     newline: &'static str,
     limit: usize,
     /// Elements being imported, outermost first: one met again is a loop.
@@ -470,7 +593,7 @@ impl Previewer<'_> {
     fn reference(&mut self, r: &Reference, anchor: NodeId, depth: usize) {
         let doc = self.doc;
         self.out.references += 1;
-        let resolved = resolve(doc, self.rules, r, anchor);
+        let resolved = resolve_with(doc, self.rules, r, anchor, self.choices);
         let original = &doc.src[r.span.clone()];
         match (r.kind, resolved.resolution) {
             (RefKind::Include, Resolution::Nodes(nodes)) => {
@@ -680,6 +803,7 @@ fn resolve_expr(
     site: NodeId,
     expr: &str,
     anchor: NodeId,
+    choices: &[Choice],
 ) -> Resolved {
     let unresolved = |why: String| Resolved {
         resolution: Resolution::Unresolved(why),
@@ -687,7 +811,7 @@ fn resolve_expr(
     };
     let (context, path) = split_context(expr);
     // `${Context:path}` inside the path: the text found there.
-    let path = match expand_dynamic(doc, rules, site, path, anchor) {
+    let path = match expand_dynamic(doc, rules, site, path, anchor, choices) {
         Ok(p) => p,
         Err(r) => {
             return Resolved {
@@ -705,7 +829,7 @@ fn resolve_expr(
             };
         }
     };
-    let candidates = match context_nodes(doc, rules, context, site, anchor) {
+    let candidates = match context_nodes(doc, rules, context, site, anchor, choices) {
         Ok(c) => c,
         Err(r) => {
             return Resolved {
@@ -754,6 +878,7 @@ fn context_nodes(
     context: Option<&str>,
     site: NodeId,
     anchor: NodeId,
+    choices: &[Choice],
 ) -> Result<Vec<(NodeId, Option<NodeId>)>, Resolution> {
     let Some(name) = context else {
         return Ok(vec![(site, None)]);
@@ -779,7 +904,7 @@ fn context_nodes(
             name: wanted,
             up_to,
         } => {
-            let c = nearest(doc, anchor, wanted, up_to);
+            let c = nearest(doc, anchor, wanted, up_to, choices);
             if c.is_empty() {
                 return Err(Resolution::Elsewhere(format!(
                     "{name} is looked for inside a <{up_to}>: resolved where this is imported"
@@ -791,8 +916,16 @@ fn context_nodes(
 }
 
 /// Elements called `wanted` around `from`: children of each ancestor, nearest first, up to
-/// the ancestor called `up_to`, then that one's other descendants called `wanted`.
-fn nearest(doc: &Document, from: NodeId, wanted: &str, up_to: &str) -> Vec<NodeId> {
+/// the ancestor called `up_to`, then that one's other descendants called `wanted`. Where a
+/// section is chosen for that ancestor (REF-9), it comes first, and the other descendants
+/// are not tried.
+fn nearest(
+    doc: &Document,
+    from: NodeId,
+    wanted: &str,
+    up_to: &str,
+    choices: &[Choice],
+) -> Vec<NodeId> {
     let idx = &doc.index;
     let named = |id: NodeId, n: &str| {
         idx.node(id).kind == NodeKind::Element && idx.name(&doc.src, id) == n.as_bytes()
@@ -806,6 +939,14 @@ fn nearest(doc: &Document, from: NodeId, wanted: &str, up_to: &str) -> Vec<NodeI
             }
         }
         if named(cur, up_to) {
+            if let Some(c) = choices
+                .iter()
+                .find(|c| c.scope == cur && named(c.chosen, wanted))
+            {
+                out.retain(|&n| n != c.chosen);
+                out.insert(0, c.chosen);
+                return out;
+            }
             let last = cur as usize + idx.node(cur).descendants as usize;
             for d in cur as usize + 1..=last {
                 let d = d as NodeId;
@@ -827,6 +968,7 @@ fn expand_dynamic(
     site: NodeId,
     path: &str,
     anchor: NodeId,
+    choices: &[Choice],
 ) -> Result<String, Resolution> {
     let Some(start) = path.find("${") else {
         return Ok(path.to_string());
@@ -835,13 +977,13 @@ fn expand_dynamic(
         return Err(Resolution::Unresolved("has ${ without }".into()));
     };
     let inner = &path[start + 2..start + len];
-    let found = resolve_expr(doc, rules, site, inner, anchor);
+    let found = resolve_expr(doc, rules, site, inner, anchor, choices);
     let text = match found.resolution {
         Resolution::Nodes(n) => doc.index.element_text(&doc.src, n[0]).into_owned(),
         Resolution::Value(v) => v,
         other => return Err(other),
     };
-    let rest = expand_dynamic(doc, rules, site, &path[start + len + 1..], anchor)?;
+    let rest = expand_dynamic(doc, rules, site, &path[start + len + 1..], anchor, choices)?;
     Ok(format!("{}{}{}", &path[..start], text, rest))
 }
 
@@ -1421,6 +1563,61 @@ mod tests {
                 .all(|r| r.end <= text.len())
         );
         assert!(p.imported.iter().any(|r| &text[r.clone()] == "8"));
+    }
+
+    /// REF-9: a chosen section comes first and the others are not tried; without a
+    /// choice, the nearest first.
+    #[test]
+    fn a_chosen_section_decides_the_nearest_context() {
+        let src = "<Doc>\r\n<Unit>\r\n\
+                   <General><Var><Count>1</Count></Var>\
+                   <Box N=\"[Var:Count]\" M=\"[Var:Größe]\" L=\"[Var:Late]\"/></General>\r\n\
+                   <Sub Version=\"1\"><Var><Count>2</Count><Größe>a</Größe></Var></Sub>\r\n\
+                   <Sub Version=\"2\"><Var><Count>3</Count><Größe>b</Größe><Late>z</Late></Var></Sub>\r\n\
+                   </Unit>\r\n</Doc>\r\n";
+        let d = Document::from_bytes(src.as_bytes().to_vec());
+        let rules = rules();
+        let b = element(&d, "/Doc/Unit/General/Box");
+        let value = |attr: usize, choices: &[Choice]| {
+            let r = references(&d, &rules, b)
+                .into_iter()
+                .find(|r| r.kind == RefKind::Attribute(attr))
+                .unwrap();
+            resolve_with(&d, &rules, &r, r.site, choices).resolution
+        };
+        let v = |s: &str| Resolution::Value(s.into());
+        // No choice: General's own Var, then the Subs in order.
+        assert_eq!(
+            (value(0, &[]), value(1, &[]), value(2, &[])),
+            (v("1"), v("a"), v("z"))
+        );
+
+        let found = sections(&d, &rules, b);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].context, "Var");
+        let labels: Vec<String> = found[0]
+            .candidates
+            .iter()
+            .map(|&c| section_label(&d, c))
+            .collect();
+        assert_eq!(
+            labels,
+            ["General", "Sub Version=\"1\"", "Sub Version=\"2\""]
+        );
+
+        let sub2 = element(&d, "/Doc/Unit/Sub[2]/Var");
+        let choice = choice_for(&d, &rules, sub2).unwrap();
+        assert_eq!(choice.scope, element(&d, "/Doc/Unit"));
+        assert_eq!((value(0, &[choice]), value(1, &[choice])), (v("3"), v("b")));
+        // Sub 1: General fills in what it lacks; Sub 2 is not tried.
+        let sub1 = choice_for(&d, &rules, element(&d, "/Doc/Unit/Sub[1]/Var")).unwrap();
+        assert_eq!((value(0, &[sub1]), value(1, &[sub1])), (v("2"), v("a")));
+        assert!(matches!(value(2, &[sub1]), Resolution::Unresolved(_)));
+        // The preview takes the choice too.
+        let p = preview_with(&d, &rules, b, PREVIEW_LIMIT, &[choice]);
+        assert_eq!(p.text, "<Box N=\"3\" M=\"b\" L=\"z\"/>");
+        // Not a section: no choice.
+        assert_eq!(choice_for(&d, &rules, b), None);
     }
 
     #[test]

@@ -1231,6 +1231,10 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   one kind of condition; a crate would be large for that); resolving the document in place
   (the owner does not want it, and it would change the file); naming the owner's conventions
   in XML Atlas (see above).
+- **Added (owner, 2026-11-18):** choosing exactly which specialization is resolved: the pane
+  lists the sections of a `nearest` context around the selection, and a chosen one comes
+  first, then the reference's own, and no other (REF-9). It needs no new rule: the sections
+  are the elements the rule already names.
 - **Revisit when:** a second user's conventions do not fit the rules file, or XInclude
   (`docs/spec/open.md`) is built: it could be one more kind of rule.
 

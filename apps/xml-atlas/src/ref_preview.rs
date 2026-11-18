@@ -8,7 +8,7 @@
 use std::ops::Range;
 
 use egui::{Color32, FontId, RichText, Sense, Ui, vec2};
-use xml_atlas_engine::references::{self, Preview, RefKind, Resolution};
+use xml_atlas_engine::references::{self, Choice, Preview, RefKind, Resolution, Rules};
 use xml_atlas_engine::text;
 use xml_atlas_engine::tree::Row;
 use xml_atlas_engine::xml::NodeId;
@@ -24,10 +24,20 @@ const LIMIT: usize = 4 * 1024 * 1024;
 const IMPORTED_ALPHA: f32 = 0.18;
 const NOTE_ALPHA: f32 = 0.22;
 
+/// A section chosen in the pane (REF-9), kept by position, which follows edits as the
+/// selection does; the label checks it is still the same section.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredChoice {
+    scope: Vec<u32>,
+    chosen: Vec<u32>,
+    label: String,
+}
+
 /// A preview, and what it was made for.
 pub struct Cached {
     element: NodeId,
     revision: u64,
+    choices: Vec<Choice>,
     path: String,
     preview: Preview,
     /// Byte range of each line in the preview's text, without its line break.
@@ -67,21 +77,25 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         ui.label("Waiting for the document to be read again…");
         return;
     }
+    choose_sections(ui, open, &rules, element);
     let revision = open.doc.revision();
+    let choices = chosen(open);
     let fresh = open
         .reference_preview
         .as_ref()
-        .is_some_and(|c| c.element == element && c.revision == revision);
+        .is_some_and(|c| c.element == element && c.revision == revision && c.choices == choices);
     if !fresh {
         let t = std::time::Instant::now();
-        let preview = references::preview(&open.doc, &rules, element, LIMIT);
+        let preview = references::preview_with(&open.doc, &rules, element, LIMIT, &choices);
         log::debug!("reference preview made in {:?}", t.elapsed());
-        open.reference_preview = Some(cache(
+        let mut c = cache(
             element,
             revision,
             open.doc.index.path(&open.doc.src, element),
             preview,
-        ));
+        );
+        c.choices = choices;
+        open.reference_preview = Some(c);
     }
     let Some(c) = &open.reference_preview else {
         return;
@@ -176,7 +190,9 @@ pub fn go_to_target(open: &mut Open) {
         ));
         return;
     };
-    let resolved = references::resolve(doc, &rules, &r, r.site);
+    let choices = chosen(open);
+    let doc = &open.doc;
+    let resolved = references::resolve_with(doc, &rules, &r, r.site, &choices);
     let via = resolved
         .via
         .map(|v| format!(", from {}", doc.index.path(&doc.src, v)))
@@ -203,7 +219,95 @@ pub fn go_to_target(open: &mut Open) {
     });
 }
 
+/// The chosen sections that still stand (REF-9): a stored choice whose place now holds
+/// another section, or none, is left out.
+pub fn chosen(open: &Open) -> Vec<Choice> {
+    let Some(rules) = open.rules() else {
+        return Vec::new();
+    };
+    let doc = &open.doc;
+    open.reference_choices
+        .iter()
+        .filter_map(|s| {
+            let chosen = doc.index.element_at_position(&s.chosen)?;
+            let c = references::choice_for(doc, rules, chosen)?;
+            (doc.index.element_position(c.scope) == s.scope
+                && references::section_label(doc, chosen) == s.label)
+                .then_some(c)
+        })
+        .collect()
+}
+
+impl StoredChoice {
+    /// The choice after a structured edit that moves elements by `shift`; `None` when its
+    /// section or scope was deleted.
+    pub fn remap(&self, shift: &crate::app::Shift) -> Option<Self> {
+        Some(Self {
+            scope: shift.remap(&self.scope)?,
+            chosen: shift.remap(&self.chosen)?,
+            label: self.label.clone(),
+        })
+    }
+}
+
+/// Stores `choices`, live ones, as positions again: after typing changed the nodes.
+pub fn store(open: &mut Open, choices: &[Choice]) {
+    open.reference_choices.clear();
+    for c in choices {
+        choose(open, c.scope, Some(c.chosen));
+    }
+}
+
+/// Makes `section` the chosen one of its scope, or with `None` drops the choice for
+/// `scope`.
+pub fn choose(open: &mut Open, scope: NodeId, section: Option<NodeId>) {
+    let doc = &open.doc;
+    let scope_pos = doc.index.element_position(scope);
+    open.reference_choices.retain(|s| s.scope != scope_pos);
+    if let Some(section) = section {
+        open.reference_choices.push(StoredChoice {
+            scope: scope_pos,
+            chosen: doc.index.element_position(section),
+            label: references::section_label(doc, section),
+        });
+    }
+}
+
 // Private helpers
+
+/// A list per `nearest` context around the selection: which section to resolve it from.
+fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId) {
+    let sections = references::sections(&open.doc, rules, element);
+    let current = chosen(open);
+    for s in sections {
+        let picked = current
+            .iter()
+            .find(|c| c.scope == s.scope)
+            .map(|c| c.chosen);
+        let doc = &open.doc;
+        let label = |id: Option<NodeId>| match id {
+            Some(id) => references::section_label(doc, id),
+            None => "the nearest that has it".to_string(),
+        };
+        let scope = references::element_label(doc, s.scope);
+        let mut new = picked;
+        ui.horizontal(|ui| {
+            ui.label(format!("{} in {scope} from", s.context));
+            egui::ComboBox::from_id_salt(("reference-section", s.scope))
+                .selected_text(label(picked))
+                .width(ui.available_width().min(360.0))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut new, None, label(None));
+                    for &c in &s.candidates {
+                        ui.selectable_value(&mut new, Some(c), label(Some(c)));
+                    }
+                });
+        });
+        if new != picked {
+            choose(open, s.scope, new);
+        }
+    }
+}
 
 fn cache(element: NodeId, revision: u64, path: String, preview: Preview) -> Cached {
     let text = &preview.text;
@@ -247,6 +351,7 @@ fn cache(element: NodeId, revision: u64, path: String, preview: Preview) -> Cach
     Cached {
         element,
         revision,
+        choices: Vec::new(),
         path,
         preview,
         lines,
@@ -350,6 +455,78 @@ mod tests {
         assert!(open.references_due.is_some());
         open.check_references();
         assert!(open.problems.is_empty(), "{:?}", open.problems);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// REF-9: a chosen section decides F12 and the preview, survives an edit before it, and
+    /// is dropped when its place holds another section.
+    #[test]
+    fn a_chosen_section_decides_and_follows_edits() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-sections-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rules = r#"{"includes": [{"element": "Include", "attribute": "src"}],
+                        "contexts": {"Var": {"nearest": "Var", "up_to": "Unit"}}}"#;
+        std::fs::write(dir.join(references::RULES_FILE), rules).unwrap();
+        let file = dir.join("doc.xml");
+        let src = "\u{feff}<Doc>\r\n<Note/>\r\n<Unit>\r\n\
+                   <General><Var/><Box><Include src=\"Var:Größe\"/></Box></General>\r\n\
+                   <Sub V=\"1\"><Var><Größe>a</Größe></Var></Sub>\r\n\
+                   <Sub V=\"2\"><Var><Größe>b</Größe></Var></Sub>\r\n</Unit>\r\n</Doc>\r\n";
+        std::fs::write(&file, src).unwrap();
+        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("sections"));
+        let include = |o: &Open| command::resolve(&o.doc, "/Doc/Unit/General/Box/Include").unwrap();
+        let f12 = |o: &mut Open| {
+            let at = include(o);
+            o.select(at);
+            go_to_target(o);
+            o.doc.index.path(&o.doc.src, o.selected.unwrap())
+        };
+        // No choice: the first Sub that has it.
+        assert_eq!(f12(&mut open), "/Doc/Unit/Sub[1]/Var/Größe");
+
+        let unit = command::resolve(&open.doc, "/Doc/Unit").unwrap();
+        let sub2 = command::resolve(&open.doc, "/Doc/Unit/Sub[2]/Var").unwrap();
+        choose(&mut open, unit, Some(sub2));
+        assert_eq!(f12(&mut open), "/Doc/Unit/Sub[2]/Var/Größe");
+        let box_ = command::resolve(&open.doc, "/Doc/Unit/General/Box").unwrap();
+        let p = references::preview_with(
+            &open.doc,
+            open.rules().unwrap(),
+            box_,
+            LIMIT,
+            &chosen(&open),
+        );
+        assert!(p.text.starts_with("<Box><Größe>b</Größe>"), "{}", p.text);
+
+        // Deleting `Note` before the Unit moves it; the choice moves with it.
+        let delete = |o: &mut Open, path: &str| {
+            let id = command::resolve(&o.doc, path).unwrap();
+            let pos = o.doc.index.element_position(id);
+            o.command(
+                "delete",
+                |d| command::delete(d, id).map(Some),
+                crate::app::Shift::Remove(pos),
+            );
+        };
+        delete(&mut open, "/Doc/Note");
+        assert_eq!(chosen(&open).len(), 1);
+        assert_eq!(f12(&mut open), "/Doc/Unit/Sub[2]/Var/Größe");
+        // Deleting Sub 1 moves Sub 2 up, and the choice with it.
+        delete(&mut open, "/Doc/Unit/Sub[1]");
+        assert_eq!(f12(&mut open), "/Doc/Unit/Sub/Var/Größe");
+        // Typing an element before it keeps it too.
+        let at = open.doc.src.windows(5).position(|w| w == b"<Box>").unwrap();
+        open.type_edit(Edit::new("Typing").replace(at..at, "<Neu/>"))
+            .unwrap();
+        assert_eq!(chosen(&open).len(), 1);
+        // Deleting the chosen section drops the choice.
+        delete(&mut open, "/Doc/Unit/Sub");
+        assert!(open.reference_choices.is_empty());
+        let general = command::resolve(&open.doc, "/Doc/Unit/General/Var").unwrap();
+        choose(&mut open, unit, Some(general));
+        assert_eq!(open.reference_choices.len(), 1);
+        choose(&mut open, unit, None);
+        assert!(open.reference_choices.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

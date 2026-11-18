@@ -120,6 +120,10 @@ enum Command {
         /// The rules file; by default `xml-atlas-references.json` next to FILE or above it.
         #[arg(long, value_name = "PATH")]
         rules: Option<PathBuf>,
+        /// Take a `nearest` context from this section, by path (REF-9); may be given once per
+        /// scope.
+        #[arg(long, value_name = "PATH")]
+        section: Vec<String>,
     },
     /// Find text and print the lines that contain it.
     Find {
@@ -253,7 +257,12 @@ fn main() -> anyhow::Result<()> {
             edit(target, |d, id| command::move_element(d, id, direction))
         }
         Command::References { file, rules, limit } => check_references(&file, rules, limit),
-        Command::Preview { file, path, rules } => preview(&file, &path, rules),
+        Command::Preview {
+            file,
+            path,
+            rules,
+            section,
+        } => preview(&file, &path, rules, &section),
         Command::Find {
             file,
             query,
@@ -462,11 +471,25 @@ fn check_references(file: &Path, rules: Option<PathBuf>, limit: usize) -> anyhow
 }
 
 /// Preview (REF-5), the same text as the GUI's preview pane.
-fn preview(file: &Path, path: &str, rules: Option<PathBuf>) -> anyhow::Result<()> {
+fn preview(
+    file: &Path,
+    path: &str,
+    rules: Option<PathBuf>,
+    sections: &[String],
+) -> anyhow::Result<()> {
     let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
     let (_, rules) = load_rules(file, rules)?;
     let id = command::resolve(&doc, path)?;
-    let p = references::preview(&doc, &rules, id, references::PREVIEW_LIMIT);
+    let mut choices = Vec::new();
+    for s in sections {
+        let section = command::resolve(&doc, s)?;
+        choices.push(
+            references::choice_for(&doc, &rules, section).with_context(|| {
+                format!("{s} is not a section of a nearest context in the rules")
+            })?,
+        );
+    }
+    let p = references::preview_with(&doc, &rules, id, references::PREVIEW_LIMIT, &choices);
     println!("{}", p.text);
     eprintln!(
         "{} references, {} not resolved{}",

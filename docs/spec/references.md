@@ -85,15 +85,27 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   *Copy* copies its text.
 - **REF-6** `[done]` The CLI does the same: `xml-atlas-cli references FILE [--rules PATH]
   [--limit N]` counts the references and lists those that find nothing;
-  `xml-atlas-cli preview FILE PATH [--rules PATH]` prints the element at PATH resolved, up to
-  16 MiB.
+  `xml-atlas-cli preview FILE PATH [--rules PATH] [--section PATH]...` prints the element at
+  PATH resolved, up to 16 MiB, with the sections chosen as in REF-9.
 - **REF-7** `[done]` A preview, not the program's own resolution: contexts known only at run
   time stay, `nearest` stands in for whatever the program merges, and nothing is cached or
   resolved in a second pass. The file never changes.
 - **REF-8** `[planned]` Agents (MCP) get the same check and preview.
+- **REF-9** `[built]` Choosing the section: where a `nearest` context has more than one
+  element to come from around the selection (several `Var` in one `Unit`), the preview pane
+  shows a list per context: *the nearest that has it* (REF-1, the default) or one of them,
+  each named by its parent's start tag (`Sub Version="2"`). With one chosen, a reference
+  inside that `Unit` takes the context from it first, then from its own nearest one, and from
+  no other: as the program does when it merges the general section with one specialization.
+  The choice applies to the preview and to F12, not to the problems list (REF-4), which
+  still asks whether any section has it. It is kept per tab, follows edits as the selection
+  does, and goes when its section is deleted.
 
 ## Acceptance tests
 
+- A `Unit` with `General/Var` and two `Sub` sections whose `Var` differ: choosing
+  `Sub Version="2"` in the pane changes the preview's values to that section's and F12 goes
+  there; deleting the first `Sub` keeps the choice on the same section.
 - With the rules above next to the example: F12 on the `Include` selects `P1` and says it
   finds 2 elements; the problems list is empty; the preview of `Box` reads `<Box N="8">`
   with `<P1/>` and `<P2/>` indented where the `Include` was.
@@ -112,6 +124,7 @@ Neither XML Marker nor the Qt XML Atlas knows about references.
 - Generic rules in a file the user keeps, nothing of one team's conventions in XML Atlas;
   go to target, the problems and the preview pane together; `nearest` as the stand-in for a
   merge. (Owner, 2026-11-18, D32.)
+- Choosing the specialization to resolve against, in the pane (REF-9). (Owner, 2026-11-18.)
 
 ## Questions
 
