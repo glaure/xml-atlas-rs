@@ -55,7 +55,9 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   status bar with a link to the releases page. It never downloads or installs anything by
   itself, sends nothing but that request, and can be turned off in the settings (WIN-3).
   Without a network it stays silent. In a Linux package or the Flatpak the notice says to
-  update with the package manager.
+  update with the package manager. On by default; turned off in Settings > Updates
+  (WIN-11); Help > *Check for updates now* asks at once and also says when it is up to date.
+  How it is built: `docs/decisions.md`, D30 (owner, 2026-11-18).
 
 ### Windows
 

@@ -1090,11 +1090,132 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   Classic's weak text (2.89:1), miss it and are exempt: Dark stays as it is (owner,
   2026-11-18), and Classic is 1.0's Light.
 
+## D30: Telling the user about a newer version (PKG-7)
+
+- **Problem:** PKG-7 is planned but not built. Users do not learn that a newer version
+  fixes their problem: 1.0.0 on Windows opens a console beside the window and shows boxes
+  for six toolbar icons; both are fixed on `main` (#99, #100), and nobody running 1.0.0 will
+  hear of it. Each release without the check is one more release whose users miss the next.
+  1.0.0 cannot be helped; the next release can.
+- **What PKG-7 already says:** at most once a day, ask GitHub for the latest release; when it
+  is newer, say so once in the status bar with a link to the releases page; never download
+  or install anything; send nothing but that request; a setting turns it off; silent without
+  a network; in a Linux package or the Flatpak, say to update with the package manager.
+- **The request:** `GET https://api.github.com/repos/glaure/xml-atlas-rs/releases/latest`.
+  It returns the newest published release, never a draft (PKG-1, PKG-14) or a pre-release.
+  Its `tag_name` (`v1.0.0`) is compared with the program's own version (`CARGO_PKG_VERSION`)
+  as three numbers; `html_url` is the link. GitHub answers 60 requests an hour per address
+  without a token, far above one a day. GitHub requires a `User-Agent`; it is
+  `xml-atlas/<version>`, nothing about the user or the machine. No cookies, no token, no
+  identifier: GitHub sees the address and the version, as for any download from it.
+- **How it is built:**
+  - On a thread of its own, started after the first frame, so start-up does not wait for
+    the network (WIN-2's portal thread works the same way). The answer comes back through a
+    channel and the status bar shows it on the next frame.
+  - The HTTP client is `ureq` (3.x; version and features checked in the registry before it
+    is added, `AGENTS.md` rule 5) with `rustls`: blocking, no async runtime in the app, pure
+    Rust, the same on every platform. Certificates come from the system's store
+    (`rustls-platform-verifier`), so a company proxy that inspects TLS with its own
+    certificate still works. Only the app depends on it; the CLI and the engine do not.
+  - `serde_json`, already in the tree, reads the answer; only `tag_name` and `html_url`.
+  - Two values in the settings file (WIN-3): `update_check = true|false`, and the time of
+    the last check, so the once a day holds across restarts. A version the notice has been
+    shown for is remembered too, so it is shown once, not at every start.
+  - A Linux package is recognised by the program running from `/usr/bin`, the Flatpak by
+    `FLATPAK_ID`; their notice names the package manager instead of linking to the download.
+  - Errors (no network, a proxy, a timeout of 10 s, an answer that cannot be read) go to the
+    log and nowhere else.
+- **Cost:** about 1 to 2 MB more in the app's binary, from TLS and the HTTP client (to be
+  measured); a little build time. Nothing at start-up or per frame (`AGENTS.md` rule 1); the
+  start-up time is measured before and after anyway.
+- **Tests:** comparing versions (`v1.10.0` is newer than `v1.9.2`; `v1.0.0` is not newer
+  than `1.0.0`; a tag that is not a version is ignored); reading a recorded answer from
+  GitHub; the once a day and the once per version against the settings, with the clock
+  passed in; the settings round trip. No test talks to the network.
+- **Not chosen:**
+  - Downloading or installing the update: PKG-7 rules it out (owner, 2026-11-15).
+  - Calling the system's `curl`: Windows 10 has it only from build 17063 on, it may be
+    missing on a minimal Linux, and its errors are text to parse.
+  - The HTTP client that comes with the CLI's `tokio`: it would put an async runtime into the
+    app for one request a day.
+  - Our own update server or a version file on another site: one more thing to run; GitHub
+    already publishes the releases.
+- **Questions for the owner:**
+  1. On or off by default? On means a fresh install contacts GitHub once a day without
+     being asked, and users learn about fixes; off means almost nobody turns it on. PKG-7
+     reads as on. Proposed: on, and the help (WIN-4) says what it sends.
+  2. Is the extra 1 to 2 MB in the app worth it, or should the check wait for a reason that
+     needs HTTP anyway?
+  3. Where to turn it off: View menu next to the other remembered options, or only in the
+     settings file? Proposed: Help > Check for updates (on/off), next to About.
+  4. Should Help also have *Check now*, which asks at once and says "up to date" too?
+     Proposed: yes; it is the same request.
+- **Answered (owner, 2026-11-18):** on by default; the extra size is acceptable; Help gets
+  *Check now*. Where to turn it off: in a Settings window, which the program does not have
+  yet (D31).
+
+## D31: A Settings window
+
+- **Problem:** the owner (2026-11-18) looks for *Settings*, *Preferences* or *Options* in the
+  File menu, as in VS Code, or in a menu of its own, and finds none. Today the remembered
+  settings (WIN-3) are spread out: the View menu has attribute rows in the tree, the cell
+  pane, the toolbar, Allow AI agents, Font…, word wrap, the theme mode, the light style and
+  the layout; Edit > Format options… has the format settings (FMT-10 to FMT-13); the find bar
+  has its options. The update check (D30) needs a home too, and D29's style and theme files
+  will add more. The owner is unsure which settings belong in such a window.
+- **Proposed:** *File > Settings…* (Ctrl+,, as in VS Code; Cmd+, on macOS), a window with
+  every remembered setting in one place, in sections:
+  - *Appearance:* theme mode and light style (later D29's style and theme files), the font
+    of text, tree and grid (TEXT-25), the toolbar.
+  - *Views:* layout, attribute rows in the tree, the cell pane, word wrap for new tabs.
+  - *Format:* the format settings, the same as Edit > Format options… (FMT-10 to FMT-13).
+  - *Updates:* check for newer versions (D30), when it last checked, and *Check now*.
+  - *AI agents:* Allow AI agents (MCP), with what it does and that it listens on
+    `127.0.0.1` (D28).
+
+  A change applies at once and is saved at once, as the View menu's options are today; there
+  is no OK or Cancel. *Reset to defaults* per section. The window is an egui window over the
+  main one, like the Format options dialog.
+- **What stays in the menus:** what is switched while working stays where it is, as a
+  shortcut to the same setting: word wrap (Alt+Z), the layout, the cell pane, attribute rows,
+  the toolbar and the theme mode in View; Format options… in Edit; the find options in the
+  find bar. Settings shows the same values; changing one place changes the other. Moved out
+  of View into Settings only: *Allow AI agents*, which opens a port and is set once, not
+  switched while working, and the light style, which is set once.
+- **Not in Settings:** the recent files (File > Open Recent has *Clear list*), the window's
+  size and the panes' sizes (egui keeps them), the find options (the find bar shows them
+  where they act).
+- **Not chosen:**
+  - A menu of its own (*Settings* or *Tools > Options*): one more menu for one entry; the
+    File menu is where the owner looked first, and where VS Code and many Windows programs
+    have it.
+  - Only the settings file, edited in a text editor: fine for theme files (D29), not for
+    switching an update check off.
+  - Moving everything out of the menus into Settings: the View menu's options are switched
+    while working; hiding them in a window makes that slower.
+- **Questions for the owner:**
+  1. *File > Settings…* with Ctrl+, as proposed?
+  2. The sections and what goes in them, as above?
+  3. Move *Allow AI agents* and *Light style* out of the View menu into Settings only, and
+     keep the rest in both places?
+  4. Changes apply at once, without OK and Cancel?
+- **Decided (owner, 2026-11-18):** as proposed. *File > Settings…* with Ctrl+,; the sections
+  above; *Allow AI agents* and *Light style* leave the View menu for Settings, the rest stays
+  in both places; changes apply and are saved at once, without OK and Cancel.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D31, a Settings window (owner, 2026-11-18): File > Settings… with Ctrl+,; the sections
+as proposed; Allow AI agents and Light style move from the View menu to Settings, the rest
+stays in both; changes apply at once, without OK and Cancel.
+
+About D30, the notice of a newer version (owner, 2026-11-18): on by default; 1 to 2 MB more
+in the app is acceptable; Help gets *Check now*; it is turned off in a Settings window
+(D31).
 
 About D29, themes (owner, 2026-11-17): an editor in the window is not needed, theme files
 are enough; the macOS menu bar at the top of the screen is wanted later, as its own
