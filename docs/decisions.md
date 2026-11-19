@@ -1238,6 +1238,41 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Revisit when:** a second user's conventions do not fit the rules file, or XInclude
   (`docs/spec/open.md`) is built: it could be one more kind of rule.
 
+## D33: A tree of the resolved document
+
+- **Problem:** the preview pane (REF-5) shows the selected element with its references
+  resolved as text. A large resolved element is hard to take in as text; the owner
+  (2026-11-19) wants to see it as a tree too, optionally, beside it.
+- **Proposed and decided:** a pane of its own right of the preview, so the window reads
+  *main tree | text | preview text | preview tree*. It shows the preview's text as a tree:
+  - The preview's text is indexed as a document of its own, with the engine's usual index,
+    once when the preview is made again (selection, edit or chosen section), never per frame.
+    The preview stops at 4 MiB; the index takes a few milliseconds for that. A preview cut
+    there is not well-formed at its end; the index keeps the elements before the cut, as it
+    does for a broken file (OPEN-10).
+  - The rows, icons, keys and expanding are those of the main tree (TREE-1 to TREE-14),
+    drawn by the same code. It follows the main tree's settings: attribute rows (TREE-1) and
+    the font (TEXT-25). It is read-only: no rename, delete or move.
+  - The `XML Atlas:` notes of the preview (REF-5) are comment rows, as any comment is.
+  - Clicking a row scrolls the preview text to that element and marks its lines, as a click
+    in the main tree does in the text (TEXT-6). It does not select anything in the main tree
+    or the file: an imported element has no place there, and taking an element that does
+    back to the file is a later step.
+  - Shown when View > *Preview tree* is on (remembered, WIN-3; in Settings > Views, WIN-11)
+    and the preview is on; off by default. Like every side pane it is cut to its width and
+    resizable (#72, #112).
+- **Cost:** with the pane off, nothing. With it on: one index of at most 4 MiB per new
+  preview, and the tree's rows on screen per frame (rule 2 of `AGENTS.md`).
+- **Not chosen:**
+  - *Text | Tree* tabs in the preview pane, or the tree above the text in it: the owner wants
+    both side by side.
+  - Selecting the element in the main tree from the resolved tree: later, for elements that
+    are in the file; the preview does not yet record where an imported element came from.
+  - Settings of its own for the resolved tree: it follows the main tree's.
+- **Decided (owner, 2026-11-19):** a separate pane right of the preview text; a click
+  scrolls the preview text only, at first; the main tree's settings. The rule is REF-10 in
+  `docs/spec/references.md`.
+
 ## Open questions
 
 None.
