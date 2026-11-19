@@ -29,7 +29,7 @@ pub const MAX_DEPTH: usize = 10;
 pub const PREVIEW_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Marks what the preview adds to the text, so it cannot be taken for the document's own.
-const NOTE: &str = "XML Atlas:";
+pub(crate) const NOTE: &str = "XML Atlas:";
 
 /// What the rules file says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -39,6 +39,7 @@ pub struct Rules {
     contexts: Vec<(String, Context)>,
     runtime: Vec<String>,
     variables: Vec<(String, Variable)>,
+    repeat: Option<crate::repeat::Repeat>,
 }
 
 /// An element that stands for what its attribute refers to.
@@ -208,6 +209,9 @@ impl Rules {
             let o = inc
                 .as_object()
                 .ok_or_else(|| invalid(format!("{at} is not an object")))?;
+            if !enabled(o, &at)? {
+                continue;
+            }
             let mut skip_when = Vec::new();
             if let Some(s) = o.get("skip_when") {
                 let s = s
@@ -234,6 +238,7 @@ impl Rules {
                     skip_names_with: None,
                 })
             }
+            Some(Value::Object(o)) if !enabled(o, "attribute_references")? => {}
             Some(Value::Object(o)) => {
                 rules.attributes = Some(AttributeRule {
                     skip_names_with: o
@@ -257,6 +262,9 @@ impl Rules {
                 let o = def
                     .as_object()
                     .ok_or_else(|| invalid(format!("{at} is not an object")))?;
+                if !enabled(o, &at)? {
+                    continue;
+                }
                 let context = match (o.get("path"), o.get("nearest")) {
                     (Some(p), None) => {
                         let p = text_of(p, &format!("{at}.path"))?;
@@ -298,7 +306,39 @@ impl Rules {
                 rules.variables.push((name.clone(), kind));
             }
         }
+        if let Some(r) = top.get("repeat") {
+            let o = r
+                .as_object()
+                .ok_or_else(|| invalid("repeat is not an object"))?;
+            let names = |key: &str| -> Result<Vec<String>, RulesError> {
+                list(o.get(key), &format!("repeat.{key}"))?
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| text_of(v, &format!("repeat.{key}[{i}]")))
+                    .collect()
+            };
+            let optional = |key: &str| {
+                o.get(key)
+                    .map(|v| text_of(v, &format!("repeat.{key}")))
+                    .transpose()
+            };
+            rules.repeat = Some(crate::repeat::Repeat {
+                count: field(o, "count", "repeat")?,
+                start: optional("start")?,
+                suffix: optional("suffix")?,
+                relative: optional("relative")?,
+                index: names("index")?,
+                relative_index: names("relative_index")?,
+                enabled: enabled(o, "repeat")?,
+            });
+        }
         Ok(rules)
+    }
+
+    /// The `repeat` rule (REF-11), if the file has one; switched off in the file, it is still
+    /// here, with `enabled` false, so the preview can offer to switch it on.
+    pub fn repeat(&self) -> Option<&crate::repeat::Repeat> {
+        self.repeat.as_ref()
     }
 
     /// Reads a rules file.
@@ -1342,6 +1382,15 @@ fn escape(s: &str, attribute: bool) -> String {
     out
 }
 
+/// Whether a rule object is switched on: `"enabled": false` leaves it out (D34).
+fn enabled(o: &serde_json::Map<String, Value>, at: &str) -> Result<bool, RulesError> {
+    match o.get("enabled") {
+        None => Ok(true),
+        Some(Value::Bool(on)) => Ok(*on),
+        Some(_) => Err(invalid(format!("{at}.enabled is not true or false"))),
+    }
+}
+
 fn invalid(msg: impl Into<String>) -> RulesError {
     RulesError::Invalid(msg.into())
 }
@@ -1562,6 +1611,39 @@ mod tests {
         assert_eq!(p[0].severity, Severity::Warning);
         let line = d.line_of(p[0].offset);
         assert_eq!(line, 19);
+    }
+
+    /// A rule with `"enabled": false` is left out as if it were not there; `repeat` is kept,
+    /// switched off, so the preview can offer it (D34).
+    #[test]
+    fn rules_switched_off_in_the_file_are_left_out() {
+        let r = Rules::parse(
+            r#"{
+            "includes": [{"element": "Include", "attribute": "src", "enabled": false},
+                         {"element": "Größe", "attribute": "src"}],
+            "attribute_references": {"enabled": false},
+            "contexts": {"Off": {"path": "/A", "enabled": false}, "On": {"path": "/B"}},
+            "repeat": {"count": "Count", "index": ["[Index]"], "enabled": false}
+        }"#,
+        )
+        .unwrap();
+        let names: Vec<&str> = r.includes.iter().map(|i| i.element.as_str()).collect();
+        assert_eq!(names, ["Größe"]);
+        assert!(r.attributes.is_none());
+        let contexts: Vec<&str> = r.contexts.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(contexts, ["On"]);
+        let repeat = r.repeat().unwrap();
+        assert!(!repeat.enabled);
+        assert_eq!(repeat.count, "Count");
+        assert!(
+            Rules::parse(r#"{"repeat": {"count": "C"}}"#)
+                .unwrap()
+                .repeat()
+                .unwrap()
+                .enabled
+        );
+        assert!(Rules::parse(r#"{"contexts": {"X": {"path": "/A", "enabled": "no"}}}"#).is_err());
+        assert!(Rules::parse(r#"{"repeat": {"index": ["[Index]"]}}"#).is_err());
     }
 
     /// Every element of a preview maps back to the element it was copied from: its own, an

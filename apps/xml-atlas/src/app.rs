@@ -142,6 +142,9 @@ pub struct Open {
     pub reference_preview: Option<crate::ref_preview::Cached>,
     /// The sections chosen for `nearest` contexts in this tab (REF-9).
     pub reference_choices: Vec<crate::ref_preview::StoredChoice>,
+    /// Expand repeats in the preview (REF-11), switched in the pane; `None` until then: as
+    /// the rules file says.
+    pub expand_repeats: Option<bool>,
     /// The sections around the selected element, and the element and revision they are for.
     pub reference_sections: Option<(NodeId, u64, Vec<references::Sections>)>,
     /// Where the arrow keys go: the tree or the grid, whichever was clicked last.
@@ -1956,6 +1959,7 @@ impl Open {
             references_due: None,
             reference_preview: None,
             reference_choices: Vec::new(),
+            expand_repeats: None,
             reference_sections: None,
             keys: Pane::Tree,
             grid_scroll_to: None,

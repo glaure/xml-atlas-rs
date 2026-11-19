@@ -58,6 +58,8 @@ pub struct Cached {
     widest: usize,
     /// The lines drawn in the last frame.
     shown: Range<usize>,
+    /// Repeats were expanded (REF-11).
+    expanded: bool,
     /// The preview's text as a document and its tree (REF-10), made when the tree pane first
     /// shows this preview.
     tree: Option<(Document, TreeState)>,
@@ -95,15 +97,37 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         return;
     }
     choose_sections(ui, open, &rules, element);
+    if let Some(rule) = rules.repeat() {
+        let mut on = open.expand_repeats.unwrap_or(rule.enabled);
+        if ui
+            .checkbox(&mut on, "Expand repeats")
+            .on_hover_text(format!(
+                "Show an element with {} as that many numbered copies, as the program reads                  it (REF-11)",
+                rule.count
+            ))
+            .changed()
+        {
+            open.expand_repeats = Some(on);
+        }
+    }
     let revision = open.doc.revision();
     let choices = chosen(open);
-    let fresh = open
-        .reference_preview
-        .as_ref()
-        .is_some_and(|c| c.element == element && c.revision == revision && c.choices == choices);
+    let repeat = rules
+        .repeat()
+        .filter(|r| open.expand_repeats.unwrap_or(r.enabled));
+    let expanded = repeat.is_some();
+    let fresh = open.reference_preview.as_ref().is_some_and(|c| {
+        c.element == element
+            && c.revision == revision
+            && c.choices == choices
+            && c.expanded == expanded
+    });
     if !fresh {
         let t = std::time::Instant::now();
-        let preview = references::preview_with(&open.doc, &rules, element, LIMIT, &choices);
+        let mut preview = references::preview_with(&open.doc, &rules, element, LIMIT, &choices);
+        if let Some(rule) = repeat {
+            preview = xml_atlas_engine::repeat::expand(&preview, rule, LIMIT);
+        }
         log::debug!("reference preview made in {:?}", t.elapsed());
         let mut c = cache(
             element,
@@ -112,6 +136,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
             preview,
         );
         c.choices = choices;
+        c.expanded = expanded;
         open.reference_preview = Some(c);
         // The tree pane (REF-10) is drawn before this one: it shows the new preview next frame.
         ui.ctx().request_repaint();
@@ -513,6 +538,7 @@ fn cache(element: NodeId, revision: u64, path: String, preview: Preview) -> Cach
         marks,
         widest,
         shown: 0..0,
+        expanded: false,
         tree: None,
         marked: None,
         scroll_to: None,
@@ -620,6 +646,50 @@ mod tests {
             })
             .unwrap();
         assert_eq!(copied_from(&c.preview, doc, Row::Node(note)), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// With a `repeat` rule the pane shows the copies, and its tree too; Show in the main
+    /// tree on a copy goes to the element it was copied from; switched off, the preview is
+    /// made again as written (REF-11).
+    #[test]
+    fn repeats_expand_in_the_pane_and_its_tree() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-repeat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(references::RULES_FILE),
+            r#"{"repeat": {"count": "Count", "start": "Start", "index": ["[Index]"]}}"#,
+        )
+        .unwrap();
+        let file = dir.join("doc.xml");
+        let src = "\u{feff}<Doc>\r\n  <Größe Count=\"3\" Start=\"1\" N=\"[Index]\"><W/></Größe>\r\n\
+                   </Doc>\r\n";
+        std::fs::write(&file, src).unwrap();
+        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("repeat"));
+        let root = command::resolve(&open.doc, "/Doc").unwrap();
+        open.select(root);
+        frames(&mut open, true);
+
+        let c = open.reference_preview.as_ref().unwrap();
+        assert!(
+            c.preview.text.contains("<Größe3 N=\"3\"><W/></Größe3>"),
+            "{}",
+            c.preview.text
+        );
+        let (doc, _) = c.tree.as_ref().unwrap();
+        let third = command::resolve(doc, "/Doc/Größe3/W").unwrap();
+        show_in_main_tree(&mut open, Row::Node(third));
+        let original = command::resolve(&open.doc, "/Doc/Größe/W").unwrap();
+        assert_eq!(open.tree.selected(), Some(Row::Node(original)));
+
+        open.expand_repeats = Some(false);
+        frames(&mut open, false);
+        let c = open.reference_preview.as_ref().unwrap();
+        assert!(
+            c.preview.text.contains("<Größe Count=\"3\""),
+            "{}",
+            c.preview.text
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
