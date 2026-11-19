@@ -117,6 +117,15 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   preview records which runs of its text were copied from where (`Preview::source_of`).
   The tree is made when its pane first shows a preview, not before; with the pane off it
   costs nothing. The main tree and this one are drawn by the same code (`tree::draw`).
+- **REF-11** `[planned]` Repeated elements: with a `repeat` rule, the preview (REF-5, REF-10,
+  the CLI's `preview`) shows an element with the rule's count attribute as that many copies,
+  named its name and their number from the start attribute on; placeholders in attribute
+  values and text become the copy's number or relative number, an element with the suffix
+  attribute gets the number appended, and the rule's attributes are removed. Inner counts
+  are expanded first. Done after the imports. On by default; the pane's *Expand repeats*
+  and `preview --no-repeat` leave it out. *Show in the main tree* on a copy goes to the
+  element it was copied from. Not in the problems list (REF-4). Any rule in the file with
+  `"enabled": false` is left out (`docs/decisions.md`, D34).
 
 ## Acceptance tests
 
@@ -144,6 +153,9 @@ Neither XML Marker nor the Qt XML Atlas knows about references.
 - Choosing the specialization to resolve against, in the pane (REF-9). (Owner, 2026-11-18.)
 - The preview as a tree in a pane of its own right of the preview text; a click scrolls the
   preview text only, at first; the main tree's settings (REF-10). (Owner, 2026-11-19, D33.)
+- Repeated elements expanded in the preview, on by default, from a `repeat` rule; not in the
+  problems list; any rule switched off with `"enabled": false` (REF-11). (Owner, 2026-11-19,
+  D34.)
 
 ## Questions
 

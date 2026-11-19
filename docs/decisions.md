@@ -1279,6 +1279,49 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   itself maps to nothing. Shown means marked, as a click in the grid marks an element: the
   selection stays, so the preview does not switch to the element shown.
 
+## D34: Repeated elements in the preview, and rules switched off in the file
+
+- **Problem:** some programs read an element with a count attribute as that many copies of
+  it. The owner's team (2026-11-19) writes `<AI Count="4">` for four channels `AI0` to `AI3`
+  (their names for the attributes differ; the names here are examples). The preview (REF-5)
+  shows the element once, as written, so it does not read as the program sees it.
+- **What such a program does,** observed in the owner's team's code (not copied): after
+  resolving imports, and before imports it resolves later,
+  - an element with the count attribute (`N`) and optionally a start attribute (`S`, default
+    0) is replaced by `N` copies named its name followed by `S` to `S+N-1`; `N` = 0 removes
+    it. Count elements inside it are expanded first, with their own numbers;
+  - inside each copy, placeholders in attribute values and in text are replaced by the
+    copy's number, or by the number less `S` (its relative number); a text `name$(index+n)`
+    or `name$(index-n)` becomes `name` followed by the computed number;
+  - an element inside a copy with the suffix attribute (not `"false"`) gets the number
+    appended to its name, or the relative number when it also has the relative attribute;
+  - the count, start, suffix and relative attributes are removed from the copies.
+- **Proposed and decided:**
+  - A `repeat` rule in the rules file names the attributes and placeholders, so no team's
+    names are in XML Atlas (D32):
+    `"repeat": {"count": "Count", "start": "Start", "suffix": "Suffix",
+    "relative": "Relative", "index": ["[Index]", "$Index"],
+    "relative_index": ["[RelativeIndex]", "$RelativeIndex"]}`.
+  - The engine expands the resolved preview in that order (after the imports), so the CLI's
+    `preview` does too (`AGENTS.md` rule 4), with `--no-repeat` to leave it out.
+  - On by default where the rules have a `repeat`. The preview pane has *Expand repeats*,
+    shown only then, to switch it off and on for the session.
+  - The preview tree (REF-10) shows the copies; *Show in the main tree* on a copy, or on
+    anything inside one, goes to the element it was copied from.
+  - The problems list (REF-4) is about the file as written: it does not expand.
+  - **Every rule can be switched off in the file:** an object rule (an include, the
+    attribute references, a context, `repeat`) with `"enabled": false` is read and left
+    out, as if it were not there; `true` or no key keeps it. For `repeat` the key also sets
+    where *Expand repeats* starts.
+- **Cost:** only when the preview is made again; the copies count towards its 4 MiB limit.
+- **Not chosen:**
+  - The owner's team's attribute names built in: against D32.
+  - Expanding in the problems list: it reports the file as written (owner).
+  - Off by default: the preview is meant to read as the program reads (owner).
+- **Decided (owner, 2026-11-19):** on by default; the rule as sketched; not in the problems
+  list; every rule can be switched off with `"enabled": false`. The rule is REF-11 in
+  `docs/spec/references.md`.
+
 ## Open questions
 
 None.
