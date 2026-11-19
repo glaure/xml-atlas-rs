@@ -166,6 +166,33 @@ pub struct Preview {
     pub unresolved: usize,
     /// The text reached the limit and stops there.
     pub cut: bool,
+    /// Runs of `text` copied unchanged from the document, in text order: what
+    /// [`Preview::source_of`] maps back (REF-10).
+    pub copied: Vec<Copied>,
+}
+
+/// A run of a preview's text copied unchanged from the document.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Copied {
+    /// Where it starts in the preview's text.
+    pub out: usize,
+    /// Where it starts in the document's source.
+    pub src: usize,
+    pub len: usize,
+}
+
+impl Preview {
+    /// The document byte that byte `at` of the text was copied from; `None` for what the
+    /// preview wrote itself: a resolved value, an indentation, a note. Imported elements map
+    /// to where they stand in the document.
+    pub fn source_of(&self, at: usize) -> Option<usize> {
+        let i = self
+            .copied
+            .partition_point(|c| c.out <= at)
+            .checked_sub(1)?;
+        let c = &self.copied[i];
+        (at < c.out + c.len).then(|| c.src + (at - c.out))
+    }
 }
 
 impl Rules {
@@ -598,13 +625,19 @@ impl Previewer<'_> {
         match (r.kind, resolved.resolution) {
             (RefKind::Include, Resolution::Nodes(nodes)) => {
                 if depth >= MAX_DEPTH {
-                    return self
-                        .unresolved_include(original, &format!("deeper than {MAX_DEPTH} imports"));
+                    return self.unresolved_include(
+                        r.span.start,
+                        original,
+                        &format!("deeper than {MAX_DEPTH} imports"),
+                    );
                 }
                 if let Some(&looped) = nodes.iter().find(|n| self.stack.contains(n)) {
                     let path = doc.index.path(&doc.src, looped);
-                    return self
-                        .unresolved_include(original, &format!("imports {path} again, a loop"));
+                    return self.unresolved_include(
+                        r.span.start,
+                        original,
+                        &format!("imports {path} again, a loop"),
+                    );
                 }
                 let indent = self.line_indent();
                 let start = self.out.text.len();
@@ -637,13 +670,13 @@ impl Previewer<'_> {
                 let end = self.out.text.len();
                 self.out.imported.push(start..end);
             }
-            (RefKind::Include, Resolution::Skipped) => self.push_bytes(original),
+            (RefKind::Include, Resolution::Skipped) => self.push_source(r.span.start, original),
             (RefKind::Include, Resolution::Runtime(why) | Resolution::Elsewhere(why)) => {
-                self.push_bytes(original);
+                self.push_source(r.span.start, original);
                 self.note(&format!(" <!-- {NOTE} {why} -->"));
             }
             (RefKind::Include, Resolution::Unresolved(why)) => {
-                self.unresolved_include(original, &why)
+                self.unresolved_include(r.span.start, original, &why)
             }
             (RefKind::Attribute(_), Resolution::Value(v)) => {
                 let start = self.out.text.len();
@@ -656,16 +689,16 @@ impl Previewer<'_> {
                     self.out.unresolved += 1;
                 }
                 let start = self.out.text.len();
-                self.push_bytes(original);
+                self.push_source(r.span.start, original);
                 let end = self.out.text.len();
                 self.out.notes.push(start..end);
             }
         }
     }
 
-    fn unresolved_include(&mut self, original: &[u8], why: &str) {
+    fn unresolved_include(&mut self, at: usize, original: &[u8], why: &str) {
         self.out.unresolved += 1;
-        self.push_bytes(original);
+        self.push_source(at, original);
         self.note(&format!(" <!-- {NOTE} {why} -->"));
     }
 
@@ -679,18 +712,46 @@ impl Previewer<'_> {
     /// Copies source bytes; after each line break, `strip` is taken off the line's start
     /// when it is there, and `indent` put in its place.
     fn copy(&mut self, range: Range<usize>, strip: &[u8], indent: &str) {
-        let bytes = &self.doc.src[range];
+        let doc = self.doc;
+        let bytes = &doc.src[range.clone()];
         if strip.is_empty() && indent.is_empty() {
-            return self.push_bytes(bytes);
+            return self.push_source(range.start, bytes);
         }
+        let mut at = range.start;
         let mut lines = bytes.split_inclusive(|&b| b == b'\n');
         if let Some(first) = lines.next() {
-            self.push_bytes(first);
+            self.push_source(at, first);
+            at += first.len();
         }
         for line in lines {
             self.push(indent);
-            self.push_bytes(line.strip_prefix(strip).unwrap_or(line));
+            let kept = line.strip_prefix(strip).unwrap_or(line);
+            self.push_source(at + (line.len() - kept.len()), kept);
+            at += line.len();
         }
+    }
+
+    /// Writes `bytes`, which stand at `src` in the document, and notes where they came from.
+    fn push_source(&mut self, src: usize, bytes: &[u8]) {
+        if self.out.cut || bytes.is_empty() {
+            return;
+        }
+        let out = self.out.text.len();
+        let text = String::from_utf8_lossy(bytes);
+        // Bytes that were not UTF-8 changed length: the run cannot be mapped back.
+        if text.len() == bytes.len() {
+            match self.out.copied.last_mut() {
+                Some(last) if last.out + last.len == out && last.src + last.len == src => {
+                    last.len += bytes.len();
+                }
+                _ => self.out.copied.push(Copied {
+                    out,
+                    src,
+                    len: bytes.len(),
+                }),
+            }
+        }
+        self.push(&text);
     }
 
     /// The white space the current output line starts with.
@@ -698,10 +759,6 @@ impl Previewer<'_> {
         let text = &self.out.text;
         let line = &text[text.rfind('\n').map_or(0, |i| i + 1)..];
         line[..line.len() - line.trim_start_matches([' ', '\t']).len()].to_string()
-    }
-
-    fn push_bytes(&mut self, bytes: &[u8]) {
-        self.push(&String::from_utf8_lossy(bytes));
     }
 
     fn push(&mut self, s: &str) {
@@ -1505,6 +1562,54 @@ mod tests {
         assert_eq!(p[0].severity, Severity::Warning);
         let line = d.line_of(p[0].offset);
         assert_eq!(line, 19);
+    }
+
+    /// Every element of a preview maps back to the element it was copied from: its own, an
+    /// imported one where it stands in the document, an unresolved import as it is written;
+    /// what the preview wrote itself maps to nothing (REF-10).
+    #[test]
+    fn preview_elements_map_back_to_the_document() {
+        let d = doc();
+        let rules = rules();
+        let p = preview(
+            &d,
+            &rules,
+            element(&d, "/Doc/Unit/General/Box"),
+            PREVIEW_LIMIT,
+        );
+        let shown = Document::from_bytes(p.text.clone().into_bytes());
+        let mut mapped = Vec::new();
+        for id in 1..shown.index.len() as NodeId {
+            let n = shown.index.node(id);
+            if n.kind != NodeKind::Element {
+                continue;
+            }
+            let at = p
+                .source_of(n.start as usize)
+                .unwrap_or_else(|| panic!("{} maps to nothing", shown.index.path(&shown.src, id)));
+            let found = d.index.innermost_at(at as u64);
+            assert_eq!(d.index.node(found).start as usize, at);
+            assert_eq!(
+                d.index.name(&d.src, found),
+                shown.index.name(&shown.src, id)
+            );
+            mapped.push(d.index.path(&d.src, found));
+        }
+        assert_eq!(mapped[0], "/Doc/Unit/General/Box");
+        // Imported elements map to where they stand, outside the Box.
+        assert!(
+            mapped
+                .iter()
+                .any(|p| !p.starts_with("/Doc/Unit/General/Box")),
+            "{mapped:?}"
+        );
+        // The import that finds nothing is copied as written, so it maps to itself.
+        let missing = p.text.find("<Include src=\"Shared:Missing\"/>").unwrap();
+        let at = p.source_of(missing).unwrap();
+        assert!(d.src[at..].starts_with(b"<Include src=\"Shared:Missing\"/>"));
+        // A note is the preview's own.
+        let note = p.text.find("<!-- XML Atlas").unwrap();
+        assert_eq!(p.source_of(note), None);
     }
 
     #[test]

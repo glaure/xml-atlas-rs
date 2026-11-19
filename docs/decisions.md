@@ -1272,6 +1272,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Decided (owner, 2026-11-19):** a separate pane right of the preview text; a click
   scrolls the preview text only, at first; the main tree's settings. The rule is REF-10 in
   `docs/spec/references.md`.
+- **Added (owner, 2026-11-19):** a right-click on a row of the resolved tree offers *Show in
+  the main tree*, where possible. The preview now records the runs of its text it copied
+  from the file (`Preview::copied`, `Preview::source_of`), so an element's start tag maps
+  back to the element it was copied from, an imported one included; what the preview wrote
+  itself maps to nothing. Shown means marked, as a click in the grid marks an element: the
+  selection stays, so the preview does not switch to the element shown.
 
 ## Open questions
 

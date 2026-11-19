@@ -60,6 +60,8 @@ pub struct Settings {
     pub toolbar: bool,
     /// The pane with the selected element's references resolved (REF-5).
     pub reference_preview: bool,
+    /// The preview as a tree, right of it (REF-10).
+    pub preview_tree: bool,
     /// The text view's font (TEXT-25).
     pub text_font: crate::fonts::TextFont,
     /// Allow AI agents (MCP) in Settings (D28, WIN-11).
@@ -82,6 +84,7 @@ impl Default for Settings {
             word_wrap: false,
             toolbar: true,
             reference_preview: false,
+            preview_tree: false,
             text_font: Default::default(),
             agents: false,
             find: FindOptions::default(),
@@ -169,6 +172,7 @@ impl Settings {
              word_wrap = {}\n\
              toolbar = {}\n\
              reference_preview = {}\n\
+             preview_tree = {}\n\
              agents = {}\n\
              \n\
              [text]\n\
@@ -195,6 +199,7 @@ impl Settings {
             self.word_wrap,
             self.toolbar,
             self.reference_preview,
+            self.preview_tree,
             self.agents,
             quote(self.text_font.family.as_deref().unwrap_or("")),
             self.text_font.face.name(),
@@ -293,6 +298,7 @@ impl Settings {
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
                 ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
+                ("view", "preview_tree") => set(&mut s.preview_tree, boolean(value)),
                 ("view", "agents") => set(&mut s.agents, boolean(value)),
                 ("text", "font") => set(
                     &mut s.text_font.family,
@@ -414,6 +420,7 @@ mod tests {
             word_wrap: true,
             toolbar: false,
             reference_preview: true,
+            preview_tree: true,
             agents: true,
             text_font: crate::fonts::TextFont {
                 family: Some("DejaVu Sans Mono \"Größe\"".into()),

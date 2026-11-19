@@ -1403,6 +1403,11 @@ impl App {
                     "A pane with the selected element as it reads with its references \
                      resolved, from the rules in xml-atlas-references.json (REF-5)",
                 );
+                ui.add_enabled(
+                    self.settings.reference_preview,
+                    egui::Checkbox::new(&mut self.settings.preview_tree, "Preview tree"),
+                )
+                .on_hover_text("The preview as a tree, right of it (REF-10)");
                 if ui.button("Font…").clicked() {
                     ui.close();
                     self.font_dialog =
@@ -1841,6 +1846,7 @@ impl eframe::App for App {
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
         let reference_preview = self.settings.reference_preview;
+        let preview_tree = reference_preview && self.settings.preview_tree;
         let show_grid = self.settings.grid;
         let wrap = open.wraps(self.settings.word_wrap);
         let text_font = self.settings.text_font.font_id();
@@ -1885,6 +1891,20 @@ impl eframe::App for App {
             }
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
+            }
+            if preview_tree {
+                // Added first, so it is the rightmost: main tree | text | preview | its tree.
+                let width = ui.available_width() * 0.2;
+                egui::Panel::right("reference-tree")
+                    .frame(theme.view_frame(ui.style(), false))
+                    .resizable(true)
+                    .default_size(width)
+                    .show(ui, |ui| {
+                        crate::fonts::use_in_views(ui, view_font.as_ref());
+                        ui.push_id(open.id, |ui| {
+                            crate::ref_preview::show_tree(ui, open, view_font.as_ref())
+                        });
+                    });
             }
             if reference_preview {
                 let width = ui.available_width() * 0.45;
