@@ -42,7 +42,10 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
       "Var": {"nearest": "Var", "up_to": "Unit"}
     },
     "runtime_contexts": ["Live"],
-    "variables": {"$PARENT": "parent_name"}
+    "variables": {"$PARENT": "parent_name"},
+    "repeat": {"count": "Count", "start": "Start", "suffix": "Suffix", "relative": "Relative",
+               "index": ["[Index]", "$Index"],
+               "relative_index": ["[RelativeIndex]", "$RelativeIndex"]}
   }
   ```
 
@@ -62,6 +65,10 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
     references to them are shown as such, not as problems.
   - `variables`: `$NAME` in a path, or as a whole attribute value; `parent_name` is the name
     of the reference's parent element. Any other `$NAME` is known only at run time.
+  - `repeat`: repeated elements in the preview (REF-11). `count` is required; the others are
+    optional.
+  - `"enabled": false` in any rule object (an include, `attribute_references`, a context,
+    `repeat`) leaves that rule out; for `repeat`, *Expand repeats* then starts off.
 - **REF-2** `[done]` A path is a small part of XPath: child names, `*`, `.`, `..`, `//`, a
   leading `/`, and last `@name`, `@*` or `text()`; the conditions `[@a='v']`, `[@a]` and
   `[n]`. Anything else is a reference the preview cannot read, said as such.
@@ -117,7 +124,7 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   preview records which runs of its text were copied from where (`Preview::source_of`).
   The tree is made when its pane first shows a preview, not before; with the pane off it
   costs nothing. The main tree and this one are drawn by the same code (`tree::draw`).
-- **REF-11** `[planned]` Repeated elements: with a `repeat` rule, the preview (REF-5, REF-10,
+- **REF-11** `[built]` Repeated elements: with a `repeat` rule, the preview (REF-5, REF-10,
   the CLI's `preview`) shows an element with the rule's count attribute as that many copies,
   named its name and their number from the start attribute on; placeholders in attribute
   values and text become the copy's number or relative number, an element with the suffix
@@ -125,7 +132,11 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   are expanded first. Done after the imports. On by default; the pane's *Expand repeats*
   and `preview --no-repeat` leave it out. *Show in the main tree* on a copy goes to the
   element it was copied from. Not in the problems list (REF-4). Any rule in the file with
-  `"enabled": false` is left out (`docs/decisions.md`, D34).
+  `"enabled": false` is left out (`docs/decisions.md`, D34). The engine writes the resolved
+  preview again (`repeat::expand`), each copy on a line of its own at the element's
+  indentation; copied runs keep their mapping to the file and their tints. Tried on a
+  5.9 MiB file of the owner's: three elements of count 8 became copies 0 to 7, those of
+  count 0 went, and no count attribute was left.
 
 ## Acceptance tests
 

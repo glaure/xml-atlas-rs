@@ -124,6 +124,9 @@ enum Command {
         /// scope.
         #[arg(long, value_name = "PATH")]
         section: Vec<String>,
+        /// Leave repeated elements as written, though the rules have a `repeat` (REF-11).
+        #[arg(long)]
+        no_repeat: bool,
     },
     /// Find text and print the lines that contain it.
     Find {
@@ -262,7 +265,8 @@ fn main() -> anyhow::Result<()> {
             path,
             rules,
             section,
-        } => preview(&file, &path, rules, &section),
+            no_repeat,
+        } => preview(&file, &path, rules, &section, !no_repeat),
         Command::Find {
             file,
             query,
@@ -476,6 +480,7 @@ fn preview(
     path: &str,
     rules: Option<PathBuf>,
     sections: &[String],
+    repeat: bool,
 ) -> anyhow::Result<()> {
     let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
     let (_, rules) = load_rules(file, rules)?;
@@ -489,7 +494,11 @@ fn preview(
             })?,
         );
     }
-    let p = references::preview_with(&doc, &rules, id, references::PREVIEW_LIMIT, &choices);
+    let mut p = references::preview_with(&doc, &rules, id, references::PREVIEW_LIMIT, &choices);
+    // Expanded as the pane starts: where the rules have a `repeat` that is switched on.
+    if let Some(rule) = rules.repeat().filter(|r| repeat && r.enabled) {
+        p = xml_atlas_engine::repeat::expand(&p, rule, references::PREVIEW_LIMIT);
+    }
     println!("{}", p.text);
     eprintln!(
         "{} references, {} not resolved{}",

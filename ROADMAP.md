@@ -81,7 +81,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] References a rules file defines: go to target (F12), the ones that find nothing as
       problems, a preview with them resolved, and the CLI's `references` and `preview` (D32)
 - [x] The resolved preview as a tree, in a pane right of the preview text (REF-10, D33)
-- [ ] Repeated elements expanded in the preview; rules switched off in the file (REF-11, D34)
+- [x] Repeated elements expanded in the preview; rules switched off in the file (REF-11, D34)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
