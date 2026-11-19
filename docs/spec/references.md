@@ -103,13 +103,20 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   The choice applies to the preview and to F12, not to the problems list (REF-4), which
   still asks whether any section has it. It is kept per tab, follows edits as the selection
   does, and goes when its section is deleted.
-- **REF-10** `[planned]` The preview as a tree: View > *Preview tree* (off by default,
+- **REF-10** `[built]` The preview as a tree: View > *Preview tree* (off by default,
   remembered, also in Settings > Views) shows a pane right of the preview, so the window
   reads main tree | text | preview text | preview tree. It is the preview's text indexed as
   a document of its own when the preview is made again, drawn with the main tree's rows,
   icons and keys and its settings (attribute rows, font), read-only. A preview cut at 4 MiB
   shows the elements before the cut. A click on a row scrolls the preview text to that
   element and marks it; it selects nothing in the main tree (`docs/decisions.md`, D33).
+  Right-click > *Show in the main tree* expands the main tree to the element the row was
+  copied from, scrolls there and marks it there and in the text, as a click in the grid
+  marks one; the selection and the preview stay. An imported element is shown where it
+  stands in the file. Greyed out for what the preview wrote itself (a note). The engine's
+  preview records which runs of its text were copied from where (`Preview::source_of`).
+  The tree is made when its pane first shows a preview, not before; with the pane off it
+  costs nothing. The main tree and this one are drawn by the same code (`tree::draw`).
 
 ## Acceptance tests
 

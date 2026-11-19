@@ -250,6 +250,12 @@ impl TreeState {
         }
     }
 
+    /// Expands `id` when it is collapsed, and collapses it when it is expanded.
+    pub fn toggle(&mut self, doc: &Document, id: NodeId) {
+        let on = !self.expanded[id as usize];
+        self.set_expanded(doc, id, on);
+    }
+
     /// Expands or collapses `id`, changing only the rows under it.
     fn set_expanded(&mut self, doc: &Document, id: NodeId, on: bool) {
         if self.dirty {
@@ -277,46 +283,103 @@ impl TreeState {
     }
 }
 
+/// A tree's context menu: draws the entries for a row of the document and returns the one
+/// chosen.
+pub type Menu<'a, C> = &'a dyn Fn(&mut Ui, &Document, Row) -> Option<C>;
+
+/// What a click did in a tree's rows this frame; `C` is what its context menu offers.
+pub struct Clicks<C> {
+    /// An element's arrow was clicked, or its row double-clicked.
+    pub toggle: Option<NodeId>,
+    /// A row was clicked, or right-clicked.
+    pub clicked: Option<Row>,
+    /// A command chosen from a row's context menu.
+    pub chosen: Option<(Row, C)>,
+    /// The rename editor was closed: saved (true) or cancelled.
+    renamed: Option<bool>,
+}
+
 /// Draws the tree; `font` is the one chosen in View > Font… (TEXT-25), if any.
 pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
-    open.tree.rebuild(&open.doc);
+    let stale = open.doc.stale().unwrap_or(NONE);
+    let rules = open.rules().cloned();
+    let menu = |ui: &mut Ui, doc: &Document, row| context_menu(ui, doc, rules.as_deref(), row);
+    let clicks = draw(
+        ui,
+        &open.doc,
+        &mut open.tree,
+        font,
+        "tree",
+        stale,
+        Some(&menu),
+    );
+    if clicks.toggle.is_some() || clicks.clicked.is_some() {
+        open.keys = crate::app::Pane::Tree;
+    }
+    if let Some(id) = clicks.toggle {
+        open.tree.toggle(&open.doc, id);
+    }
+    if let Some(row) = clicks.clicked {
+        select_row(open, row);
+    }
+    if let Some(save) = clicks.renamed {
+        finish_rename(open, save);
+    }
+    if let Some((row, command)) = clicks.chosen {
+        select_row(open, row);
+        run(open, row, command);
+    }
+}
+
+/// Draws the rows of `doc`'s tree in `state`, only those on screen, and returns what was
+/// clicked. `stale` is an element shown as broken (TEXT-10). With `menu`, a right-click marks
+/// the row and opens that menu on it.
+pub fn draw<C>(
+    ui: &mut Ui,
+    doc: &Document,
+    state: &mut TreeState,
+    font: Option<&FontId>,
+    id_salt: &str,
+    stale: NodeId,
+    menu: Option<Menu<'_, C>>,
+) -> Clicks<C> {
+    state.rebuild(doc);
     ui.spacing_mut().item_spacing.y = 0.0;
     let font = font.cloned().unwrap_or_else(|| FontId::proportional(13.0));
     let row_h = ui.fonts_mut(|f| f.row_height(&font)) + 4.0;
-    let mut area = egui::ScrollArea::both().id_salt("tree").auto_shrink(false);
-    if let Some(top) = open.tree.scroll_to.take() {
+    let mut area = egui::ScrollArea::both().id_salt(id_salt).auto_shrink(false);
+    if let Some(top) = state.scroll_to.take() {
         area = area.vertical_scroll_offset(top as f32 * row_h);
     }
     let theme = theme::current(ui);
     let visuals = &theme.visuals;
-    let mut toggle = None;
-    let mut clicked = None;
-    let mut chosen = None;
-    let mut renamed = None;
+    let mut clicks = Clicks {
+        toggle: None,
+        clicked: None,
+        chosen: None,
+        renamed: None,
+    };
     let mut rename_shown = false;
-    let stale = open.doc.stale().unwrap_or(NONE);
-    let rules = open.rules().cloned();
-    area.show_rows(ui, row_h, open.tree.rows.len(), |ui, range| {
-        open.tree.visible = range.clone();
+    area.show_rows(ui, row_h, state.rows.len(), |ui, range| {
+        state.visible = range.clone();
         for i in range {
-            let row = open.tree.rows[i];
-            let doc = &open.doc;
+            let row = state.rows[i];
             let (rect, resp) = ui
                 .allocate_exact_size(vec2(ui.available_width().max(300.0), row_h), Sense::click());
             let painter = ui.painter();
-            let selected = open.tree.selected == Some(row);
+            let selected = state.selected == Some(row);
             if selected {
                 painter.rect_filled(rect, 2.0, visuals.selection.bg_fill);
             } else if resp.hovered() {
                 painter.rect_filled(rect, 2.0, visuals.widgets.hovered.weak_bg_fill);
             }
             let x = rect.left() + row.depth(doc) as f32 * INDENT;
-            let expandable = tree::has_children(doc, row, open.tree.options);
+            let expandable = tree::has_children(doc, row, state.options);
             if let (true, Row::Node(id)) = (expandable, row) {
                 arrow(
                     painter,
                     pos2(x + INDENT * 0.5, rect.center().y),
-                    open.tree.expanded[id as usize],
+                    state.expanded[id as usize],
                     visuals.weak_text_color(),
                 );
             }
@@ -339,12 +402,12 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
             let text = |pos, s: &str, color| {
                 painter.text(pos, Align2::LEFT_CENTER, s, font.clone(), color)
             };
-            let renaming = open.tree.rename.as_mut().filter(|r| row == Row::Node(r.id));
+            let renaming = state.rename.as_mut().filter(|r| row == Row::Node(r.id));
             if let Some(rename) = renaming {
                 rename_shown = true;
                 let at = Rect::from_min_max(pos2(left.x - 2.0, rect.top()), rect.max);
                 if let Some(save) = rename_editor(ui, at, rename) {
-                    renamed = Some(save);
+                    clicks.renamed = Some(save);
                 }
                 continue;
             }
@@ -367,49 +430,36 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
                     text(left, &s, weak);
                 }
             }
-            // A right-click marks the row, then offers what can be done to it.
-            if resp.secondary_clicked() {
-                clicked = Some(row);
-            }
-            resp.context_menu(|ui| {
-                if let Some(command) = context_menu(ui, doc, rules.as_deref(), row) {
-                    chosen = Some((row, command));
+            if let Some(menu) = menu {
+                // A right-click marks the row, then offers what can be done to it.
+                if resp.secondary_clicked() {
+                    clicks.clicked = Some(row);
                 }
-            });
+                resp.context_menu(|ui| {
+                    if let Some(command) = menu(ui, doc, row) {
+                        clicks.chosen = Some((row, command));
+                    }
+                });
+            }
             if resp.clicked() {
                 let on_arrow = resp
                     .interact_pointer_pos()
                     .is_some_and(|p| p.x < x + INDENT + 2.0);
                 match row {
-                    Row::Node(id) if expandable && on_arrow => toggle = Some(id),
-                    _ => clicked = Some(row),
+                    Row::Node(id) if expandable && on_arrow => clicks.toggle = Some(id),
+                    _ => clicks.clicked = Some(row),
                 }
             }
             if let (true, true, Row::Node(id)) = (resp.double_clicked(), expandable, row) {
-                toggle = Some(id);
+                clicks.toggle = Some(id);
             }
         }
     });
-    if toggle.is_some() || clicked.is_some() {
-        open.keys = crate::app::Pane::Tree;
-    }
-    if let Some(id) = toggle {
-        let on = !open.tree.expanded[id as usize];
-        open.tree.set_expanded(&open.doc, id, on);
-    }
-    if let Some(row) = clicked {
-        select_row(open, row);
-    }
-    if let Some(save) = renamed {
-        finish_rename(open, save);
-    } else if open.tree.rename.is_some() && !rename_shown {
+    if state.rename.is_some() && !rename_shown && clicks.renamed.is_none() {
         // The row scrolled out of view or was collapsed away: the rename is cancelled.
-        open.tree.rename = None;
+        state.rename = None;
     }
-    if let Some((row, command)) = chosen {
-        select_row(open, row);
-        run(open, row, command);
-    }
+    clicks
 }
 
 /// Runs `command` on `row` (TREE-9). Each edit is one undo step; the selection follows a

@@ -3,19 +3,22 @@
 //!
 //! The pane shows the selected element with its references resolved, read-only, as
 //! [`references::preview`] makes it. It is made again only when the selection or the
-//! document changes, and draws only the lines on screen.
+//! document changes, and draws only the lines on screen. Beside it, the same text can be shown
+//! as a tree (REF-10, [`show_tree`]): indexed as a document of its own, once per preview.
 
 use std::ops::Range;
 
 use egui::{Color32, FontId, Label, RichText, Sense, Ui, vec2};
+use xml_atlas_engine::Document;
 use xml_atlas_engine::references::{self, Choice, Preview, RefKind, Resolution, Rules};
 use xml_atlas_engine::text;
 use xml_atlas_engine::tree::Row;
-use xml_atlas_engine::xml::NodeId;
+use xml_atlas_engine::xml::{NONE, NodeId};
 
 use crate::app::{Note, Open};
 use crate::highlight::{self, State, after_line_break, line_job};
 use crate::theme;
+use crate::tree::{self, TreeState};
 
 /// The pane makes at most this much text; the CLI's `preview` makes more.
 const LIMIT: usize = 4 * 1024 * 1024;
@@ -23,6 +26,8 @@ const LIMIT: usize = 4 * 1024 * 1024;
 /// How strongly imported lines and lines with a note are tinted.
 const IMPORTED_ALPHA: f32 = 0.18;
 const NOTE_ALPHA: f32 = 0.22;
+/// Lines kept above an element the preview text scrolls to from its tree, for context.
+const CONTEXT_LINES: usize = 3;
 /// Share of the line the section chooser's combo box takes, and its widest.
 const COMBO_SHARE: f32 = 0.45;
 const COMBO_MAX: f32 = 360.0;
@@ -53,6 +58,13 @@ pub struct Cached {
     widest: usize,
     /// The lines drawn in the last frame.
     shown: Range<usize>,
+    /// The preview's text as a document and its tree (REF-10), made when the tree pane first
+    /// shows this preview.
+    tree: Option<(Document, TreeState)>,
+    /// Lines of the element clicked in the tree, marked in the text.
+    marked: Option<Range<usize>>,
+    /// Line to show at the top of the text on the next frame.
+    scroll_to: Option<usize>,
 }
 
 /// Draws the pane. `font` is the text view's.
@@ -101,7 +113,13 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         );
         c.choices = choices;
         open.reference_preview = Some(c);
+        // The tree pane (REF-10) is drawn before this one: it shows the new preview next frame.
+        ui.ctx().request_repaint();
     }
+    let scroll_to = open
+        .reference_preview
+        .as_mut()
+        .and_then(|c| c.scroll_to.take());
     let Some(c) = &open.reference_preview else {
         return;
     };
@@ -148,12 +166,20 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     // Rows touch: `show_rows` counts the item spacing into each row, so it must be zero
     // before it works out which rows are on screen, or a band below them stays empty.
     ui.spacing_mut().item_spacing.y = 0.0;
-    let shown = egui::ScrollArea::both()
+    let mut area = egui::ScrollArea::both()
         .id_salt("reference-preview")
-        .auto_shrink(false)
+        .auto_shrink(false);
+    if let Some(top) = scroll_to {
+        area = area.vertical_scroll_offset(top as f32 * row_h);
+    }
+    let shown = area
         .show_rows(ui, row_h, c.lines.len(), |ui, range| {
             for n in range.clone() {
                 let (rect, _) = ui.allocate_exact_size(vec2(width, row_h), Sense::hover());
+                if c.marked.as_ref().is_some_and(|m| m.contains(&n)) {
+                    // The element clicked in the tree (REF-10), as the text view marks one.
+                    ui.painter().rect_filled(rect, 0.0, theme.selected_element);
+                }
                 let fill = match c.marks[n] {
                     0 => Color32::TRANSPARENT,
                     1 => imported,
@@ -174,6 +200,100 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     if let Some(c) = &mut open.reference_preview {
         c.shown = shown;
     }
+}
+
+/// The preview as a tree (REF-10): its text indexed as a document of its own, drawn as the
+/// main tree is, with its attribute rows and `font`, read-only. A click marks the element's
+/// lines in the preview text and scrolls there.
+pub fn show_tree(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
+    let attributes = open.tree.options.attributes;
+    let Some(c) = open.reference_preview.as_mut() else {
+        ui.label("Select an element to see it resolved, as a tree.");
+        return;
+    };
+    let (doc, state) = c.tree.get_or_insert_with(|| {
+        let t = std::time::Instant::now();
+        let doc = Document::from_bytes(c.preview.text.clone().into_bytes());
+        log::debug!("preview tree indexed in {:?}", t.elapsed());
+        let state = TreeState::new(&doc);
+        (doc, state)
+    });
+    state.set_attributes(attributes);
+    let preview = &c.preview;
+    // Offered where the row's element was copied from the file, greyed out where the preview
+    // wrote it itself.
+    let menu = |ui: &mut Ui, doc: &Document, row: Row| {
+        let found = copied_from(preview, doc, row).is_some();
+        let button = ui
+            .add_enabled(found, egui::Button::new("Show in the main tree"))
+            .on_disabled_hover_text("The preview wrote this itself: it is not in the file");
+        button.clicked().then(|| {
+            ui.close();
+        })
+    };
+    let clicks = tree::draw(ui, doc, state, font, "reference-tree", NONE, Some(&menu));
+    if let Some(id) = clicks.toggle {
+        state.toggle(doc, id);
+    }
+    if let Some(row) = clicks.clicked {
+        mark(c, row);
+    }
+    if let Some((row, ())) = clicks.chosen {
+        show_in_main_tree(open, row);
+    }
+}
+
+/// The file's offset of the node `row` of the preview's tree stands for (its element, for an
+/// attribute row), when it was copied from the file (REF-10).
+fn copied_from(preview: &Preview, doc: &Document, row: Row) -> Option<u64> {
+    // The node itself: a note the preview added is a comment of its own, not its parent.
+    preview
+        .source_of(doc.index.node(row.id()).start as usize)
+        .map(|at| at as u64)
+}
+
+/// Shows the element the preview tree's `row` was copied from in the main tree: expanded to,
+/// scrolled to and marked there and in the text, as a click in the grid marks one. The
+/// selection, and so the preview, stay as they are.
+fn show_in_main_tree(open: &mut Open, row: Row) {
+    let Some(c) = &open.reference_preview else {
+        return;
+    };
+    if c.revision != open.doc.revision() {
+        // The file changed since the preview was made: it is made again this frame.
+        return;
+    }
+    let Some((doc, _)) = &c.tree else {
+        return;
+    };
+    let Some(at) = copied_from(&c.preview, doc, row) else {
+        return;
+    };
+    let id = open.doc.index.innermost_at(at);
+    if open.doc.index.node(id).start != at {
+        return;
+    }
+    open.tree.reveal(&open.doc, id);
+    open.focus(id);
+}
+
+/// Marks `row` in the preview's tree and its element's lines in the preview text, and scrolls
+/// the text there (REF-10).
+fn mark(c: &mut Cached, row: Row) {
+    let Some((doc, state)) = &mut c.tree else {
+        return;
+    };
+    state.mark(row);
+    let node = doc.index.node(row.id());
+    let line = |at: u64| {
+        c.lines
+            .partition_point(|l| l.start as u64 <= at)
+            .saturating_sub(1)
+    };
+    let first = line(node.start);
+    let last = line(node.end.saturating_sub(1).max(node.start));
+    c.marked = Some(first..last + 1);
+    c.scroll_to = Some(first.saturating_sub(CONTEXT_LINES));
 }
 
 /// F12, and Go to reference target in the tree (REF-3): selects the first element the
@@ -393,6 +513,9 @@ fn cache(element: NodeId, revision: u64, path: String, preview: Preview) -> Cach
         marks,
         widest,
         shown: 0..0,
+        tree: None,
+        marked: None,
+        scroll_to: None,
     }
 }
 
@@ -424,6 +547,103 @@ mod tests {
         std::fs::write(&file, src).unwrap();
         let doc = Document::open(&file).unwrap();
         (Open::new(doc, egui::Id::unique(name)), dir)
+    }
+
+    /// Draws the preview pane, and the tree pane when `tree`, for two frames.
+    fn frames(open: &mut Open, tree: bool) {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                if tree {
+                    show_tree(ui, open, None);
+                }
+                show(ui, open, &FontId::monospace(13.0));
+            });
+            // No renderer here takes the font atlas.
+            out.textures_delta.clear();
+        }
+    }
+
+    /// The tree shows the preview, not the file: the import replaced by the element it finds,
+    /// the attribute reference by its value. It is made only when its pane is shown, and a
+    /// click on a row marks that element's lines in the preview text (REF-10).
+    #[test]
+    fn the_tree_shows_the_resolved_element() {
+        let (mut open, dir) = opened("ref-tree");
+        let use_ = command::resolve(&open.doc, "/Doc/Use").unwrap();
+        open.select(use_);
+        frames(&mut open, false);
+        let c = open.reference_preview.as_ref().unwrap();
+        assert!(c.tree.is_none(), "the tree was made with its pane off");
+
+        frames(&mut open, true);
+        let c = open.reference_preview.as_mut().unwrap();
+        let (doc, _) = c.tree.as_ref().unwrap();
+        let imported = command::resolve(doc, "/Use/Größe/Wert").unwrap();
+        let groesse = doc.index.node(imported).parent;
+        let use_tag = doc.index.node(doc.index.root_element().unwrap());
+        let start = &doc.src[use_tag.start as usize..];
+        assert!(
+            start.starts_with(b"<Use M=\"5\""),
+            "{:?}",
+            String::from_utf8_lossy(start)
+        );
+        // Still in the file as the source says, not resolved.
+        assert!(command::resolve(&open.doc, "/Doc/Use/Größe").is_err());
+
+        let c = open.reference_preview.as_mut().unwrap();
+        mark(c, Row::Node(groesse));
+        let marked = c.marked.clone().unwrap();
+        let first = &c.preview.text[c.lines[marked.start].clone()];
+        assert!(first.contains("<Größe N=\"5\">"), "{first:?}");
+        assert_eq!(
+            c.scroll_to,
+            Some(marked.start.saturating_sub(CONTEXT_LINES))
+        );
+        let (_, state) = c.tree.as_ref().unwrap();
+        assert_eq!(state.selected(), Some(Row::Node(groesse)));
+
+        // Show in the main tree: the imported element where it stands in the file, marked
+        // there; the selection, and so the preview, stay.
+        show_in_main_tree(&mut open, Row::Node(groesse));
+        let shared = command::resolve(&open.doc, "/Doc/Shared/Größe").unwrap();
+        assert_eq!(open.tree.selected(), Some(Row::Node(shared)));
+        assert_eq!(open.focus, Some(shared));
+        assert_eq!(open.selected, Some(use_));
+        // A note the preview added is not in the file.
+        let c = open.reference_preview.as_ref().unwrap();
+        let (doc, _) = c.tree.as_ref().unwrap();
+        let note = (1..doc.index.len() as NodeId)
+            .find(|&id| {
+                let n = doc.index.node(id);
+                doc.src[n.start as usize..].starts_with(b"<!-- XML Atlas")
+            })
+            .unwrap();
+        assert_eq!(copied_from(&c.preview, doc, Row::Node(note)), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A preview cut at its limit ends inside an element: the tree keeps the elements before
+    /// the cut.
+    #[test]
+    fn a_cut_preview_keeps_the_elements_before_the_cut() {
+        let text = "<Use>\r\n  <Größe N=\"5\"><Wert/></Größe>\r\n  <Ha".to_string();
+        let mut c = cache(
+            0,
+            0,
+            "/Use".into(),
+            Preview {
+                text,
+                ..Default::default()
+            },
+        );
+        let doc = Document::from_bytes(c.preview.text.clone().into_bytes());
+        assert!(command::resolve(&doc, "/Use/Größe/Wert").is_ok());
+        let state = TreeState::new(&doc);
+        c.tree = Some((doc, state));
+        let wert = command::resolve(&c.tree.as_ref().unwrap().0, "/Use/Größe/Wert").unwrap();
+        mark(&mut c, Row::Node(wert));
+        assert_eq!(c.marked, Some(1..2));
     }
 
     #[test]
