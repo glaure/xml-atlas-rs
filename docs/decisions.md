@@ -1153,6 +1153,22 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Answered (owner, 2026-11-18):** on by default; the extra size is acceptable; Help gets
   *Check now*. Where to turn it off: in a Settings window, which the program does not have
   yet (D31).
+- **Built (2026-11-19):** `apps/xml-atlas/src/update.rs`, as above, with `ureq` 3.5.2 and
+  the features `rustls` and `platform-verifier`. Settings > Updates and Help > *Check for
+  updates now*; the settings file has `[updates]` with `check`, `last_check` and `shown`.
+  The time is noted when the request starts, so a check that fails also waits a day. The
+  notice sits at the right of the status bar until it is closed; for a package or the
+  Flatpak it has no link. Measured: `xml-atlas.exe` (Windows, release) grows from 19,020,288
+  to 21,012,480 bytes, 1.9 MiB. Without the WebPKI root list that the `rustls` feature
+  brings (unused with the platform verifier) it would be 58 KB smaller, but that needs
+  ureq's `unversioned_rustls_crypto_provider`, outside its semver promise: not taken.
+  Start-up (`tools/bench_windows.py open`, Windows 11, release builds, 5 runs each, two
+  rounds, a fresh settings file per run so every run asks GitHub): ready 0.32 to 0.40 s
+  median before, 0.37 to 0.42 s after, and 5 to 7 MiB more peak memory. With the check
+  turned off in the settings file, no difference (before 0.35 to 0.40 s, after 0.35 to
+  0.40 s; the same memory). So the cost is the check's own thread, the TLS handshake and the
+  certificate check, which the benchmark counts because it waits for the process to go idle;
+  it comes once a day.
 
 ## D31: A Settings window
 

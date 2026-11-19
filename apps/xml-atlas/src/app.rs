@@ -18,6 +18,7 @@ use crate::disk_watch::DiskWatch;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::tabs::Tabs;
 use crate::tool_icons::{self, Tool};
+use crate::update::{self, Notice};
 use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
@@ -63,6 +64,10 @@ pub struct App {
     font_dialog: Option<crate::fonts::FontDialog>,
     /// File > Settings… (WIN-11).
     settings_window: crate::settings_window::SettingsWindow,
+    /// The update check under way (PKG-7, D30).
+    updates: update::Checker,
+    /// What the last update check found, in the status bar until it is closed.
+    update_notice: Option<Notice>,
     /// Agents' calls, while View > Allow AI agents (MCP) is on (D28).
     agent: Option<xml_atlas_mcp::bridge::Listener>,
     message: Option<String>,
@@ -317,6 +322,8 @@ impl App {
             help: Default::default(),
             font_dialog: None,
             settings_window: Default::default(),
+            updates: Default::default(),
+            update_notice: None,
             agent: None,
             message: None,
             notice: None,
@@ -1448,6 +1455,16 @@ impl App {
                     ui.close();
                     self.help.guide = true;
                 }
+                if ui
+                    .add_enabled(
+                        !self.updates.running(),
+                        egui::Button::new("Check for updates now"),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.check_for_updates_now(ui.ctx());
+                }
                 if ui.button("About XML Atlas").clicked() {
                     ui.close();
                     self.help.about = true;
@@ -1514,7 +1531,9 @@ impl App {
             return;
         }
         let before = self.settings.clone();
-        let request = self.settings_window.show(ctx, &mut self.settings);
+        let request = self
+            .settings_window
+            .show(ctx, &mut self.settings, self.updates.running());
         if self.settings.tree_attributes != before.tree_attributes {
             // A view setting: for every tab, as View > Attributes in the tree does.
             for open in self.docs.iter_mut() {
@@ -1532,9 +1551,54 @@ impl App {
                 }
             }
         }
-        if request == Some(crate::settings_window::Request::ChooseFont) {
-            self.font_dialog = Some(crate::fonts::FontDialog::new(&self.settings.text_font));
+        match request {
+            Some(crate::settings_window::Request::ChooseFont) => {
+                self.font_dialog = Some(crate::fonts::FontDialog::new(&self.settings.text_font));
+            }
+            Some(crate::settings_window::Request::CheckForUpdates) => {
+                self.check_for_updates_now(ctx);
+            }
+            None => {}
         }
+    }
+
+    /// The update check (PKG-7, D30): takes its answer when it has come, and starts the daily
+    /// check when it is due. Called every frame; it costs a look at the clock.
+    fn check_for_updates(&mut self, ctx: &egui::Context) {
+        if let Some((asked, answer)) = self.updates.poll() {
+            let current =
+                update::Version::parse(update::CURRENT).unwrap_or(update::Version(0, 0, 0));
+            let notice = update::notice(
+                asked,
+                answer,
+                current,
+                self.settings.update_shown,
+                update::Install::detect(),
+            );
+            if let Some(Notice::Newer(r, _)) = &notice {
+                // Told once: the next start does not tell again.
+                self.settings.update_shown = Some(r.version);
+            }
+            if notice.is_some() {
+                self.update_notice = notice;
+            }
+        }
+        let now = update::now();
+        if !self.updates.running()
+            && update::due(self.settings.update_check, self.settings.update_last, now)
+        {
+            // Noted when asking, so a check that fails waits a day too.
+            self.settings.update_last = Some(now);
+            self.updates.start(ctx.clone(), false);
+        }
+    }
+
+    /// Help > Check for updates now, and *Check now* in Settings: asks at once, also when the
+    /// daily check is off, and says what it found.
+    fn check_for_updates_now(&mut self, ctx: &egui::Context) {
+        self.settings.update_last = Some(update::now());
+        self.update_notice = None;
+        self.updates.start(ctx.clone(), true);
     }
 
     /// View > Font… (TEXT-25): the text view takes the font chosen with OK.
@@ -1620,7 +1684,47 @@ impl App {
         });
     }
 
+    /// The status bar: the file and the last command on the left, the update notice (PKG-7)
+    /// on the right.
     fn status_bar(&mut self, ui: &mut Ui) {
+        if self.update_notice.is_none() {
+            self.status_text(ui);
+            return;
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            self.update_notice(ui);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                self.status_text(ui);
+            });
+        });
+    }
+
+    /// The update notice, right to left: its close button, then its text.
+    fn update_notice(&mut self, ui: &mut Ui) {
+        let Some(notice) = &self.update_notice else {
+            return;
+        };
+        let close = ui
+            .small_button("×")
+            .on_hover_text("Close this notice")
+            .clicked();
+        match notice.link() {
+            Some(url) => {
+                ui.hyperlink_to(notice.text(), url).on_hover_text(url);
+            }
+            None if matches!(notice, Notice::Failed(_)) => {
+                ui.colored_label(ui.visuals().warn_fg_color, notice.text());
+            }
+            None => {
+                ui.label(notice.text());
+            }
+        }
+        if close {
+            self.update_notice = None;
+        }
+    }
+
+    fn status_text(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             if let Some(l) = self.loading.first() {
                 ui.spinner();
@@ -1694,6 +1798,7 @@ impl eframe::App for App {
         self.poll_loading();
         self.check_disk();
         self.apply_theme(&ctx);
+        self.check_for_updates(&ctx);
         self.save_settings();
 
         // Every file dropped opens, each in its own tab.

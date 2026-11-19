@@ -35,7 +35,7 @@ How the views are laid out, and how the window looks.
   works offline; its text is `apps/xml-atlas/assets/help.md`, kept up to date with the
   features. *About XML Atlas* shows the version, what the program is, its licenses (and
   where the libraries' licenses are), and links to the project page and the releases.
-  *Check for updates now* is to come in this menu (PKG-7, D30).
+  *Check for updates now* asks for a newer version at once (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
   Cut, Copy, Paste | Undo, Redo, Find | Drill Up, Drill Down, Format. Each button does what
   its menu entry or key does and is greyed out when that is: Save without changes, Cut and
@@ -92,8 +92,7 @@ How the views are laid out, and how the window looks.
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
   font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
   the grid, the cell pane, the reference preview (REF-5) and its tree (REF-10), word wrap for the tabs not switched with Alt+Z), *Format* (as Edit > Format
-  options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*; comes with
-  PKG-7) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
+  options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
   change applies and is saved at once, without OK and Cancel; each section has *Reset to
   defaults*. A test checks that every setting but the recent files and the find options is
   in a section, so a new setting cannot be left out.

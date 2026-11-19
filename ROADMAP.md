@@ -111,7 +111,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       (*after 1.0*, D20): unsigned DMG built by the release workflow (PKG-20); left: opening
       files from Finder, signing (PKG-21), Homebrew cask (PKG-22)
 - [x] Settings window: File > Settings… (WIN-11, D31), before the update notice
-- [ ] Notice when a newer version is released, on by default, with Help > Check now (PKG-7,
+- [x] Notice when a newer version is released, on by default, with Help > Check now (PKG-7,
       D30)
 - [x] MCP server on files: `xml-atlas-cli mcp` (D27, step 1)
 - [x] MCP on the documents open in the window: `xml-atlas-cli mcp --window` (D28)

@@ -66,6 +66,12 @@ pub struct Settings {
     pub text_font: crate::fonts::TextFont,
     /// Allow AI agents (MCP) in Settings (D28, WIN-11).
     pub agents: bool,
+    /// Ask GitHub once a day for a newer version (PKG-7, D30).
+    pub update_check: bool,
+    /// When the update check last asked, in seconds since 1970; `None` before the first.
+    pub update_last: Option<u64>,
+    /// The newer version the status bar last told about, so it tells once per version.
+    pub update_shown: Option<crate::update::Version>,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
@@ -87,6 +93,9 @@ impl Default for Settings {
             preview_tree: false,
             text_font: Default::default(),
             agents: false,
+            update_check: true,
+            update_last: None,
+            update_shown: None,
             find: FindOptions::default(),
             recent: Vec::new(),
         }
@@ -175,6 +184,11 @@ impl Settings {
              preview_tree = {}\n\
              agents = {}\n\
              \n\
+             [updates]\n\
+             check = {}\n\
+             last_check = {}\n\
+             shown = \"{}\"\n\
+             \n\
              [text]\n\
              font = {}\n\
              face = \"{}\"\n\
@@ -201,6 +215,10 @@ impl Settings {
             self.reference_preview,
             self.preview_tree,
             self.agents,
+            self.update_check,
+            // 0 for never: no check was made in 1970.
+            self.update_last.unwrap_or(0),
+            self.update_shown.map(|v| v.to_string()).unwrap_or_default(),
             quote(self.text_font.family.as_deref().unwrap_or("")),
             self.text_font.face.name(),
             self.text_font.size,
@@ -300,6 +318,21 @@ impl Settings {
                 ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
                 ("view", "preview_tree") => set(&mut s.preview_tree, boolean(value)),
                 ("view", "agents") => set(&mut s.agents, boolean(value)),
+                ("updates", "check") => set(&mut s.update_check, boolean(value)),
+                ("updates", "last_check") => set(
+                    &mut s.update_last,
+                    value.parse::<u64>().ok().map(|t| (t > 0).then_some(t)),
+                ),
+                ("updates", "shown") => set(
+                    &mut s.update_shown,
+                    string(value).and_then(|v| {
+                        if v.is_empty() {
+                            Some(None)
+                        } else {
+                            crate::update::Version::parse(v).map(Some)
+                        }
+                    }),
+                ),
                 ("text", "font") => set(
                     &mut s.text_font.family,
                     unquote(value).map(|f| (!f.is_empty()).then_some(f)),
@@ -422,6 +455,9 @@ mod tests {
             reference_preview: true,
             preview_tree: true,
             agents: true,
+            update_check: false,
+            update_last: Some(1_800_000_000),
+            update_shown: Some(crate::update::Version(1, 10, 2)),
             text_font: crate::fonts::TextFont {
                 family: Some("DejaVu Sans Mono \"Größe\"".into()),
                 face: crate::fonts::Face::BoldItalic,

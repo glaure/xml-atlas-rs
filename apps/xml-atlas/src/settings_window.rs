@@ -17,6 +17,11 @@ const VIEWS_NOTE: &str = "The View menu switches these too. Alt+Z switches word 
 const FORMAT_NOTE: &str = "Edit > Format options… changes the same settings. A file's own \
                            settings comment comes first.";
 
+/// Under the Updates section: what the check sends, and what it does not do.
+const UPDATES_NOTE: &str = "XML Atlas asks GitHub for the latest release and tells you in the \
+                            status bar when it is newer. It sends nothing but that request, \
+                            with the program's version, and never downloads or installs \
+                            anything.";
 /// Width of the list of sections on the left.
 const SECTIONS_WIDTH: f32 = 120.0;
 
@@ -27,6 +32,7 @@ pub enum Section {
     Appearance,
     Views,
     Format,
+    Updates,
     Agents,
 }
 
@@ -35,6 +41,8 @@ pub enum Section {
 pub enum Request {
     /// Open the font dialog (TEXT-25).
     ChooseFont,
+    /// Ask for a newer version now (PKG-7).
+    CheckForUpdates,
 }
 
 /// Whether the window is open, and the section shown.
@@ -46,10 +54,11 @@ pub struct SettingsWindow {
 
 impl Section {
     /// Every section, in the order the window lists them.
-    pub const ALL: [Section; 4] = [
+    pub const ALL: [Section; 5] = [
         Section::Appearance,
         Section::Views,
         Section::Format,
+        Section::Updates,
         Section::Agents,
     ];
 
@@ -58,6 +67,7 @@ impl Section {
             Section::Appearance => "Appearance",
             Section::Views => "Views",
             Section::Format => "Format",
+            Section::Updates => "Updates",
             Section::Agents => "AI agents",
         }
     }
@@ -82,14 +92,22 @@ impl Section {
                 settings.word_wrap = d.word_wrap;
             }
             Section::Format => settings.format = d.format,
+            // When it last asked, and what it told, are not settings to reset.
+            Section::Updates => settings.update_check = d.update_check,
             Section::Agents => settings.agents = d.agents,
         }
     }
 }
 
 impl SettingsWindow {
-    /// Shows the window while it is open; changes go straight into `settings`.
-    pub fn show(&mut self, ctx: &Context, settings: &mut Settings) -> Option<Request> {
+    /// Shows the window while it is open; changes go straight into `settings`. `checking`: an
+    /// update check is under way.
+    pub fn show(
+        &mut self,
+        ctx: &Context,
+        settings: &mut Settings,
+        checking: bool,
+    ) -> Option<Request> {
         let mut open = self.open;
         let mut request = None;
         egui::Window::new("Settings")
@@ -108,7 +126,7 @@ impl SettingsWindow {
                     ui.vertical(|ui| {
                         ui.heading(self.section.title());
                         ui.add_space(6.0);
-                        request = section(ui, self.section, settings);
+                        request = section(ui, self.section, settings, checking);
                         ui.add_space(12.0);
                         if ui.button("Reset to defaults").clicked() {
                             self.section.reset(settings);
@@ -160,7 +178,7 @@ pub fn format_options(ui: &mut Ui, edit: &mut FormatOptions) {
 }
 
 /// The controls of one section.
-fn section(ui: &mut Ui, section: Section, s: &mut Settings) -> Option<Request> {
+fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> Option<Request> {
     let mut request = None;
     match section {
         Section::Appearance => {
@@ -243,6 +261,20 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings) -> Option<Request> {
             ui.add_space(6.0);
             ui.label(RichText::new(FORMAT_NOTE).weak());
         }
+        Section::Updates => {
+            ui.checkbox(&mut s.update_check, "Check for newer versions once a day");
+            ui.horizontal(|ui| {
+                let last = crate::update::ago(s.update_last, crate::update::now());
+                ui.label(format!("Last checked: {last}"));
+                if checking {
+                    ui.spinner();
+                } else if ui.button("Check now").clicked() {
+                    request = Some(Request::CheckForUpdates);
+                }
+            });
+            ui.add_space(6.0);
+            ui.label(RichText::new(UPDATES_NOTE).weak());
+        }
         Section::Agents => {
             ui.checkbox(&mut s.agents, "Allow AI agents (MCP)");
             ui.add_space(6.0);
@@ -267,7 +299,8 @@ mod tests {
 
     use super::*;
 
-    /// Every setting but the recent files and the find options is in a section, and every
+    /// Every setting but the recent files, the find options and what the update check
+    /// remembers is in a section, and every
     /// section resets something, so resetting all sections gives the defaults. Naming every field without `..` makes a new
     /// setting fail to compile here until it is given a section.
     #[test]
@@ -297,6 +330,9 @@ mod tests {
                 file: Some((PathBuf::from("C:\\Fonts\\Größe.ttf"), 1)),
             },
             agents: true,
+            update_check: false,
+            update_last: Some(1_800_000_000),
+            update_shown: Some(crate::update::Version(1, 2, 0)),
             find: FindOptions {
                 match_case: true,
                 whole_word: true,
@@ -310,6 +346,8 @@ mod tests {
             assert_ne!(before, reset, "{section:?} resets nothing");
         }
         let expected = Settings {
+            update_last: changed.update_last,
+            update_shown: changed.update_shown,
             find: changed.find,
             recent: changed.recent.clone(),
             ..Settings::default()
@@ -329,7 +367,7 @@ mod tests {
         for section in Section::ALL {
             window.section = section;
             let mut out = ctx.run_ui(Default::default(), |ui| {
-                assert_eq!(window.show(ui.ctx(), &mut settings), None);
+                assert_eq!(window.show(ui.ctx(), &mut settings, false), None);
             });
             out.textures_delta.clear();
             assert!(window.open);
