@@ -136,7 +136,8 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   preview again (`repeat::expand`), each copy on a line of its own at the element's
   indentation; copied runs keep their mapping to the file and their tints. Tried on a
   5.9 MiB file of the owner's: three elements of count 8 became copies 0 to 7, those of
-  count 0 went, and no count attribute was left.
+  count 0 went, and no count attribute was left. The owner checked it in the window with
+  their rules (2026-11-19).
 
 ## Acceptance tests
 
