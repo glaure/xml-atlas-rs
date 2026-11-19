@@ -1,0 +1,37 @@
+{
+  "url": "https://api.github.com/repos/glaure/xml-atlas-rs/releases/451056799",
+  "assets_url": "https://api.github.com/repos/glaure/xml-atlas-rs/releases/451056799/assets",
+  "upload_url": "https://uploads.github.com/repos/glaure/xml-atlas-rs/releases/451056799/assets{?name,label}",
+  "html_url": "https://github.com/glaure/xml-atlas-rs/releases/tag/v1.1.0",
+  "id": 451056799,
+  "node_id": "RE_kwDOVuWu0c4a4pSf",
+  "tag_name": "v1.1.0",
+  "target_commitish": "main",
+  "name": "XML Atlas 1.1.0",
+  "draft": false,
+  "immutable": false,
+  "prerelease": false,
+  "created_at": "2026-11-19T08:00:23Z",
+  "updated_at": "2026-11-19T10:54:58Z",
+  "published_at": "2026-11-19T10:54:58Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/glaure/xml-atlas-rs/releases/assets/766855888",
+      "id": 766855888,
+      "node_id": "RA_kwDOVuWu0c4ttUrQ",
+      "name": "SHA256SUMS",
+      "label": "",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 479,
+      "digest": "sha256:c3151251952f958b930822f3ba72b9b78f07fb6c53fc3659766202f73c5ca129",
+      "download_count": 2,
+      "created_at": "2026-11-19T08:25:21Z",
+      "updated_at": "2026-11-19T08:25:21Z",
+      "browser_download_url": "https://github.com/glaure/xml-atlas-rs/releases/download/v1.1.0/SHA256SUMS"
+    }
+  ],
+  "tarball_url": "https://api.github.com/repos/glaure/xml-atlas-rs/tarball/v1.1.0",
+  "zipball_url": "https://api.github.com/repos/glaure/xml-atlas-rs/zipball/v1.1.0",
+  "body": "## What's new in 1.1\r\n\r\n(shortened)\r\n"
+}

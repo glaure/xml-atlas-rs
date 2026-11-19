@@ -38,6 +38,9 @@ Version 1.1, for Windows, Linux and macOS. What it does:
   through `xml-atlas-cli mcp` (MCP).
 - File > Settings… with every setting; a softer light theme; a font of your choice for text,
   tree and grid; a toolbar; a built-in guide (F1).
+- A notice in the status bar when a newer version is released: once a day the program asks
+  GitHub for the latest release, sending nothing but its version. Never a download; turn it
+  off in File > Settings > Updates.
 
 See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, signed
 packages.
