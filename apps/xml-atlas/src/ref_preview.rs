@@ -7,7 +7,7 @@
 
 use std::ops::Range;
 
-use egui::{Color32, FontId, RichText, Sense, Ui, vec2};
+use egui::{Color32, FontId, Label, RichText, Sense, Ui, vec2};
 use xml_atlas_engine::references::{self, Choice, Preview, RefKind, Resolution, Rules};
 use xml_atlas_engine::text;
 use xml_atlas_engine::tree::Row;
@@ -23,6 +23,9 @@ const LIMIT: usize = 4 * 1024 * 1024;
 /// How strongly imported lines and lines with a note are tinted.
 const IMPORTED_ALPHA: f32 = 0.18;
 const NOTE_ALPHA: f32 = 0.22;
+/// Share of the line the section chooser's combo box takes, and its widest.
+const COMBO_SHARE: f32 = 0.45;
+const COMBO_MAX: f32 = 360.0;
 
 /// A section chosen in the pane (REF-9), kept by position, which follows edits as the
 /// selection does; the label checks it is still the same section.
@@ -48,6 +51,8 @@ pub struct Cached {
     marks: Vec<u8>,
     /// Characters of the longest line, for the width to scroll.
     widest: usize,
+    /// The lines drawn in the last frame.
+    shown: Range<usize>,
 }
 
 /// Draws the pane. `font` is the text view's.
@@ -100,16 +105,9 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     let Some(c) = &open.reference_preview else {
         return;
     };
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(&c.path).strong());
-        if ui
-            .small_button("Copy")
-            .on_hover_text("Copy the preview's text")
-            .clicked()
-        {
-            ui.ctx().copy_text(c.preview.text.clone());
-        }
-    });
+    // The path alone on its line, cut to the pane's width and whole on hover, so a deep
+    // element does not widen the pane (see `choose_sections`).
+    ui.add(Label::new(RichText::new(&c.path).strong()).truncate());
     let p = &c.preview;
     let mut summary = match p.references {
         0 => "No references".to_string(),
@@ -122,10 +120,19 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     if p.cut {
         summary.push_str(&format!(", cut after {} MiB", LIMIT / (1024 * 1024)));
     }
-    ui.label(RichText::new(summary).weak()).on_hover_text(
-        "Read-only. Imported lines are tinted; comments starting with \"XML Atlas:\" say \
-         what did not resolve, or where a looked-up context came from",
-    );
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(summary).weak()).on_hover_text(
+            "Read-only. Imported lines are tinted; comments starting with \"XML Atlas:\" say \
+             what did not resolve, or where a looked-up context came from",
+        );
+        if ui
+            .small_button("Copy")
+            .on_hover_text("Copy the preview's text")
+            .clicked()
+        {
+            ui.ctx().copy_text(c.preview.text.clone());
+        }
+    });
     ui.separator();
 
     let theme = theme::current(ui);
@@ -138,12 +145,14 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     let row_h = ui.fonts_mut(|f| f.row_height(font));
     let char_w = ui.fonts_mut(|f| f.glyph_width(font, '0'));
     let width = (c.widest as f32 * char_w + 16.0).max(ui.available_width());
-    egui::ScrollArea::both()
+    // Rows touch: `show_rows` counts the item spacing into each row, so it must be zero
+    // before it works out which rows are on screen, or a band below them stays empty.
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let shown = egui::ScrollArea::both()
         .id_salt("reference-preview")
         .auto_shrink(false)
         .show_rows(ui, row_h, c.lines.len(), |ui, range| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for n in range {
+            for n in range.clone() {
                 let (rect, _) = ui.allocate_exact_size(vec2(width, row_h), Sense::hover());
                 let fill = match c.marks[n] {
                     0 => Color32::TRANSPARENT,
@@ -159,7 +168,12 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
                 ui.painter()
                     .galley(rect.left_top(), galley, theme.visuals.text_color());
             }
-        });
+            range
+        })
+        .inner;
+    if let Some(c) = &mut open.reference_preview {
+        c.shown = shown;
+    }
 }
 
 /// F12, and Go to reference target in the tree (REF-3): selects the first element the
@@ -304,10 +318,18 @@ fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId)
         let scope = references::element_label(doc, s.scope);
         let mut new = picked;
         ui.horizontal(|ui| {
-            ui.label(format!("{} in {scope} from", s.context));
+            // Both cut to the pane's width, shown whole on hover: an egui side panel is never
+            // narrower than its content, and a long label made the pane cover the text view.
+            let combo = (ui.available_width() * COMBO_SHARE).min(COMBO_MAX);
+            let room = (ui.available_width() - combo - ui.spacing().item_spacing.x).max(0.0);
+            ui.scope(|ui| {
+                ui.set_max_width(room);
+                ui.add(Label::new(format!("{} in {scope} from", s.context)).truncate());
+            });
             egui::ComboBox::from_id_salt(("reference-section", s.scope))
                 .selected_text(label(picked))
-                .width(ui.available_width().min(360.0))
+                .width(combo)
+                .truncate()
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut new, None, label(None));
                     for &c in &s.candidates {
@@ -370,6 +392,7 @@ fn cache(element: NodeId, revision: u64, path: String, preview: Preview) -> Cach
         states,
         marks,
         widest,
+        shown: 0..0,
     }
 }
 
@@ -539,6 +562,106 @@ mod tests {
         assert_eq!(open.reference_choices.len(), 1);
         choose(&mut open, unit, None);
         assert!(open.reference_choices.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// However long the element's path and its section's label are, the pane's content fits
+    /// the pane: an egui side panel is never narrower than its content, so a wide header
+    /// pushed the pane over the text view and its border snapped back when dragged.
+    #[test]
+    fn a_long_header_fits_the_pane() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-wide-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rules = r#"{"includes": [{"element": "Include", "attribute": "src"}],
+                        "contexts": {"Var": {"nearest": "Var", "up_to": "Unit"}}}"#;
+        std::fs::write(dir.join(references::RULES_FILE), rules).unwrap();
+        let long = "Größe-".repeat(40);
+        let levels: Vec<String> = (0..12).map(|i| format!("Äußere-Ebene-{i}")).collect();
+        let mut src = format!("\u{feff}<Doc>\r\n<Unit Name=\"{long}\">\r\n");
+        for l in &levels {
+            src.push_str(&format!("<{l}>\r\n"));
+        }
+        src.push_str("<General><Var/><Box><Include src=\"Var:Wert\"/></Box></General>\r\n");
+        for l in levels.iter().rev() {
+            src.push_str(&format!("</{l}>\r\n"));
+        }
+        src.push_str(&format!(
+            "<Sub V=\"{long}\"><Var><Wert>a</Wert></Var></Sub>\r\n</Unit>\r\n</Doc>\r\n"
+        ));
+        let file = dir.join("doc.xml");
+        std::fs::write(&file, src).unwrap();
+        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("wide"));
+        let path = format!("/Doc/Unit/{}/General/Box", levels.join("/"));
+        let at = command::resolve(&open.doc, &path).unwrap();
+        open.select(at);
+
+        let ctx = egui::Context::default();
+        let width = 300.0;
+        let mut used = 0.0;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.allocate_ui(vec2(width, 400.0), |ui| {
+                    show(ui, &mut open, &FontId::monospace(13.0));
+                    used = ui.min_rect().width();
+                });
+            });
+            // No renderer here takes the font atlas.
+            out.textures_delta.clear();
+        }
+        let sections = open
+            .reference_sections
+            .as_ref()
+            .map_or(0, |(_, _, s)| s.len());
+        assert_eq!(sections, 1, "the pane did not offer the section");
+        assert!(
+            used <= width,
+            "the pane's content needs {used} points of the {width} it has"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The preview draws as many lines as fit its height, so no band is left empty below
+    /// them: egui's `show_rows` counts the item spacing into each row.
+    #[test]
+    fn the_preview_fills_its_height() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-tall-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(references::RULES_FILE), RULES).unwrap();
+        let mut src = String::from("\u{feff}<Doc>\r\n");
+        for i in 0..200 {
+            src.push_str(&format!("  <Größe N=\"{i}\"/>\r\n"));
+        }
+        src.push_str("</Doc>\r\n");
+        let file = dir.join("doc.xml");
+        std::fs::write(&file, src).unwrap();
+        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("tall"));
+        let root = command::resolve(&open.doc, "/Doc").unwrap();
+        open.select(root);
+
+        let ctx = egui::Context::default();
+        let font = FontId::monospace(13.0);
+        let height = 800.0;
+        let mut room = 0.0;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.allocate_ui(vec2(300.0, height), |ui| {
+                    ui.set_min_height(height);
+                    show(ui, &mut open, &font);
+                    room = ui.max_rect().bottom();
+                });
+            });
+            out.textures_delta.clear();
+        }
+        let row_h = ctx.fonts_mut(|f| f.row_height(&font));
+        let c = open.reference_preview.as_ref().unwrap();
+        // The header takes some of the height; the rest is rows, with at most one cut off.
+        let header = 90.0;
+        let fit = ((room - header) / row_h).floor() as usize;
+        assert!(
+            c.shown.len() >= fit,
+            "{} lines drawn where {fit} fit",
+            c.shown.len()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
