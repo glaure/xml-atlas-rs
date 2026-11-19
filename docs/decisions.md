@@ -1338,11 +1338,100 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   list; every rule can be switched off with `"enabled": false`. The rule is REF-11 in
   `docs/spec/references.md`.
 
+## D35: An XPath query panel
+
+- **Problem:** Find (TEXT-12) searches text. It cannot ask "every `order` whose `status` is
+  `open`", "how many `item`s", or "the `price` of the order with id 42". Those questions are
+  XPath, which most people who work with XML already know from other tools. The roadmap has
+  had the XPath query panel since D20; the references (D32) evaluate only a small part of it
+  (REF-2).
+- **What it should do:**
+  - Type an expression; see what it selects as a list: elements, attributes and text, each
+    with its path and line, or a value (`count(//item)` → a number; `string(...)`;
+    `true`).
+  - Click a result: the tree selects the element, the text view shows it, an attribute or
+    text is marked as a grid cell is (TEXT-11). F3 and Shift+F3 step through the results,
+    as through Find's matches.
+  - The same in the CLI (`xml-atlas-cli xpath FILE EXPR`) and for agents (an MCP tool
+    `xpath`), from one implementation in the engine (`AGENTS.md` rule 4).
+- **Which XPath:** 1.0 (W3C, 1999): the paths, the 13 axes, predicates, and the 27
+  functions (`count`, `contains`, `starts-with`, `normalize-space`, `sum`, `position`,
+  `last`, ...). It covers what is asked of a single document. XPath 2.0 and 3.1 add types,
+  sequences, `if`/`for` and many functions, mostly for XSLT and XQuery; not now.
+- **How it is built:**
+  - **Our own XPath 1.0 evaluator**, `crates/engine/src/xpath.rs` (owner, 2026-11-19): a
+    parser for the whole grammar of XPath 1.0, and an evaluator that works on the index
+    itself. It grows out of the small part the references use (REF-2), which can then use it too.
+  - **On the index, without a second tree** (`AGENTS.md` rule 2): a node is a `NodeId`, or
+    an element and the number of one of its attributes, or the text folded into an element
+    (D11). Names, attribute values and text are decoded only when a step or a function
+    needs them, as the views do. Nothing is built when a file opens.
+  - **What the index gives for free:** nodes are stored in document order, and a node's
+    subtree is the run of nodes right after it. So the `descendant` axis (`//`) is a range of
+    `NodeId`s scanned in order, a name test compares the name's bytes in the source without
+    decoding, results come out sorted, and document order is a comparison of two numbers.
+    A long scan can be split over threads, as indexing is (D25), if measuring shows it is
+    worth it.
+  - **Namespaces:** prefixes in the expression mean what the root element declares them as
+    (most files declare all their prefixes there). Names without a prefix also match
+    elements in the document's default namespace, as XPath 2.0's "default element
+    namespace" does (owner, 2026-11-19); the help says so. `local-name()` and
+    `namespace-uri()` work as in XPath 1.0.
+  - **On a thread, and it can be stopped.** A query on 300 MiB may take seconds. It runs off
+    the frame, with a spinner and *Stop*; the evaluator checks a flag between nodes.
+  - **After an edit** the results are marked out of date and the query runs again on Enter.
+  - **Results list:** virtualized (`AGENTS.md` rule 2), so a million results are drawn as
+    fast as ten. Each result is a few bytes until it is drawn.
+- **The window:** *Edit > XPath…* (Ctrl+Shift+X; Ctrl+Shift+F is Find in element) opens a
+  query bar under the find bar, with the last expressions in a list, and a results panel at
+  the bottom, as the Problems panel (owner, 2026-11-19). A result is a row with its path, its
+  line and its value; a click selects it, F3 and Shift+F3 step through the results. A value
+  (a number, a string, a boolean) is shown in the bar. A wrong expression says where it is
+  wrong ("expected `]` at 14").
+- **Steps** (owner, 2026-11-19):
+  1. The engine, the CLI (`xml-atlas-cli xpath FILE EXPR`) and the window.
+  2. The MCP tool `xpath` for agents, on files and on the open window (D27, D28).
+- **Tests:**
+  - The examples of the XPath 1.0 recommendation (§2.5 and the functions of §4) on a small
+    document, each with the nodes or the value it must give.
+  - Each axis, node test, operator and function, with non-ASCII names and text, CDATA, folded
+    text, a byte order mark and CRLF line endings (`AGENTS.md` rule 6).
+  - Namespaces: prefixes, the default namespace, `local-name()`.
+  - Wrong expressions: the message and the position.
+  - Stopping a query.
+  - The results checked by hand against `xmllint --xpath` (libxml2) on the fixtures; not in
+    CI.
+- **To measure** on `fixtures/orders.xml` (100 MiB) and `orders-300.xml`:
+  - `//order[@id='20000']`, `count(//item)`, `//order[customer/name[contains(., 'Sons')]]`,
+    `//*`, `sum(//price)`: time and memory of each;
+  - the target: the first three in about a second at 300 MiB;
+  - the open benchmark before and after; nothing should change at open.
+- **Not chosen:**
+  - The crate `xpath-eval` (0.4.0, MIT, no dependencies). It evaluates XPath 1.0 on any tree
+    through its traits and passes the Jaxen test corpus, but it is young (0.2 to 0.4 in
+    November 2026) and one person's project, and it walks axes node by node through
+    iterators, so it cannot use the index's ranges (owner, 2026-11-19: our own).
+  - `sxd-xpath`, `xee-xpath` (XPath 3.1), `xrust`: each evaluates only on its own tree. That
+    tree would be built at every query or kept beside the index: several times the file's
+    size in memory and seconds of building at 300 MiB, against `AGENTS.md` rules 1 and 2.
+  - XPath as an option of Find: Find's matches are places in the text, and its options
+    (match case, whole word) mean nothing to XPath; a value such as `count()` has no place.
+  - The results in the grid, one row per element (owner, 2026-11-19: a results panel).
+  - XPath 2.0 and later: types, sequences, `if` and `for`, mostly for XSLT and XQuery. 1.0
+    is what most people know and type.
+- **Decided (owner, 2026-11-19):** our own XPath 1.0 evaluator on the index; a query bar and
+  a results panel; names without a prefix match the default namespace too; first the
+  engine, the CLI and the window, then the MCP tool.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D35, the XPath query panel (owner, 2026-11-19): our own XPath 1.0 evaluator on the
+index, not the crate `xpath-eval`; a query bar and a results panel; names without a prefix
+match the default namespace too; first the engine, the CLI and the window, then the MCP tool.
 
 About D32, references (owner, 2026-11-18): generic rules in a rules file the user keeps;
 go to target, the problems and the preview pane in one step; the nearest section stands in
