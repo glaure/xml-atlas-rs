@@ -86,8 +86,8 @@ Claude Code:
 claude mcp add xml-atlas -- xml-atlas-cli mcp
 ```
 
-To let an agent work in the open window instead, on its tabs, turn on View > Allow AI agents
-(MCP) and add `xml-atlas-cli mcp --window`. Each change is selected in the window and can be
+To let an agent work in the open window instead, on its tabs, turn on *Allow AI agents
+(MCP)* in File > Settings and add `xml-atlas-cli mcp --window`. Each change is selected in the window and can be
 undone there.
 
 ## Benchmarks

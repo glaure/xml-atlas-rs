@@ -95,12 +95,15 @@ An agent such as Claude Code can work with XML files through XML Atlas, over the
 Context Protocol (MCP):
 
 - On files, without a window: `claude mcp add xml-atlas -- xml-atlas-cli mcp`.
-- In this window, on the open tabs: turn on View > Allow AI agents (MCP), then
+- In this window, on the open tabs: turn on Allow AI agents (MCP) in File > Settings, then
   `claude mcp add xml-atlas-window -- xml-atlas-cli mcp --window`. Each change an agent
   makes is selected and named in the status bar, and Ctrl+Z undoes it. An agent cannot close
   a tab with unsaved changes.
 
 ## Settings
+
+File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, format
+options and AI agents. A change applies at once.
 
 The layout, theme, view options, text font, format options and recent files are remembered in
 `xml-atlas/settings.toml` in the system's configuration folder.

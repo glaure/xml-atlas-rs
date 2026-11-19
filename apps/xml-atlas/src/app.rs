@@ -61,6 +61,8 @@ pub struct App {
     help: crate::help::Help,
     /// View > Font… while it is open (TEXT-25).
     font_dialog: Option<crate::fonts::FontDialog>,
+    /// File > Settings… (WIN-11).
+    settings_window: crate::settings_window::SettingsWindow,
     /// Agents' calls, while View > Allow AI agents (MCP) is on (D28).
     agent: Option<xml_atlas_mcp::bridge::Listener>,
     message: Option<String>,
@@ -311,6 +313,7 @@ impl App {
             opened,
             help: Default::default(),
             font_dialog: None,
+            settings_window: Default::default(),
             agent: None,
             message: None,
             notice: None,
@@ -1008,40 +1011,7 @@ impl App {
             ui.set_width(380.0);
             ui.heading("Format options");
             ui.add_space(6.0);
-            egui::Grid::new("format-options-grid")
-                .num_columns(2)
-                .spacing([12.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label("Indent");
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut edit.tabs, false, "Spaces:");
-                        ui.add_enabled(
-                            !edit.tabs,
-                            egui::DragValue::new(&mut edit.indent_size).range(0..=16),
-                        );
-                        ui.radio_value(&mut edit.tabs, true, "Tabs");
-                    });
-                    ui.end_row();
-                    ui.label("Attributes in a tag line");
-                    ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut edit.max_attributes).range(0..=99));
-                        ui.label(RichText::new("at most; 0: never wrap").weak());
-                    });
-                    ui.end_row();
-                    ui.label("Also");
-                    ui.vertical(|ui| {
-                        ui.checkbox(&mut edit.remove_comments, "Remove comments");
-                        ui.checkbox(&mut edit.trim_text, "Trim text");
-                        ui.label(
-                            RichText::new(
-                                "These change the content. The settings comment, and comments \
-                                 and text inside mixed content, are kept.",
-                            )
-                            .weak(),
-                        );
-                    });
-                    ui.end_row();
-                });
+            crate::settings_window::format_options(ui, &mut edit);
             if !overrides.is_empty() {
                 ui.add_space(6.0);
                 ui.label(
@@ -1307,6 +1277,11 @@ impl App {
                     self.close_tab(&ctx);
                 }
                 ui.separator();
+                if ui.button("Settings…    Ctrl+,").clicked() {
+                    ui.close();
+                    self.settings_window.open = true;
+                }
+                ui.separator();
                 if ui.button("Quit").clicked() {
                     ui.close();
                     self.request(&ctx, Action::Quit);
@@ -1428,11 +1403,6 @@ impl App {
                     "A pane with the selected element as it reads with its references \
                      resolved, from the rules in xml-atlas-references.json (REF-5)",
                 );
-                ui.checkbox(&mut self.settings.agents, "Allow AI agents (MCP)")
-                    .on_hover_text(
-                        "Agents such as Claude Code may read and edit the open documents, \
-                         through `xml-atlas-cli mcp --window`; each change is one undo step",
-                    );
                 if ui.button("Font…").clicked() {
                     ui.close();
                     self.font_dialog =
@@ -1452,17 +1422,6 @@ impl App {
                 );
                 ui.radio_value(&mut self.settings.theme, ThemeChoice::Light, "Light");
                 ui.radio_value(&mut self.settings.theme, ThemeChoice::Dark, "Dark");
-                ui.label("Light style");
-                ui.radio_value(
-                    &mut self.settings.light_style,
-                    LightStyle::Soft,
-                    "Soft grey",
-                );
-                ui.radio_value(
-                    &mut self.settings.light_style,
-                    LightStyle::Classic,
-                    "Classic, as in 1.0",
-                );
                 ui.separator();
                 ui.label("Layout");
                 ui.radio_value(
@@ -1537,6 +1496,36 @@ impl App {
                 open.text_goal = None;
                 open.doc.history.seal();
             }
+        }
+    }
+
+    /// File > Settings… (WIN-11). The window changes the settings; what a change means beyond
+    /// the setting is applied here.
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.settings_window.open {
+            return;
+        }
+        let before = self.settings.clone();
+        let request = self.settings_window.show(ctx, &mut self.settings);
+        if self.settings.tree_attributes != before.tree_attributes {
+            // A view setting: for every tab, as View > Attributes in the tree does.
+            for open in self.docs.iter_mut() {
+                open.tree.set_attributes(self.settings.tree_attributes);
+            }
+        }
+        if self.settings.text_font != before.text_font {
+            // Only Reset to defaults changes it here; the font dialog applies its own.
+            let mut font = self.settings.text_font.clone();
+            match crate::fonts::apply(ctx, &mut font) {
+                Ok(()) => self.settings.text_font = font,
+                Err(e) => {
+                    self.message = Some(format!("Cannot use the font: {e}"));
+                    self.settings.text_font = before.text_font;
+                }
+            }
+        }
+        if request == Some(crate::settings_window::Request::ChooseFont) {
+            self.font_dialog = Some(crate::fonts::FontDialog::new(&self.settings.text_font));
         }
     }
 
@@ -1754,6 +1743,12 @@ impl eframe::App for App {
         }
         crate::help::show(&ctx, &mut self.help);
         self.font_dialog(&ctx);
+        if ctx.input_mut(|i| {
+            i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma))
+        }) {
+            self.settings_window.open = true;
+        }
+        self.settings_window(&ctx);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
         if ctx.input_mut(|i| {
             i.consume_shortcut(&KeyboardShortcut::new(

@@ -47,7 +47,8 @@ How the views are laid out, and how the window looks.
   Drill Down and Format, so 1.0.0 showed boxes there (reported 2026-11-18). View > Toolbar shows
   or hides it, remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree
   follows the selection by itself, and the toolbar stays under the menu; egui cannot move it.
-- **WIN-6** `[built]` View > Allow AI agents (MCP), off by default and remembered (WIN-3),
+- **WIN-6** `[built]` *Allow AI agents (MCP)* in Settings (WIN-11; in the View menu until
+  2026-11-18), off by default and remembered (WIN-3),
   lets an agent such as Claude Code work in the window through `xml-atlas-cli mcp --window`
   (`docs/decisions.md`, D28). While it is on, the window listens on `127.0.0.1` and writes
   the port and a secret to `agent.json` next to the settings file, readable only by the
@@ -70,7 +71,7 @@ How the views are laid out, and how the window looks.
   miss it and are kept as in 1.0 (owner, 2026-11-18). Spacing is still to come.
 - **WIN-8** `[built]` A softer Light: menus, toolbars and the status bar in a light grey
   (232), the tree, grid, cell pane and text a little lighter (247), darker separators (182)
-  and text (45), so the views stand apart and the window glares less. View > Light style
+  and text (45), so the views stand apart and the window glares less. *Light style* in Settings (WIN-11)
   chooses *Soft grey* (the default) or *Classic, as in 1.0*; remembered (WIN-3). The owner
   chose these from three candidates in the running program (2026-11-18): a light grey, a
   mid grey (220 and 244) and a warm paper tint. Dark stays as it is.
@@ -87,14 +88,17 @@ How the views are laid out, and how the window looks.
   writes the current style as a file to start from; *Open the themes folder* shows the
   folder. A changed file is read again when the window gets the focus back. A missing or
   unreadable colour or part comes from the XML Atlas style, with a warning in the log.
-- **WIN-11** `[planned]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
+- **WIN-11** `[built]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
   font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
-  the cell pane, word wrap for new tabs), *Format* (as Edit > Format options…), *Updates*
-  (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). A change
-  applies and is saved at once, without OK and Cancel; each section has *Reset to defaults*.
-  The View menu keeps word wrap, the layout, the cell pane, attribute rows, the toolbar and
-  the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
+  the grid, the cell pane, the reference preview (REF-5), word wrap for the tabs not switched with Alt+Z), *Format* (as Edit > Format
+  options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*; comes with
+  PKG-7) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
+  change applies and is saved at once, without OK and Cancel; each section has *Reset to
+  defaults*. A test checks that every setting but the recent files and the find options is
+  in a section, so a new setting cannot be left out.
+  The View menu keeps word wrap, the layout, the grid, the cell pane, the reference preview,
+  attribute rows, the toolbar and the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
   only in Settings. Not in Settings: the recent files, window and pane sizes, the find
   options (`docs/decisions.md`, D31).
 
@@ -111,7 +115,7 @@ How the views are laid out, and how the window looks.
   window follows within a moment.
 - Press F1: the help window opens, its text wraps with the window's width and scrolls. Help >
   About XML Atlas shows the version the package was built as; its links open in the browser.
-- Turn on View > Allow AI agents (MCP) and connect Claude Code with `xml-atlas-cli mcp
+- Turn on *Allow AI agents (MCP)* in Settings and connect Claude Code with `xml-atlas-cli mcp
   --window`; ask it to rename an element in the open file: the tab shows it renamed and
   selected, Ctrl+Z undoes it. Ask it to close the tab: refused while there are unsaved
   changes. Turn the setting off: `agent.json` is gone and the agent is told to turn it on.

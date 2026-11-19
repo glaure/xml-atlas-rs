@@ -22,6 +22,7 @@ mod problems_panel;
 mod ref_preview;
 mod scroll;
 mod settings;
+mod settings_window;
 mod system_theme;
 mod tabs;
 mod text_view;

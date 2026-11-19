@@ -62,7 +62,7 @@ pub struct Settings {
     pub reference_preview: bool,
     /// The text view's font (TEXT-25).
     pub text_font: crate::fonts::TextFont,
-    /// View > Allow AI agents (MCP) (D28).
+    /// Allow AI agents (MCP) in Settings (D28, WIN-11).
     pub agents: bool,
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
