@@ -8,7 +8,7 @@ XML Atlas is an independent project. Its behaviour is inspired by XML Marker
 
 ## Status
 
-Version 1.0, for Windows, Linux and macOS. What it does:
+Version 1.1, for Windows, Linux and macOS. What it does:
 
 - Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
   about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
@@ -27,6 +27,14 @@ Version 1.0, for Windows, Linux and macOS. What it does:
 - Several documents as tabs, recent files, light and dark theme, a notice when a file changes
   on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
+- References your team defines in a rules file (`xml-atlas-references.json`): go to a
+  reference's target (F12), the ones that find nothing in the problems list, and a preview
+  of the selected element with them resolved, as text and as a tree, with repeated elements
+  expanded.
+- AI agents such as Claude Code can read and edit files, or the documents open in the window,
+  through `xml-atlas-cli mcp` (MCP).
+- File > Settings… with every setting; a softer light theme; a font of your choice for text,
+  tree and grid; a toolbar; a built-in guide (F1).
 
 See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, signed
 packages.
@@ -41,8 +49,8 @@ Download a package from the [releases page](https://github.com/glaure/xml-atlas-
 - RHEL 9 and its rebuilds, Fedora: `sudo dnf install ./xml-atlas-….rpm`
 - macOS 12 and later, Apple silicon and Intel: the `-macos-universal.dmg`; drag XML Atlas
   into Applications. The app is not signed yet, so the first start is refused: System
-  Settings > Privacy & Security, *Open Anyway*. It cannot open a file from Finder yet; use
-  File > Open or drop the file onto the window.
+  Settings > Privacy & Security, *Open Anyway*. Since 1.1 it opens files from Finder
+  (double-click, *Open with*) and from its Dock icon.
 
 `SHA256SUMS` on the same page holds each file's checksum.
 
