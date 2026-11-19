@@ -82,7 +82,10 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   `XML Atlas:` that says why; a `nearest` context says where it was taken from. Imported lines
   are tinted, lines with a note tinted as a warning. The pane is made again when the
   selection or the document changes, shows only the lines on screen, and stops after 4 MiB.
-  *Copy* copies its text.
+  *Copy* copies its text. The element's path and a section's label (REF-9) are cut to the
+  pane's width and shown whole on hover, so a long one does not widen the pane over the text
+  view; until 2026-11-19 it did, and the pane's border snapped back when dragged. The lines
+  fill the pane's height; until then a tall pane left a band empty below them.
 - **REF-6** `[done]` The CLI does the same: `xml-atlas-cli references FILE [--rules PATH]
   [--limit N]` counts the references and lists those that find nothing;
   `xml-atlas-cli preview FILE PATH [--rules PATH] [--section PATH]...` prints the element at
