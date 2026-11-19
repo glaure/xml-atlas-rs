@@ -6,6 +6,9 @@ A fast, cross-platform XML viewer and editor in pure Rust. It succeeds the
 XML Atlas is an independent project. Its behaviour is inspired by XML Marker
 (symbolclick.com). It uses none of XML Marker's code or assets.
 
+![XML Atlas with a 10 MiB file: the tree on the left, the text above and the grid of the
+selected element's children below](docs/images/xml-atlas.png)
+
 ## Status
 
 Version 1.1, for Windows, Linux and macOS. What it does:
