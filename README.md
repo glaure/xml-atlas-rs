@@ -11,7 +11,7 @@ selected element's children below](docs/images/xml-atlas.png)
 
 ## Status
 
-Version 1.1, for Windows, Linux and macOS. What it does:
+Version 1.2, for Windows, Linux and macOS. What it does:
 
 - Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
   about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
@@ -30,8 +30,9 @@ Version 1.1, for Windows, Linux and macOS. What it does:
 - Several documents as tabs, recent files, light and dark theme, a notice when a file changes
   on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
-- XPath 1.0 queries (Edit > XPath, and `xml-atlas-cli xpath`): the nodes in a list to step
-  through, or a count, sum or text; well under a second on a 300 MiB file.
+- XPath 1.0 queries (Edit > XPath, and `xml-atlas-cli xpath`): checked as you type, the
+  nodes in a list to step through, or a count, sum or text; well under a second on a
+  300 MiB file. Agents have them too.
 - References your team defines in a rules file (`xml-atlas-references.json`): go to a
   reference's target (F12), the ones that find nothing in the problems list, and a preview
   of the selected element with them resolved, as text and as a tree, with repeated elements
@@ -44,8 +45,7 @@ Version 1.1, for Windows, Linux and macOS. What it does:
   GitHub for the latest release, sending nothing but its version. Never a download; turn it
   off in File > Settings > Updates.
 
-See [ROADMAP.md](ROADMAP.md) for what comes after 1.0: XPath, schema validation, signed
-packages.
+See [ROADMAP.md](ROADMAP.md) for what comes next: schema validation, signed packages.
 
 ## Install
 

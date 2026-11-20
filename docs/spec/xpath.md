@@ -7,7 +7,7 @@ a fraction of a second (`docs/decisions.md`, D35).
 
 ## Rules
 
-- **XP-1** `[built]` *Edit > XPath…* (Ctrl+Shift+X), or its toolbar button (a small tree),
+- **XP-1** `[done]` *Edit > XPath…* (Ctrl+Shift+X), or its toolbar button (a small tree),
   opens a query bar under the find bar. The empty field shows an example; Tab takes it, the
   cursor after it.
   The expression is checked as it is typed: a valid one says *valid*; a wrong one frames
@@ -32,7 +32,7 @@ a fraction of a second (`docs/decisions.md`, D35).
     the root element does not declare is an error that names it.
   - `id()` finds elements by `xml:id`. Without a DTD nothing else is known to be an ID.
   - Variables (`$x`) are not supported; there is nothing to bind them to.
-- **XP-3** `[built]` Nodes are listed in a panel at the bottom, on the views' background:
+- **XP-3** `[done]` Nodes are listed in a panel at the bottom, on the views' background:
   one row per node with its line, its path (`/orders/order[3]/@id`) in the link colour, and
   its value on one line. A row is one link: the pointer becomes a hand over it, it is
   shaded and its path underlined; the selected row is shaded as a selection is. The
@@ -70,6 +70,10 @@ a fraction of a second (`docs/decisions.md`, D35).
 - Run `//*` on 300 MiB and type in the text at once: the window keeps responding; the results
   say they are out of date.
 - `//a[` says "expected an expression, found the end at 5".
+- The owner ran `//order` on the 10 MiB fixture in the window (Windows 11, 2026-11-20): the
+  bar said *valid*, the list showed 21,183 nodes with the first selected ("1 of 21183
+  nodes"). From that came the toolbar button, the clickable rows and Tab for the example
+  (#128).
 
 ## Seen in the reference programs
 
