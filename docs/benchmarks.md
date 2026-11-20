@@ -1,9 +1,108 @@
 # Benchmarks
 
 How fast XML Atlas opens files and responds once they are open, compared with XML Marker 1.1.
-The Linux results come first; the Windows results, with XML Marker running natively and the
-first measurements of scrolling, selecting and searching, follow in
-[Windows](#windows-2026-11-16).
+The latest measurements, of XML Atlas 1.2 on Linux and Windows 11, come first
+([1.2](#12-2026-11-20)). Everything after them is history: the Linux results of 0.1 (XML
+Marker under wine) and the Windows results of 0.1 and 0.1.1, which were measured on another
+machine and must not be compared with the 1.2 tables.
+
+## 1.2 (2026-11-20)
+
+XML Atlas at commit `5dae1d9` (1.2.0 and nine later commits: the structure diagram, an XPath
+nesting limit and CI fixes) and XML Marker 1.1, on one machine that boots Linux and Windows 11. The files are
+the fixtures of `cargo xtask gen-fixture`; the tiny file is the 11 bytes `<a><b/></a>`.
+Median of three runs. The raw output is in [benchmark-data/2026-11-20](benchmark-data/2026-11-20).
+
+### Opening, Windows 11
+
+Time from starting the program with the file until it has finished loading, and peak working
+set (`tools/bench_windows.py open`).
+
+| File                  | XML Marker 1.1    | XML Atlas 1.2    | Atlas is faster by |
+|-----------------------|-------------------|------------------|--------------------|
+| tiny (start-up only)  | 0.33 s, 20 MiB    | 0.52 s, 79 MiB   | 0.6 x (slower)     |
+| 10 MiB                | 0.91 s, 61 MiB    | 0.56 s, 106 MiB  | 1.6 x              |
+| 100 MiB               | 10.55 s, 437 MiB  | 0.59 s, 345 MiB  | 18 x               |
+| 300 MiB               | 56.49 s, 1271 MiB | 0.82 s, 885 MiB  | 69 x               |
+
+XML Marker's time grows faster than the size of the file (about 10 s for 100 MiB, 56 s for
+300 MiB); XML Atlas's does not, because the index is built on several threads and the views
+only look at what is on screen. XML Marker still starts sooner and uses far less memory with a
+tiny file.
+
+### Opening, Linux
+
+XML Atlas only (`tools/bench_open.py --repeat 3`). XML Marker could not be measured: under
+wine on this machine it uses about half a core even when idle, so the harness never sees it
+finish loading. The wine results of 0.1 are in [Result (2026-11-14)](#result-2026-11-14).
+
+| File                  | XML Atlas 1.2    |
+|-----------------------|------------------|
+| tiny (start-up only)  | 0.30 s, 140 MiB  |
+| 10 MiB                | 0.35 s, 170 MiB  |
+| 100 MiB               | 0.50 s, 406 MiB  |
+| 300 MiB               | 0.82 s, 950 MiB  |
+
+The index alone, without a window (`xml-atlas-cli stats --repeat 5`, best of five):
+
+| File     | Read   | Index  | Lines (alongside) | Total  | Index memory | Elements  |
+|----------|--------|--------|-------------------|--------|--------------|-----------|
+| 100 MiB  | 54 ms  | 47 ms  | 24 ms             | 101 ms | 97 MiB       | 2,346,420 |
+| 300 MiB  | 152 ms | 154 ms | 84 ms             | 306 ms | 290 MiB      | 7,034,241 |
+
+The Linux console output was not kept; these values were copied from it.
+
+### Once the file is open, Windows 11
+
+How long the program is busy after each action, in milliseconds, as defined in
+[Once the file is open](#once-the-file-is-open) below. XML Atlas's *first* and *settled*
+were equal in every run, so one number is shown. 0 means under about 10 ms.
+
+| Action                          | Marker 10 | Atlas 10 | Marker 100 | Atlas 100 | Marker 300 | Atlas 300 |
+|---------------------------------|-----------|----------|------------|-----------|------------|-----------|
+| tree: expand the root           | 20        | 17       | 72         | 18        | 186        | 19        |
+| tree: End                       | 0         | 17       | 0          | 17        | 0          | 18        |
+| tree: Home                      | 0         | 20       | 0          | 33        | 0          | 62        |
+| tree: 20 x Page Down            | 0         | 37       | 0          | 39        | 0          | 39        |
+| tree: click a row near the end  | 29        | 17       | 32         | 17        | 34         | 17        |
+| text: Ctrl+End                  | 13        | 13       | 13         | 15        | 13         | 16        |
+| text: Ctrl+Home                 | 14        | 15       | 14         | 15        | 15         | 15        |
+| text: 20 x Page Down            | 43        | 35       | 43         | 37        | 42         | 40        |
+| find: last order, from the top  | 239       | 18       | 2248       | 34        | 6764       | 67        |
+
+What this says:
+
+- **Search** is where the difference is largest: XML Marker reads the file at about 45 MiB/s
+  (2.2 s for 100 MiB, 6.8 s for 300 MiB), XML Atlas finds the last order of the 300 MiB file in
+  67 ms, 100 times faster.
+- **Expanding the root** costs XML Marker more the larger the file (20, 72, 186 ms); XML
+  Atlas stays at one or two frames (17-19 ms).
+- **Text** scrolling is about equal, and a frame or two in both programs.
+- **Tree End, Home and Page Down** are where XML Marker is ahead: they take it under 10 ms at
+  every size, XML Atlas 17 to 39 ms (62 ms for Home at 300 MiB, the only value that grows with
+  the file). In practice both feel instant.
+- **Tree click near the end:** XML Atlas 17 ms, XML Marker about 30 ms.
+
+Compared with 0.1.1 at the same sizes (2026-11-16, another machine, so only a direction):
+tree Home at 300 MiB was 196 ms and is 62 ms, and no tree action takes 200 ms any more.
+
+What this does not say:
+
+- The Windows tables come from one session on one machine. Differences under about 10 ms
+  are probably noise; the three runs of each value are in the raw files.
+- XML Marker's tree rows come from a second run
+  (`windows-interact-marker-rerun.txt`) made after the harness clicked the wrong row on this
+  screen (`bench_windows.py`, PR #134). The first run's tree rows for XML Marker, all 0 ms, are
+  not valid; its other rows agree with the second run.
+- The numbers are CPU activity seen from outside, not the moment pixels change; a program
+  that draws without using the CPU, or works without drawing, is timed wrong.
+- The files are synthetic: regular, shallow (depth 5), UTF-8.
+- Linux has no scrolling or search measurements: the harness for them is Windows only.
+
+### Machine (1.2)
+
+AMD Ryzen 9 3900X (12 cores), 31 GiB RAM; Ubuntu with Linux 7.0, GNOME on Wayland, Rust 1.99.1,
+release build with thin LTO; the same machine booted into Windows 11.
 
 ## Result (2026-11-14)
 

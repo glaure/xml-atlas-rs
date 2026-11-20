@@ -1,0 +1,130 @@
+﻿commit 5dae1d9 + bench_windows.py marker tree_setup click y 0.046 -> 0.035  2026-11-20T16:21:36
+== interact orders-10
+  one core: 3.75 GHz of cycles; search term id="21183"
+  run 1: loaded 0.90 s, peak 66 MiB, title 'orders-10.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     21 ms  settled     21 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     29 ms  settled     29 ms
+    text: Ctrl+End                     first     14 ms  settled     14 ms
+    text: Ctrl+Home                    first     14 ms  settled     14 ms
+    text: 20 x Page Down               first     43 ms  settled     43 ms
+    find: last order, from the top     first    244 ms  settled    244 ms
+  run 2: loaded 0.91 s, peak 66 MiB, title 'orders-10.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     18 ms  settled     18 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     32 ms  settled     32 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     15 ms  settled     15 ms
+    text: 20 x Page Down               first     43 ms  settled     43 ms
+    find: last order, from the top     first    239 ms  settled    239 ms
+  run 3: loaded 0.91 s, peak 66 MiB, title 'orders-10.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     20 ms  settled     20 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     23 ms  settled     23 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     14 ms  settled     14 ms
+    text: 20 x Page Down               first     42 ms  settled     42 ms
+    find: last order, from the top     first    239 ms  settled    239 ms
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: median of 3 runs, loaded 0.91 s, peak 66 MiB
+  tree: expand the root              first     20 ms  settled     20 ms
+  tree: End                          first      0 ms  settled      0 ms
+  tree: Home                         first      0 ms  settled      0 ms
+  tree: 20 x Page Down               first      0 ms  settled      0 ms
+  tree: click a row near the end     first     29 ms  settled     29 ms
+  text: Ctrl+End                     first     13 ms  settled     13 ms
+  text: Ctrl+Home                    first     14 ms  settled     14 ms
+  text: 20 x Page Down               first     43 ms  settled     43 ms
+  find: last order, from the top     first    239 ms  settled    239 ms
+== interact orders
+  one core: 3.72 GHz of cycles; search term id="211383"
+  run 1: loaded 10.41 s, peak 479 MiB, title 'orders.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     73 ms  settled     73 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     29 ms  settled     29 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     14 ms  settled     14 ms
+    text: 20 x Page Down               first     43 ms  settled     43 ms
+    find: last order, from the top     first   2248 ms  settled   2248 ms
+  run 2: loaded 10.51 s, peak 479 MiB, title 'orders.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     72 ms  settled     72 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     36 ms  settled     36 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     14 ms  settled     14 ms
+    text: 20 x Page Down               first     42 ms  settled     42 ms
+    find: last order, from the top     first   2236 ms  settled   2236 ms
+  run 3: loaded 10.43 s, peak 479 MiB, title 'orders.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first     72 ms  settled     72 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     32 ms  settled     32 ms
+    text: Ctrl+End                     first     14 ms  settled     14 ms
+    text: Ctrl+Home                    first     15 ms  settled     15 ms
+    text: 20 x Page Down               first     43 ms  settled     43 ms
+    find: last order, from the top     first   2264 ms  settled   2264 ms
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: median of 3 runs, loaded 10.43 s, peak 479 MiB
+  tree: expand the root              first     72 ms  settled     72 ms
+  tree: End                          first      0 ms  settled      0 ms
+  tree: Home                         first      0 ms  settled      0 ms
+  tree: 20 x Page Down               first      0 ms  settled      0 ms
+  tree: click a row near the end     first     32 ms  settled     32 ms
+  text: Ctrl+End                     first     13 ms  settled     13 ms
+  text: Ctrl+Home                    first     14 ms  settled     14 ms
+  text: 20 x Page Down               first     43 ms  settled     43 ms
+  find: last order, from the top     first   2248 ms  settled   2248 ms
+== interact orders-300
+  one core: 3.78 GHz of cycles; search term id="633506"
+  run 1: loaded 56.43 s, peak 1400 MiB, title 'orders-300.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first    185 ms  settled    185 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     30 ms  settled     30 ms
+    text: Ctrl+End                     first     14 ms  settled     14 ms
+    text: Ctrl+Home                    first     17 ms  settled     17 ms
+    text: 20 x Page Down               first     44 ms  settled     44 ms
+    find: last order, from the top     first   6764 ms  settled   6764 ms
+  run 2: loaded 56.51 s, peak 1400 MiB, title 'orders-300.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first    186 ms  settled    186 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     34 ms  settled     34 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     14 ms  settled     14 ms
+    text: 20 x Page Down               first     41 ms  settled     41 ms
+    find: last order, from the top     first   6761 ms  settled   6761 ms
+  run 3: loaded 56.36 s, peak 1400 MiB, title 'orders-300.xml  -  XML Marker version 1.1 '
+    tree: expand the root              first    192 ms  settled    192 ms
+    tree: End                          first      0 ms  settled      0 ms
+    tree: Home                         first      0 ms  settled      0 ms
+    tree: 20 x Page Down               first      0 ms  settled      0 ms
+    tree: click a row near the end     first     42 ms  settled     42 ms
+    text: Ctrl+End                     first     13 ms  settled     13 ms
+    text: Ctrl+Home                    first     15 ms  settled     15 ms
+    text: 20 x Page Down               first     42 ms  settled     42 ms
+    find: last order, from the top     first   6784 ms  settled   6784 ms
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: median of 3 runs, loaded 56.43 s, peak 1400 MiB
+  tree: expand the root              first    186 ms  settled    186 ms
+  tree: End                          first      0 ms  settled      0 ms
+  tree: Home                         first      0 ms  settled      0 ms
+  tree: 20 x Page Down               first      0 ms  settled      0 ms
+  tree: click a row near the end     first     34 ms  settled     34 ms
+  text: Ctrl+End                     first     13 ms  settled     13 ms
+  text: Ctrl+Home                    first     15 ms  settled     15 ms
+  text: 20 x Page Down               first     42 ms  settled     42 ms
+  find: last order, from the top     first   6764 ms  settled   6764 ms
+result: 0
+now: 3840x1600@75
+DONE
