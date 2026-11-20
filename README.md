@@ -33,6 +33,9 @@ Version 1.2, for Windows, Linux and macOS. What it does:
 - XPath 1.0 queries (Edit > XPath, and `xml-atlas-cli xpath`): checked as you type, the
   nodes in a list to step through, or a count, sum or text; well under a second on a
   300 MiB file. Agents have them too.
+- A diagram of the document's structure (View > Diagram): one box per path of element
+  names with how many there are, their attributes and whether they hold text; a click goes
+  to the elements. Also `xml-atlas-cli structure`.
 - References your team defines in a rules file (`xml-atlas-references.json`): go to a
   reference's target (F12), the ones that find nothing in the problems list, and a preview
   of the selected element with them resolved, as text and as a tree, with repeated elements

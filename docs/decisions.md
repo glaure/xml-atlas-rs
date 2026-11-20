@@ -1533,6 +1533,24 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   and whether the elements hold text; SVG export first, a PNG of the whole diagram later if it
   is asked for; a comment on #121 once this is on `main`. The steps were not asked separately
   and are taken as proposed: #121, then #122 and #123, then #124.
+- **Built, step 1 (2026-11-20):** `crates/engine/src/structure.rs` (the walk, a path's
+  elements one after another, the box of an element), `xml-atlas-cli structure`, and View >
+  Diagram (`apps/xml-atlas/src/diagram.rs`) with a toolbar button.
+  - **The key is Ctrl+Shift+D**, taken before Ctrl+D (Duplicate), which would match it too,
+    as Ctrl+Shift+S is taken before Ctrl+S.
+  - **F3** steps through the clicked box's elements while the find bar is closed and the
+    XPath bar shows no results; those keep F3 while they are open.
+  - **Going to the next element** does not use XPath: it walks the index from the
+    selection, skipping every subtree whose path is not on the way to the box's path.
+  - **The structure belongs to one index**, as XPath's results do (D35): it holds a `Weak`
+    reference to it. After an edit the old boxes stay, marked out of date, and the walk
+    runs again after 0.5 s without edits. Collapsed boxes are kept by their path of names,
+    so they stay collapsed when the walk runs again.
+  - **The layout** is a loop, not recursion: 2,000 paths deep would need a stack the
+    window's thread does not have (D35's lesson).
+  - **Measured** (Windows 11, release build, `xml-atlas-cli structure`, three runs): 8–10 ms
+    on 10 MiB, 79–82 ms on 100 MiB, 238–243 ms on 300 MiB. About 60 % of it is reading the
+    attribute names. Opening is unchanged: the walk runs only when the diagram is shown.
 
 ## Open questions
 

@@ -132,6 +132,8 @@ pub struct Open {
     pub find_requested: bool,
     /// The last XPath query on this document and what it gave (D35).
     pub xpath: Option<crate::xpath_bar::Results>,
+    /// The structure diagram (D36): its boxes, what is collapsed, zoom and position.
+    pub diagram: crate::diagram::Diagram,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
     /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
@@ -1411,10 +1413,18 @@ impl App {
                         }
                     }
                 });
-                ui.checkbox(&mut self.settings.grid, "Grid")
-                    .on_hover_text("Hidden, the text and the reference preview take its place");
                 ui.add_enabled(
-                    self.settings.grid,
+                    !self.settings.diagram,
+                    egui::Checkbox::new(&mut self.settings.grid, "Grid"),
+                )
+                .on_hover_text("Hidden, the text and the reference preview take its place");
+                ui.checkbox(&mut self.settings.diagram, "Diagram    Ctrl+Shift+D")
+                    .on_hover_text(
+                        "The structure of the document in the grid's place: one box per path \
+                         of element names, with how many there are (D36)",
+                    );
+                ui.add_enabled(
+                    self.settings.grid && !self.settings.diagram,
                     egui::Checkbox::new(
                         &mut self.settings.cell_pane,
                         "Cell pane beside the grid (experiment)",
@@ -1700,6 +1710,10 @@ impl App {
             if tool_icons::button(ui, open, Tool::Format, "Format") {
                 self.format_document();
             }
+            ui.separator();
+            if tool_icons::button(ui, open, Tool::Diagram, "Diagram    Ctrl+Shift+D") {
+                self.settings.diagram = !self.settings.diagram;
+            }
         });
     }
 
@@ -1918,14 +1932,26 @@ impl eframe::App for App {
         if let Some(open) = self.docs.active_mut() {
             open.scan_grid(&ctx);
         }
-        // Before Find's: F3 steps through the XPath results while their bar is open.
+        // Before Ctrl+D (Duplicate), which would match it too.
+        if !self.docs.is_empty() && ctx.input_mut(|i| i.consume_shortcut(&crate::diagram::TOGGLE)) {
+            self.settings.diagram = !self.settings.diagram;
+        }
+        // Before Find's: F3 steps through the XPath results while their bar is open, and
+        // through a diagram box's elements while the find bar is closed.
         self.xpath.shortcuts(&ctx, self.docs.active_mut());
+        if self.settings.diagram
+            && !self.find.visible
+            && let Some(open) = self.docs.active_mut()
+        {
+            crate::diagram::shortcuts(&ctx, open);
+        }
         self.find.shortcuts(&ctx, self.docs.active_mut());
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
         {
             // A hidden grid takes no keys: they go to the tree.
-            if !self.settings.grid && open.keys == Pane::Grid {
+            let grid_shown = self.settings.grid && !self.settings.diagram;
+            if !grid_shown && open.keys == Pane::Grid {
                 open.keys = Pane::Tree;
             }
             crate::nav::handle(&ctx, open);
@@ -1976,11 +2002,27 @@ impl eframe::App for App {
         let cell_pane = self.settings.cell_pane;
         let reference_preview = self.settings.reference_preview;
         let preview_tree = reference_preview && self.settings.preview_tree;
-        let show_grid = self.settings.grid;
+        let show_diagram = self.settings.diagram;
+        let show_grid = self.settings.grid && !show_diagram;
         let wrap = open.wraps(self.settings.word_wrap);
         let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
             let total = ui.available_height();
+            if show_diagram {
+                // In the grid's place (D36), with a height of its own per layout.
+                let diagram = match layout {
+                    Layout::GridAbove => egui::Panel::top("diagram"),
+                    Layout::TextAbove => egui::Panel::bottom("diagram-below"),
+                };
+                diagram
+                    .frame(theme.view_frame(ui.style(), false))
+                    .resizable(true)
+                    .default_size(total * 0.45)
+                    .show(ui, |ui| {
+                        crate::fonts::use_in_views(ui, view_font.as_ref());
+                        ui.push_id(open.id, |ui| crate::diagram::show(ui, open));
+                    });
+            }
             if show_grid {
                 // Each layout has its own panel, so each remembers its own height.
                 let grid = match layout {
@@ -2090,6 +2132,7 @@ impl Open {
             find_within: None,
             find_requested: false,
             xpath: None,
+            diagram: Default::default(),
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),

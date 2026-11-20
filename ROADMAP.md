@@ -84,8 +84,10 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       problems, a preview with them resolved, and the CLI's `references` and `preview` (D32)
 - [x] The resolved preview as a tree, in a pane right of the preview text (REF-10, D33)
 - [x] Repeated elements expanded in the preview; rules switched off in the file (REF-11, D34)
-- [ ] A diagram of the document's structure: one box per path, with counts; levels, the
-      marks of Find and XPath, SVG export (D36; issues #121 to #124)
+- [x] A diagram of the document's structure: one box per path, with counts, clicks both
+      ways and collapsing (D36, step 1; issue #121)
+- [ ] The diagram's levels, the marks of Find and XPath, SVG export (D36; issues #122 to
+      #124)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)

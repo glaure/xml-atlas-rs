@@ -31,6 +31,7 @@ pub mod grid;
 pub mod problems;
 pub mod references;
 pub mod repeat;
+pub mod structure;
 pub mod text;
 pub mod tree;
 pub mod wrap;

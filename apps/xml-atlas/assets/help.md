@@ -20,8 +20,8 @@ All three show the same document, and a change in one shows in the others.
 
 ## The toolbar
 
-Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, XPath, Drill Up, Drill Down
-and Format. Resting the pointer on a button names it. View > Toolbar hides it.
+Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, XPath, Drill Up, Drill Down,
+Format and Diagram. Resting the pointer on a button names it. View > Toolbar hides it.
 
 ## The tree
 
@@ -43,6 +43,20 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 - Double-click a row, or press Enter, to open it. Backspace goes back to the parent.
 - Click a cell and press F2 to edit its value. The cell pane beside the grid shows the
   clicked cell in full (View turns it off).
+
+## The diagram
+
+- View > Diagram (Ctrl+Shift+D) shows the structure of the document in the grid's place: one
+  box per path of element names, such as `orders/order/items/item`, with how many elements
+  have it, the names of their attributes, and `text` when they hold text. It is read when you
+  first show it, and again shortly after an edit.
+- Click a box to select the first element with that path; click it again, or press F3, for
+  the next one. The box of the element selected in the tree, grid or text is marked.
+- The small circle right of a box collapses its children, and opens them again. Each tab
+  remembers what is collapsed.
+- Drag or use the wheel to move around; Ctrl+wheel zooms, Ctrl+0 goes back to 100 %.
+- A document that nests one element in itself (sections in sections) has a path per depth;
+  the diagram shows the first 2,000 paths and says when there are more.
 
 ## The text
 
@@ -99,6 +113,7 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 - Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo
 - Ctrl+F find, Ctrl+H replace, F3 and Shift+F3 next and previous match
 - Ctrl+Shift+X XPath; with its bar open, F3 and Shift+F3 step through its results
+- Ctrl+Shift+D diagram; after a click on a box, F3 goes to its next element
 - Alt+Up and Alt+Down drill up and down; Alt+Shift+Up and Alt+Shift+Down move an element
 - F2 rename (tree) or edit a cell (grid); Del delete; Ctrl+D duplicate
 - Alt+Z word wrap; F1 this help
