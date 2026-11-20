@@ -92,6 +92,17 @@ impl XPath {
         &self.text
     }
 
+    /// What can be found wrong before running on this document: a prefix the root element
+    /// does not declare. Cheap, for checking as the expression is typed.
+    pub fn check(&self, src: &[u8], index: &Index) -> Result<(), XPathError> {
+        let stop = AtomicBool::new(false);
+        let mut ev = eval::Eval::new(src, index, &stop);
+        for prefix in parse::prefixes(&self.expr) {
+            ev.prefix_uri(&prefix)?;
+        }
+        Ok(())
+    }
+
     /// Evaluates the expression with the root node as context. Checks `stop` while it walks
     /// and gives [`XPathError::Stopped`] once it is set.
     pub fn evaluate(
@@ -629,6 +640,32 @@ mod tests {
         assert_eq!(
             one("<b/>", "//x:b"),
             "error: the prefix `x` is not declared on the root element"
+        );
+    }
+
+    /// What can be told before running: prefixes the root does not declare.
+    #[test]
+    fn check_finds_undeclared_prefixes_before_running() {
+        let doc = Document::from_bytes(br#"<r xmlns:p="urn:p"><p:x/></r>"#.to_vec());
+        let ok = |e: &str| XPath::parse(e).unwrap().check(&doc.src, &doc.index);
+        assert_eq!(ok("//p:x[@xml:lang]/p:*"), Ok(()));
+        assert_eq!(ok("//x | count(//y)"), Ok(()));
+        assert_eq!(
+            ok("//p:x[q:y = 1]"),
+            Err(XPathError::Failed(
+                "the prefix `q` is not declared on the root element".into()
+            ))
+        );
+        assert_eq!(
+            ok("(//z)[1]/w:*"),
+            Err(XPathError::Failed(
+                "the prefix `w` is not declared on the root element".into()
+            ))
+        );
+        // Each prefix once, in the order written.
+        assert_eq!(
+            parse::prefixes(&parse::parse("a:b[c:d]/e:*[a:x] | concat(g:h, 1)").unwrap()),
+            ["a", "c", "e", "g"]
         );
     }
 

@@ -37,6 +37,23 @@ pub struct XPathBar {
     /// The expressions run, newest first.
     history: Vec<String>,
     focus_field: bool,
+    /// The field's text as last checked, and what is wrong with it (XP-1).
+    checked: Option<Checked>,
+}
+
+/// An expression checked as it is typed, against one document.
+struct Checked {
+    text: String,
+    index: Weak<Index>,
+    problem: Option<Problem>,
+}
+
+/// What is wrong with the expression in the field.
+#[derive(Clone, Debug, PartialEq)]
+struct Problem {
+    message: String,
+    /// The character where it goes wrong, from 1, when it is known.
+    at: Option<usize>,
 }
 
 /// One tab's query and what it gave.
@@ -133,19 +150,31 @@ impl XPathBar {
         poll(open);
         let mut run = false;
         let mut close = false;
+        let mut valid = false;
+        let mut message = None;
         ui.horizontal(|ui| {
             ui.label("XPath");
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut self.text)
-                    .desired_width(360.0)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text("//order[@status='open']"),
-            );
+            let output = egui::TextEdit::singleline(&mut self.text)
+                .desired_width(360.0)
+                .font(egui::TextStyle::Monospace)
+                .hint_text("//order[@status='open']")
+                .show(ui);
+            let field = output.response.response.clone();
             if std::mem::take(&mut self.focus_field) {
                 field.request_focus();
             }
+            let problem = self.check(open);
+            valid = problem.is_none() && !self.text.trim().is_empty();
+            if let Some(p) = &problem {
+                show_problem(ui, &output, p);
+            } else if valid {
+                ui.label(RichText::new("valid").weak())
+                    .on_hover_text("A valid XPath 1.0 expression");
+            }
+            message = problem.map(|p| p.message);
             if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                run = true;
+                // A wrong expression is not run: its message is already shown.
+                run = valid;
                 field.request_focus();
             }
             // The field gives up focus on Escape before we see the key, so check both.
@@ -176,7 +205,12 @@ impl XPathBar {
                 {
                     r.stop();
                 }
-            } else if ui.button("Run").on_hover_text("Enter").clicked() {
+            } else if ui
+                .add_enabled(valid, egui::Button::new("Run"))
+                .on_hover_text("Enter")
+                .on_disabled_hover_text("Write a valid XPath 1.0 expression first")
+                .clicked()
+            {
                 run = true;
             }
             if has_fresh_nodes(open) {
@@ -198,12 +232,54 @@ impl XPathBar {
                 }
             });
         });
+        if let Some(m) = message {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("XPath").color(egui::Color32::TRANSPARENT));
+                ui.colored_label(ui.visuals().error_fg_color, m);
+            });
+        }
         if run {
             self.run(ui.ctx(), open);
         }
         if close {
             self.close(Some(open));
         }
+    }
+
+    /// What is wrong with the expression in the field, checked again when the text or the
+    /// document changed: parsing a line is a few microseconds, so it is done as it is typed.
+    fn check(&mut self, open: &Open) -> Option<Problem> {
+        let index = &open.doc.index;
+        let same = self
+            .checked
+            .as_ref()
+            .is_some_and(|c| c.text == self.text && c.index.as_ptr() == Arc::as_ptr(index));
+        if !same {
+            let problem = if self.text.trim().is_empty() {
+                None
+            } else {
+                match XPath::parse(&self.text) {
+                    Err(XPathError::Syntax { message, at }) => Some(Problem {
+                        message: format!("{message} at {at}"),
+                        at: Some(at),
+                    }),
+                    Err(e) => Some(Problem {
+                        message: e.to_string(),
+                        at: None,
+                    }),
+                    Ok(x) => x.check(&open.doc.src, index).err().map(|e| Problem {
+                        message: e.to_string(),
+                        at: None,
+                    }),
+                }
+            };
+            self.checked = Some(Checked {
+                text: self.text.clone(),
+                index: Arc::downgrade(index),
+                problem,
+            });
+        }
+        self.checked.as_ref().and_then(|c| c.problem.clone())
     }
 
     /// Runs the expression in the field on the tab's document, on a thread of its own.
@@ -256,6 +332,44 @@ impl XPathBar {
             scroll_to: None,
         });
     }
+}
+
+/// Frames the field in the error colour and underlines the character where the expression
+/// goes wrong; at the end, a short line after the last character.
+fn show_problem(ui: &Ui, output: &egui::text_edit::TextEditOutput, problem: &Problem) {
+    let color = ui.visuals().error_fg_color;
+    let rect = output.response.response.rect;
+    ui.painter().rect_stroke(
+        rect,
+        ui.visuals().widgets.inactive.corner_radius,
+        egui::Stroke::new(1.5, color),
+        egui::StrokeKind::Outside,
+    );
+    let Some(at) = problem.at else {
+        return;
+    };
+    let galley = &output.galley;
+    let chars = galley.text().chars().count();
+    let i = at.saturating_sub(1).min(chars);
+    let pos = |c: usize| galley.pos_from_cursor(egui::text::CCursor::new(c));
+    let start = pos(i);
+    let end_x = if i < chars {
+        pos(i + 1).min.x
+    } else {
+        start.min.x + galley.size().y * 0.5
+    };
+    let offset = output.galley_pos.to_vec2();
+    let y = start.max.y + offset.y + 1.0;
+    let painter = ui
+        .painter()
+        .with_clip_rect(output.text_clip_rect.expand(2.0));
+    painter.line_segment(
+        [
+            egui::pos2(start.min.x + offset.x, y),
+            egui::pos2(end_x.max(start.min.x + 4.0) + offset.x, y),
+        ],
+        egui::Stroke::new(2.0, color),
+    );
 }
 
 /// Whether `open` has results to show the panel for.
@@ -526,6 +640,41 @@ mod tests {
             "Größe".as_bytes()
         );
         assert_eq!(bar.history, ["//a/text()", "//a/@n"]);
+    }
+
+    /// XP-1: the field says as it is typed whether the expression is valid, and where not.
+    #[test]
+    fn the_expression_is_checked_as_it_is_typed() {
+        let mut open = opened(r#"<r xmlns:p="urn:p"><p:a/></r>"#);
+        let mut bar = XPathBar::default();
+        let check = |bar: &mut XPathBar, open: &Open, t: &str| {
+            bar.text = t.into();
+            bar.check(open)
+        };
+        assert_eq!(check(&mut bar, &open, "  "), None);
+        assert_eq!(check(&mut bar, &open, "//p:a[@x = 'größe']"), None);
+        assert_eq!(
+            check(&mut bar, &open, "//p:a["),
+            Some(Problem {
+                message: "expected an expression, found the end at 7".into(),
+                at: Some(7),
+            })
+        );
+        assert_eq!(
+            check(&mut bar, &open, "//q:a"),
+            Some(Problem {
+                message: "the prefix `q` is not declared on the root element".into(),
+                at: None,
+            })
+        );
+        // Drawing the bar with the error at the end, in the middle and after non-ASCII text.
+        let ctx = egui::Context::default();
+        for t in ["//p:a[", "//p:a[)]", "//größe[)]", "//q:a"] {
+            bar.text = t.into();
+            let mut out = ctx.run_ui(Default::default(), |ui| bar.show(ui, &mut open));
+            out.textures_delta.clear();
+            assert!(open.xpath.is_none(), "{t} ran");
+        }
     }
 
     #[test]

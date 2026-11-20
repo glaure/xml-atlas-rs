@@ -556,7 +556,7 @@ impl<'d> Eval<'d> {
     }
 
     /// The root element's own declaration of `prefix`; `xml` is always declared.
-    fn prefix_uri(&mut self, prefix: &str) -> R<String> {
+    pub fn prefix_uri(&mut self, prefix: &str) -> R<String> {
         if prefix == "xml" {
             return Ok(XML_NAMESPACE.into());
         }
