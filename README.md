@@ -11,6 +11,9 @@ selected element's children below](docs/images/xml-atlas.png)
 
 ## Fast on big files
 
+![A 300 MiB file: jumping through the tree, sorting the grid and running an XPath query
+that counts 211,145 orders in 453 ms](docs/images/demo.gif)
+
 A 300 MiB file with 7 million elements opens in under a second, where XML Marker needs a
 minute. The tree, grid and text views only draw what is on screen, so scrolling costs the
 same in a small file and a huge one.
