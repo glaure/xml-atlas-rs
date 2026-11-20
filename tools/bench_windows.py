@@ -37,7 +37,7 @@ PROFILES = {
     "marker": {
         # Tree at the top left, text at the top right, selection browsers below. The tree
         # starts collapsed; a click on the root row selects it.
-        "tree_setup": [("click", (0.03, 0.046))],
+        "tree_setup": [("click", (0.03, 0.035))],
         "tree_low_row": (0.04, 0.60),
         "text": (0.70, 0.30),
         "find_open": "ctrl+f",  # a Find dialog; Enter finds the next match, it stays open
