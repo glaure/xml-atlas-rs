@@ -37,16 +37,16 @@ How the views are laid out, and how the window looks.
   where the libraries' licenses are), and links to the project page and the releases.
   *Check for updates now* asks for a newer version at once (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
-  Cut, Copy, Paste | Undo, Redo, Find | Drill Up, Drill Down, Format. Each button does what
-  its menu entry or key does and is greyed out when that is: Save without changes, Cut and
-  Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest
-  without an open document (except New and Open). Resting the pointer on a button names it
-  and its key. The icons are drawn as shapes in the button's text colour, as the tree's are
-  (TREE-11), no images and no font symbols: egui 0.37 takes symbols missing from its own
-  fonts from the system's, and Windows has no font it finds for New, Open, Copy, Drill Up,
-  Drill Down and Format, so 1.0.0 showed boxes there (reported 2026-11-18). View > Toolbar shows
-  or hides it, remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree
-  follows the selection by itself, and the toolbar stays under the menu; egui cannot move it.
+  Cut, Copy, Paste | Undo, Redo, Find, XPath | Drill Up, Drill Down, Format. Each button does
+  what its menu entry or key does and is greyed out when that is: Save without changes, Cut and
+  Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest without
+  an open document (except New and Open). Resting the pointer on a button names it and its key.
+  The icons are drawn as shapes in the button's text colour, as the tree's are (TREE-11), no
+  images and no font symbols: egui 0.37 takes symbols missing from its own fonts from the
+  system's, and Windows has no font it finds for New, Open, Copy, Drill Up, Drill Down and
+  Format, so 1.0.0 showed boxes there (reported 2026-11-18). View > Toolbar shows or hides it,
+  remembered (WIN-3). Not like XML Marker: no Locate in tree, as the tree follows the selection
+  by itself, and the toolbar stays under the menu; egui cannot move it.
 - **WIN-6** `[built]` *Allow AI agents (MCP)* in Settings (WIN-11; in the View menu until
   2026-11-18), off by default and remembered (WIN-3),
   lets an agent such as Claude Code work in the window through `xml-atlas-cli mcp --window`

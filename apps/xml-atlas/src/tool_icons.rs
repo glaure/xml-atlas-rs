@@ -30,6 +30,8 @@ pub enum Tool {
     Undo,
     Redo,
     Find,
+    /// Edit > XPath… (XP-1).
+    XPath,
     DrillUp,
     DrillDown,
     Format,
@@ -38,7 +40,7 @@ pub enum Tool {
 impl Tool {
     /// Every tool, in toolbar order.
     #[cfg(test)]
-    pub const ALL: [Tool; 12] = [
+    pub const ALL: [Tool; 13] = [
         Tool::New,
         Tool::Open,
         Tool::Save,
@@ -48,6 +50,7 @@ impl Tool {
         Tool::Undo,
         Tool::Redo,
         Tool::Find,
+        Tool::XPath,
         Tool::DrillUp,
         Tool::DrillDown,
         Tool::Format,
@@ -204,6 +207,26 @@ pub fn draw(painter: &Painter, center: Pos2, tool: Tool, color: Color32) {
                 [pos2(l + 9.0, t + 9.0), pos2(rt - 0.5, b - 0.5)],
                 Stroke::new(2.2, color),
             );
+        }
+        Tool::XPath => {
+            // A small tree, its last node filled: nodes selected by a path.
+            let node = |x: f32, y: f32, filled: bool| {
+                let n = Rect::from_min_size(pos2(x, y), vec2(4.5, 4.5));
+                if filled {
+                    painter.rect_filled(n, 0.5, color);
+                } else {
+                    painter.rect_stroke(n, 0.5, stroke, StrokeKind::Inside);
+                }
+            };
+            node(l + 0.5, t + 0.5, false);
+            node(l + 8.5, t + 4.75, false);
+            node(l + 8.5, b - 5.0, true);
+            line(vec![
+                pos2(l + 2.75, t + 5.0),
+                pos2(l + 2.75, b - 2.75),
+                pos2(l + 8.5, b - 2.75),
+            ]);
+            line(vec![pos2(l + 2.75, t + 7.0), pos2(l + 8.5, t + 7.0)]);
         }
         Tool::DrillUp | Tool::DrillDown => {
             // A broad arrow up or down.

@@ -28,6 +28,8 @@ const HISTORY: usize = 20;
 const VISIBLE_ROWS: f32 = 8.0;
 /// How much of a node's value a row shows.
 const VALUE_CHARS: usize = 120;
+/// Shown in the empty field; Tab takes it.
+const EXAMPLE: &str = "//order[@status='open']";
 
 /// The bar: shared by the tabs.
 #[derive(Default)]
@@ -154,14 +156,26 @@ impl XPathBar {
         let mut message = None;
         ui.horizontal(|ui| {
             ui.label("XPath");
+            let empty = self.text.is_empty();
             let output = egui::TextEdit::singleline(&mut self.text)
                 .desired_width(360.0)
                 .font(egui::TextStyle::Monospace)
-                .hint_text("//order[@status='open']")
+                .hint_text(EXAMPLE)
+                // While empty, Tab stays in the field to take the example.
+                .lock_focus(empty)
                 .show(ui);
             let field = output.response.response.clone();
             if std::mem::take(&mut self.focus_field) {
                 field.request_focus();
+            }
+            if empty
+                && field.has_focus()
+                && ui.input(|i| i.key_pressed(Key::Tab) && i.modifiers.is_none())
+            {
+                self.take_example(ui.ctx(), field.id);
+            }
+            if empty {
+                field.clone().on_hover_text("Tab takes the example");
             }
             let problem = self.check(open);
             valid = problem.is_none() && !self.text.trim().is_empty();
@@ -243,6 +257,18 @@ impl XPathBar {
         }
         if close {
             self.close(Some(open));
+        }
+    }
+
+    /// Puts the example into the empty field, the cursor after it.
+    fn take_example(&mut self, ctx: &egui::Context, field: egui::Id) {
+        self.text = EXAMPLE.to_string();
+        if let Some(mut state) = egui::TextEdit::load_state(ctx, field) {
+            let end = egui::text::CCursor::new(self.text.chars().count());
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(end)));
+            state.store(ctx, field);
         }
     }
 
@@ -421,6 +447,15 @@ pub fn show_results(ui: &mut Ui, open: &mut Open) {
         None => &[],
     };
     // Only the rows on screen are laid out: a query can give millions of nodes.
+    let mono = egui::TextStyle::Monospace.resolve(ui.style());
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let weak = ui.visuals().weak_text_color();
+    // The line numbers' column: as wide as the largest line number.
+    let line_w = ui
+        .painter()
+        .layout_no_wrap(doc.line_count().to_string(), mono.clone(), weak)
+        .size()
+        .x;
     area.show_rows(ui, row_h, count, |ui, rows| {
         for i in rows {
             let item = nodes[i];
@@ -428,16 +463,64 @@ pub fn show_results(ui: &mut Ui, open: &mut Open) {
             let line = doc.line_of(span.start as u64) + 1;
             let path = item.path(&doc.src, &doc.index);
             let value = item.value(&doc.src, &doc.index, VALUE_CHARS);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{line:>7}")).monospace().weak());
-                let label = ui.selectable_label(current == Some(i), path);
-                if label.clicked() {
-                    go = Some(i);
-                }
-                if !value.is_empty() {
-                    ui.label(RichText::new(value).weak());
-                }
-            });
+            // The whole row is one link: it shows where it can be clicked in either theme.
+            let (rect, row) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), row_h),
+                egui::Sense::click(),
+            );
+            let row = row.on_hover_cursor(egui::CursorIcon::PointingHand);
+            let v = ui.visuals();
+            let selected = current == Some(i);
+            let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+            if selected {
+                painter.rect_filled(rect, 2.0, v.selection.bg_fill);
+            } else if row.hovered() {
+                painter.rect_filled(rect, 2.0, v.widgets.hovered.weak_bg_fill);
+            }
+            let y = rect.center().y;
+            let mut x = rect.left() + 6.0;
+            painter.text(
+                egui::pos2(x + line_w, y),
+                egui::Align2::RIGHT_CENTER,
+                line.to_string(),
+                mono.clone(),
+                weak,
+            );
+            x += line_w + 12.0;
+            let path_color = if selected {
+                v.selection.stroke.color
+            } else {
+                v.hyperlink_color
+            };
+            let drawn = painter.text(
+                egui::pos2(x, y),
+                egui::Align2::LEFT_CENTER,
+                path,
+                body.clone(),
+                path_color,
+            );
+            if row.hovered() && !selected {
+                // Underlined on hover, as a link is.
+                painter.line_segment(
+                    [
+                        egui::pos2(drawn.left(), drawn.bottom()),
+                        egui::pos2(drawn.right(), drawn.bottom()),
+                    ],
+                    egui::Stroke::new(1.0, path_color),
+                );
+            }
+            if !value.is_empty() {
+                painter.text(
+                    egui::pos2(drawn.right() + 16.0, y),
+                    egui::Align2::LEFT_CENTER,
+                    value,
+                    body.clone(),
+                    weak,
+                );
+            }
+            if row.clicked() {
+                go = Some(i);
+            }
         }
     });
     if let Some(i) = go {
@@ -632,6 +715,11 @@ mod tests {
         assert_eq!(open.xpath.as_ref().unwrap().current, Some(0));
         step(&mut open, false);
         assert_eq!(open.xpath.as_ref().unwrap().current, Some(1));
+        // Drawing the list, with a row selected, changes no selection.
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(Default::default(), |ui| show_results(ui, &mut open));
+        out.textures_delta.clear();
+        assert_eq!(open.xpath.as_ref().unwrap().current, Some(1));
         // Text is marked as a grid cell is.
         run(&mut bar, &mut open, "//a/text()");
         let mark = open.mark.clone().unwrap();
@@ -675,6 +763,40 @@ mod tests {
             out.textures_delta.clear();
             assert!(open.xpath.is_none(), "{t} ran");
         }
+    }
+
+    /// Tab in the empty field takes the example; with text in it, Tab leaves the text alone.
+    #[test]
+    fn tab_takes_the_example_in_an_empty_field() {
+        let mut open = opened("<orders><order status='open'/></orders>");
+        let mut bar = XPathBar {
+            focus_field: true,
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let mut frame = |bar: &mut XPathBar, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| bar.show(ui, &mut open));
+            out.textures_delta.clear();
+        };
+        let tab = || egui::Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        // The field asks for the focus, then has it.
+        frame(&mut bar, vec![]);
+        frame(&mut bar, vec![]);
+        frame(&mut bar, vec![tab()]);
+        assert_eq!(bar.text, EXAMPLE);
+        frame(&mut bar, vec![tab()]);
+        frame(&mut bar, vec![tab()]);
+        assert_eq!(bar.text, EXAMPLE);
     }
 
     #[test]
