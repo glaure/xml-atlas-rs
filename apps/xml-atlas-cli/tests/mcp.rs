@@ -107,7 +107,9 @@ fn an_agent_edits_and_saves_through_the_protocol() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    for want in ["open", "element", "children", "find", "set_text", "save"] {
+    for want in [
+        "open", "element", "children", "find", "xpath", "set_text", "save",
+    ] {
         assert!(names.contains(&want), "{want} missing from {names:?}");
     }
 
