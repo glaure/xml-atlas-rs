@@ -3,8 +3,12 @@
 
 use super::XPathError;
 
-/// Expressions nested deeper than this are refused: the parser recurses once per level.
-const MAX_DEPTH: usize = 200;
+/// Expressions nested deeper than this (parentheses, predicates, arguments, minus signs) are
+/// refused. Parser and evaluator recurse about a dozen calls per level, and the expression is
+/// checked on the window's thread, whose stack is 1 MiB on Windows: in a debug build 64
+/// levels fit in it and 128 do not (`the_deepest_expressions_fit_a_small_stack`). Real
+/// expressions nest a few levels.
+pub(super) const MAX_DEPTH: usize = 64;
 
 /// A parsed expression.
 #[derive(Clone, Debug, PartialEq)]

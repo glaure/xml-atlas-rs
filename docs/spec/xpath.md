@@ -32,6 +32,9 @@ a fraction of a second (`docs/decisions.md`, D35).
     the root element does not declare is an error that names it.
   - `id()` finds elements by `xml:id`. Without a DTD nothing else is known to be an ID.
   - Variables (`$x`) are not supported; there is nothing to bind them to.
+  - An expression nests at most 64 levels (parentheses, predicates, arguments, minus
+    signs); a deeper one is refused with "the expression is nested too deeply", so it
+    cannot exhaust the window's stack.
 - **XP-3** `[done]` Nodes are listed in a panel at the bottom, on the views' background:
   one row per node with its line, its path (`/orders/order[3]/@id`) in the link colour, and
   its value on one line. A row is one link: the pointer becomes a hand over it, it is

@@ -728,6 +728,49 @@ mod tests {
         assert!(Item::Folded(5).order() < Item::Node(6).order());
     }
 
+    /// The deepest expressions the parser takes are read and evaluated within 1 MiB of stack:
+    /// the main thread's on Windows, where the XPath bar checks the expression as it is typed
+    /// and agents' queries run (D28). Deeper ones are refused, not a crash.
+    #[test]
+    fn the_deepest_expressions_fit_a_small_stack() {
+        let run = |text: String| {
+            std::thread::Builder::new()
+                .stack_size(1 << 20)
+                .spawn(move || {
+                    let doc = Document::from_bytes(b"<a><a/></a>".to_vec());
+                    let x = XPath::parse(&text)?;
+                    x.evaluate(&doc.src, &doc.index, &AtomicBool::new(false))
+                        .map(|_| ())
+                })
+                .unwrap()
+                .join()
+                .expect("the stack overflowed")
+        };
+        let n = parse::MAX_DEPTH - 1;
+        let parens = |n: usize| format!("{}1{}", "(".repeat(n), ")".repeat(n));
+        let predicates = |n: usize| format!("{}a{}", "a[".repeat(n), "]".repeat(n));
+        let negations = |n: usize| format!("{}1", "-".repeat(n));
+        let calls = |n: usize| format!("{}1{}", "not(".repeat(n), ")".repeat(n));
+        for (what, text) in [
+            ("parentheses", parens(n)),
+            ("predicates", predicates(n)),
+            ("negations", negations(n)),
+            ("calls", calls(n)),
+        ] {
+            assert_eq!(run(text), Ok(()), "{what}");
+        }
+        for text in [
+            parens(n + 20),
+            predicates(n + 20),
+            negations(n + 20),
+            calls(n + 20),
+        ] {
+            assert!(
+                matches!(run(text), Err(XPathError::Syntax { ref message, .. }) if message.contains("nested too deeply"))
+            );
+        }
+    }
+
     #[test]
     fn stops_when_asked() {
         let mut src = String::from("<r>");
