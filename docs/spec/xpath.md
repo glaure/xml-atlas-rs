@@ -7,7 +7,9 @@ a fraction of a second (`docs/decisions.md`, D35).
 
 ## Rules
 
-- **XP-1** `[built]` *Edit > XPath…* (Ctrl+Shift+X) opens a query bar under the find bar.
+- **XP-1** `[built]` *Edit > XPath…* (Ctrl+Shift+X), or its toolbar button (a small tree),
+  opens a query bar under the find bar. The empty field shows an example; Tab takes it, the
+  cursor after it.
   The expression is checked as it is typed: a valid one says *valid*; a wrong one frames
   the field in the error colour, underlines the character where it goes wrong, says what
   is expected below the bar ("expected `]`, found the end at 18"), and is not run. A prefix
@@ -30,8 +32,10 @@ a fraction of a second (`docs/decisions.md`, D35).
     the root element does not declare is an error that names it.
   - `id()` finds elements by `xml:id`. Without a DTD nothing else is known to be an ID.
   - Variables (`$x`) are not supported; there is nothing to bind them to.
-- **XP-3** `[built]` Nodes are listed in a panel at the bottom, as the problems are: one row
-  per node with its line, its path (`/orders/order[3]/@id`) and its value on one line. The
+- **XP-3** `[built]` Nodes are listed in a panel at the bottom, on the views' background:
+  one row per node with its line, its path (`/orders/order[3]/@id`) in the link colour, and
+  its value on one line. A row is one link: the pointer becomes a hand over it, it is
+  shaded and its path underlined; the selected row is shaded as a selection is. The
   first is selected when the query ends; a click selects another, and F3 and Shift+F3 step
   through them while the bar is open, going on from the other end. Selecting a node selects
   its element in tree and grid and scrolls the text to it; an attribute, text, a comment or

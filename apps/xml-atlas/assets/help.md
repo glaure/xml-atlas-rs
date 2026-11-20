@@ -20,7 +20,7 @@ All three show the same document, and a change in one shows in the others.
 
 ## The toolbar
 
-Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, Drill Up, Drill Down
+Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, XPath, Drill Up, Drill Down
 and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 
 ## The tree
@@ -64,7 +64,8 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 
 - Edit > XPath (Ctrl+Shift+X) opens a query bar for an XPath 1.0 expression, such as
   `//order[@status='open']`, `count(//item)` or `//order[@id='42']/customer/name`. Enter
-  runs it; the list button holds the expressions run before. While you type, the bar says
+  runs it; the list button holds the expressions run before. In the empty field, Tab takes
+  the example it shows. While you type, the bar says
   whether the expression is valid; a wrong one is framed in red, the place where it goes
   wrong is underlined, and the message says what is expected there.
 - The nodes it selects are listed at the bottom with their line, path and value. Click one to

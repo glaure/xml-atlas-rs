@@ -1683,6 +1683,9 @@ impl App {
             if tool_icons::button(ui, open, Tool::Find, "Find    Ctrl+F") {
                 self.find.open(self.docs.active_mut());
             }
+            if tool_icons::button(ui, open, Tool::XPath, "XPath    Ctrl+Shift+X") {
+                self.xpath.open();
+            }
             ui.separator();
             if tool_icons::button(ui, open, Tool::DrillUp, "Drill Up    Alt+Up")
                 && let Some(open) = self.docs.active_mut()
@@ -2016,7 +2019,9 @@ impl eframe::App for App {
                     });
             }
             if self.xpath.visible && crate::xpath_bar::has_results(open) {
+                // The views' background, as tree and text have: a list to click in.
                 egui::Panel::bottom("xpath-results")
+                    .frame(theme.view_frame(ui.style(), false))
                     .resizable(true)
                     .show(ui, |ui| {
                         ui.push_id(open.id, |ui| crate::xpath_bar::show_results(ui, open));
