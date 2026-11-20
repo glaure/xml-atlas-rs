@@ -87,6 +87,7 @@ impl Section {
                 settings.tree_attributes = d.tree_attributes;
                 settings.grid = d.grid;
                 settings.cell_pane = d.cell_pane;
+                settings.diagram = d.diagram;
                 settings.reference_preview = d.reference_preview;
                 settings.preview_tree = d.preview_tree;
                 settings.word_wrap = d.word_wrap;
@@ -244,6 +245,7 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> O
                                 "Cell pane beside the grid (experiment)",
                             ),
                         );
+                        ui.checkbox(&mut s.diagram, "Diagram, in the grid's place");
                         ui.checkbox(&mut s.reference_preview, "Preview with references resolved");
                         ui.add_enabled(
                             s.reference_preview,
@@ -319,6 +321,7 @@ mod tests {
             tree_attributes: false,
             grid: false,
             cell_pane: false,
+            diagram: true,
             word_wrap: true,
             toolbar: false,
             reference_preview: true,

@@ -54,6 +54,8 @@ pub struct Settings {
     pub grid: bool,
     /// The pane beside the grid for the clicked cell (GRID-16).
     pub cell_pane: bool,
+    /// The structure diagram, in the grid's place (D36).
+    pub diagram: bool,
     /// Long lines wrap in the text view (TEXT-13).
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
@@ -87,6 +89,7 @@ impl Default for Settings {
             tree_attributes: true,
             grid: true,
             cell_pane: true,
+            diagram: false,
             word_wrap: false,
             toolbar: true,
             reference_preview: false,
@@ -178,6 +181,7 @@ impl Settings {
              tree_attributes = {}\n\
              grid = {}\n\
              cell_pane = {}\n\
+             diagram = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
              reference_preview = {}\n\
@@ -210,6 +214,7 @@ impl Settings {
             self.tree_attributes,
             self.grid,
             self.cell_pane,
+            self.diagram,
             self.word_wrap,
             self.toolbar,
             self.reference_preview,
@@ -313,6 +318,7 @@ impl Settings {
                 ("view", "tree_attributes") => set(&mut s.tree_attributes, boolean(value)),
                 ("view", "grid") => set(&mut s.grid, boolean(value)),
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
+                ("view", "diagram") => set(&mut s.diagram, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
                 ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
@@ -450,6 +456,7 @@ mod tests {
             tree_attributes: false,
             grid: false,
             cell_pane: false,
+            diagram: true,
             word_wrap: true,
             toolbar: false,
             reference_preview: true,

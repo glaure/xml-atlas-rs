@@ -12,7 +12,8 @@ How the views are laid out, and how the window looks.
   borders between the views can be dragged; each layout keeps its own grid height. The choice
   is remembered (WIN-3). View > Grid hides the grid, and its cell pane, so that the text and the
   reference preview (REF-5) have the room; the arrow keys then go to the tree. Remembered
-  too.
+  too. View > Diagram (Ctrl+Shift+D) shows the structure diagram in the grid's place, with a
+  height of its own per layout, also while the grid is hidden (D36); remembered too.
 - **WIN-3** `[done]` Settings are remembered between sessions: the layout (WIN-1), attribute
   rows in the tree (TREE-1), whether the grid is shown (WIN-1), the Format options (FMT-10 to FMT-13), and Find's match case and
   whole word (TEXT-12), and the recent files (OPEN-12). They are kept in `xml-atlas/settings.toml` in the platform's
@@ -37,7 +38,8 @@ How the views are laid out, and how the window looks.
   where the libraries' licenses are), and links to the project page and the releases.
   *Check for updates now* asks for a newer version at once (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
-  Cut, Copy, Paste | Undo, Redo, Find, XPath | Drill Up, Drill Down, Format. Each button does
+  Cut, Copy, Paste | Undo, Redo, Find, XPath | Drill Up, Drill Down, Format | Diagram (D36,
+  switches View > Diagram). Each button does
   what its menu entry or key does and is greyed out when that is: Save without changes, Cut and
   Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest without
   an open document (except New and Open). Resting the pointer on a button names it and its key.

@@ -35,12 +35,14 @@ pub enum Tool {
     DrillUp,
     DrillDown,
     Format,
+    /// View > Diagram (D36).
+    Diagram,
 }
 
 impl Tool {
     /// Every tool, in toolbar order.
     #[cfg(test)]
-    pub const ALL: [Tool; 13] = [
+    pub const ALL: [Tool; 14] = [
         Tool::New,
         Tool::Open,
         Tool::Save,
@@ -54,6 +56,7 @@ impl Tool {
         Tool::DrillUp,
         Tool::DrillDown,
         Tool::Format,
+        Tool::Diagram,
     ];
 }
 
@@ -254,6 +257,23 @@ pub fn draw(painter: &Painter, center: Pos2, tool: Tool, color: Color32) {
                 let yy = t + 1.0 + i as f32 * 3.0;
                 line(vec![pos2(l + 1.0 + indent, yy), pos2(rt - 1.0 - short, yy)]);
             }
+        }
+        Tool::Diagram => {
+            // A box joined to two boxes right of it, as the diagram lays out a path's
+            // children.
+            let node = |x: f32, y: f32| {
+                let n = Rect::from_min_size(pos2(x, y), vec2(5.0, 4.0));
+                painter.rect_stroke(n, 0.5, stroke, StrokeKind::Inside);
+            };
+            let mid = r.center().y;
+            node(l + 0.5, mid - 2.0);
+            node(rt - 5.5, t + 1.0);
+            node(rt - 5.5, b - 5.0);
+            let bar = l + 7.5;
+            line(vec![pos2(l + 5.5, mid), pos2(bar, mid)]);
+            line(vec![pos2(bar, t + 3.0), pos2(bar, b - 3.0)]);
+            line(vec![pos2(bar, t + 3.0), pos2(rt - 5.5, t + 3.0)]);
+            line(vec![pos2(bar, b - 3.0), pos2(rt - 5.5, b - 3.0)]);
         }
     }
 }

@@ -11,6 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
 use xml_atlas_engine::references::{self, Resolution, Rules};
+use xml_atlas_engine::structure::{MAX_PATHS, PathId, Structure};
 use xml_atlas_engine::xpath::{self, Value};
 use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
 
@@ -153,6 +154,9 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// The document's structure (D36): one line per distinct path of element names, indented
+    /// by depth, with how many elements have it, their attributes and whether they hold text.
+    Structure { file: PathBuf },
     /// Replace every match of TEXT with WITH, as typed: in the whole file, or within one
     /// element. Refused when the result would not be well-formed.
     Replace {
@@ -295,6 +299,7 @@ fn main() -> anyhow::Result<()> {
             limit,
         ),
         Command::Xpath { file, expr, limit } => xpath(&file, &expr, limit),
+        Command::Structure { file } => structure(&file),
         Command::Replace {
             file,
             query,
@@ -470,6 +475,43 @@ fn xpath(file: &Path, expr: &str, limit: usize) -> anyhow::Result<()> {
             };
             println!("{kind}, in {}", ms(took));
         }
+    }
+    Ok(())
+}
+
+fn structure(file: &Path) -> anyhow::Result<()> {
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let t = Instant::now();
+    let s = Structure::walk(
+        &doc.src,
+        &doc.index,
+        &std::sync::atomic::AtomicBool::new(false),
+    )?;
+    let took = t.elapsed();
+    // Depth first: each path, then its children in the order they were met.
+    let mut todo: Vec<PathId> = s.roots.iter().rev().copied().collect();
+    while let Some(p) = todo.pop() {
+        let info = &s.paths[p as usize];
+        let mut line = format!(
+            "{}{} \u{d7}{}",
+            "  ".repeat(info.depth as usize - 1),
+            String::from_utf8_lossy(&info.name),
+            info.count
+        );
+        for a in &info.attributes {
+            line.push_str(" @");
+            line.push_str(&String::from_utf8_lossy(a));
+        }
+        if info.text {
+            line.push_str(" (text)");
+        }
+        println!("{line}");
+        todo.extend(info.children.iter().rev());
+    }
+    let noun = if s.paths.len() == 1 { "path" } else { "paths" };
+    println!("{} {noun} in {}", s.paths.len(), ms(took));
+    if s.capped {
+        println!("stopped at {MAX_PATHS} paths: deeper elements are left out");
     }
     Ok(())
 }
