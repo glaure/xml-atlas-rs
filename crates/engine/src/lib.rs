@@ -6,6 +6,7 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use xml_atlas_xml::{Index, NodeId};
@@ -33,6 +34,7 @@ pub mod repeat;
 pub mod text;
 pub mod tree;
 pub mod wrap;
+pub mod xpath;
 
 /// How long typing pauses before a document whose index lags behind its text is read again
 /// (`docs/spec/text.md`, TEXT-22).
@@ -53,7 +55,7 @@ pub const MINIFIED_TAGS: usize = 10;
 /// [`Document::finish_reparse`].
 pub struct ReparseJob {
     revision: u64,
-    src: Vec<u8>,
+    src: Arc<Vec<u8>>,
 }
 
 /// What a [`ReparseJob`] found.
@@ -78,8 +80,8 @@ struct Stale {
 /// An open XML document: the source bytes, its node index and a line index.
 pub struct Document {
     pub path: Option<PathBuf>,
-    pub src: Vec<u8>,
-    pub index: Index,
+    pub src: Arc<Vec<u8>>,
+    pub index: Arc<Index>,
     /// Byte offset where each line starts. Always contains at least `0`.
     pub line_starts: Vec<u64>,
     pub timings: Timings,
@@ -185,8 +187,8 @@ impl Document {
         let newline = newline_style(&src);
         Self {
             path: None,
-            src,
-            index,
+            src: Arc::new(src),
+            index: Arc::new(index),
             line_starts,
             timings: Timings {
                 read: Duration::ZERO,
@@ -248,7 +250,7 @@ impl Document {
     /// Applies `edit` as one undo step and indexes the document again. On error nothing
     /// changes.
     pub fn apply(&mut self, edit: Edit) -> Result<(), EditError> {
-        let splice = self.history.apply(&mut self.src, edit)?;
+        let splice = self.history.apply(Arc::make_mut(&mut self.src), edit)?;
         self.reindex(splice, false);
         Ok(())
     }
@@ -259,7 +261,7 @@ impl Document {
     /// ([`Document::stale`]), and the document is read again after a pause in typing
     /// ([`Document::reparse_wait`]).
     pub fn apply_typed(&mut self, edit: Edit) -> Result<(), EditError> {
-        let splice = self.history.apply(&mut self.src, edit)?;
+        let splice = self.history.apply(Arc::make_mut(&mut self.src), edit)?;
         self.reindex(splice, true);
         Ok(())
     }
@@ -302,7 +304,7 @@ impl Document {
         self.stale?.typed?;
         Some(ReparseJob {
             revision: self.revision,
-            src: self.src.clone(),
+            src: Arc::clone(&self.src),
         })
     }
 
@@ -318,12 +320,13 @@ impl Document {
             return false;
         }
         if done.index.error.is_none() || !stale.good {
-            self.index = done.index;
+            self.index = Arc::new(done.index);
             self.stale = None;
         } else {
-            self.index.error = done.index.error;
-            self.index.more_errors = done.index.more_errors;
-            self.index.last_splice = None;
+            let index = Arc::make_mut(&mut self.index);
+            index.error = done.index.error;
+            index.more_errors = done.index.more_errors;
+            index.last_splice = None;
             self.stale = Some(Stale {
                 typed: None,
                 ..stale
@@ -336,14 +339,14 @@ impl Document {
 
     /// Undoes the last edit; returns its label.
     pub fn undo(&mut self) -> Option<String> {
-        let (label, splice) = self.history.undo(&mut self.src)?;
+        let (label, splice) = self.history.undo(Arc::make_mut(&mut self.src))?;
         self.reindex(splice, false);
         Some(label)
     }
 
     /// Redoes the last undone edit; returns its label.
     pub fn redo(&mut self) -> Option<String> {
-        let (label, splice) = self.history.redo(&mut self.src)?;
+        let (label, splice) = self.history.redo(Arc::make_mut(&mut self.src))?;
         self.reindex(splice, false);
         Some(label)
     }
@@ -379,17 +382,17 @@ impl Document {
         self.last_change = splice;
         let t = Instant::now();
         let stale = if typed { self.stale } else { self.stale.take() };
-        self.index.last_splice = None;
+        // Copies the index only while a query on another thread still holds it (D35).
+        let index = Arc::make_mut(&mut self.index);
+        index.last_splice = None;
         let updated = stale.is_none()
-            && splice.is_some_and(|s| self.index.update(&self.src, s.at, s.removed, s.inserted));
+            && splice.is_some_and(|s| index.update(&self.src, s.at, s.removed, s.inserted));
         match splice {
             _ if updated => {}
             Some(s) if typed => {
-                let good = stale.map_or(self.index.error.is_none(), |st| st.good);
+                let good = stale.map_or(index.error.is_none(), |st| st.good);
                 let before = stale.map(|st| st.element);
-                let element = self
-                    .index
-                    .keep_stale(&self.src, s.at, s.removed, s.inserted, before);
+                let element = index.keep_stale(&self.src, s.at, s.removed, s.inserted, before);
                 self.stale = Some(Stale {
                     element,
                     good,
@@ -397,7 +400,7 @@ impl Document {
                 });
             }
             _ => {
-                self.index = xml_atlas_xml::index(&self.src);
+                self.index = Arc::new(xml_atlas_xml::index(&self.src));
                 self.stale = None;
             }
         }
@@ -638,7 +641,7 @@ mod tests {
     /// The index and line index after an edit, undo or redo equal those of opening the new
     /// source, whether the index was updated in place (D9) or built again.
     fn assert_fresh(doc: &Document, what: &str) {
-        let fresh = Document::from_bytes(doc.src.clone());
+        let fresh = Document::from_bytes(doc.src.to_vec());
         assert_eq!(doc.index.nodes, fresh.index.nodes, "{what}");
         assert_eq!(doc.index.element_count, fresh.index.element_count, "{what}");
         assert_eq!(
@@ -683,7 +686,7 @@ mod tests {
             assert!(doc.undo().is_some());
             assert_fresh(&doc, &format!("undo {i}"));
         }
-        assert_eq!(doc.src, src.as_bytes());
+        assert_eq!(*doc.src, src.as_bytes());
         assert!(!doc.is_modified());
         for i in 0..steps {
             assert!(doc.redo().is_some());
@@ -705,7 +708,7 @@ mod tests {
         assert_eq!(doc.line_count(), 4);
         assert_eq!(doc.line(2), b"  <b/>");
         assert_eq!(doc.undo().as_deref(), Some("Add"));
-        assert_eq!(doc.src, src);
+        assert_eq!(*doc.src, src);
         assert_eq!(doc.index.element_count, 2);
         assert_eq!(doc.line_count(), 3);
         assert!(!doc.is_modified());
@@ -717,7 +720,7 @@ mod tests {
         let path = dir.join("doc.xml");
         doc.save(&path).unwrap();
         assert!(!doc.is_modified());
-        assert_eq!(fs::read(&path).unwrap(), doc.src);
+        assert_eq!(fs::read(&path).unwrap(), *doc.src);
         doc.undo();
         assert!(doc.is_modified());
         fs::remove_dir_all(&dir).unwrap();

@@ -1422,6 +1422,22 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Decided (owner, 2026-11-19):** our own XPath 1.0 evaluator on the index; a query bar and
   a results panel; names without a prefix match the default namespace too; first the
   engine, the CLI and the window, then the MCP tool.
+- **Built, step 1 (2026-11-20):** `crates/engine/src/xpath/` (the parser, the evaluator and
+  the results), `xml-atlas-cli xpath`, and Edit > XPath… (`apps/xml-atlas/src/xpath_bar.rs`);
+  the rules are XP-1 to XP-6 in `docs/spec/xpath.md`.
+  - **A query on a thread needs the document while the window goes on.** `Document` now
+    holds its source and index as `Arc`s; a query takes a reference to both. An edit
+    changes them through `Arc::make_mut`, which copies only while a query still holds them;
+    otherwise it changes them in place as before. The reparse job (D19) shares the source
+    the same way instead of copying it.
+  - **Results belong to one index.** They hold a `Weak` reference to it. An edit replaces
+    the index or moves it, so the results know they are out of date and are not used.
+  - **The index keeps no text that is only whitespace**, so XPath here sees none (XP-2).
+  - **Measured** (Windows 11, release builds): the five queries above on 300 MiB in 284,
+    83, 409, 98 and 170 ms; on 100 MiB in 92, 28, 145, 37 and 55 ms. The counts agree with
+    counting the tags. Opening (`xml-atlas-cli stats fixtures/orders.xml --repeat 5`, two
+    rounds): median 78 and 66 ms before, 75 and 70 ms after, index memory 96.6 MiB both; no
+    difference beyond the noise.
 
 ## Open questions
 

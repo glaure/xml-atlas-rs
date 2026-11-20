@@ -11,6 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
 use xml_atlas_engine::references::{self, Resolution, Rules};
+use xml_atlas_engine::xpath::{self, Value};
 use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
 
 #[derive(Parser)]
@@ -140,6 +141,15 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         within: Option<String>,
         /// Print at most this many matches; all are counted.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Evaluate an XPath 1.0 expression (D35): print each node it selects with its line, path
+    /// and value, or the number, string or boolean it gives.
+    Xpath {
+        file: PathBuf,
+        expr: String,
+        /// Print at most this many nodes; all are counted.
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
@@ -284,6 +294,7 @@ fn main() -> anyhow::Result<()> {
             within.as_deref(),
             limit,
         ),
+        Command::Xpath { file, expr, limit } => xpath(&file, &expr, limit),
         Command::Replace {
             file,
             query,
@@ -419,6 +430,47 @@ fn find(
     }
     let noun = if count == 1 { "match" } else { "matches" };
     println!("{count} {noun} in {}", ms(t.elapsed()));
+    Ok(())
+}
+
+/// How much of a node's value `xpath` prints.
+const XPATH_VALUE_CHARS: usize = 80;
+
+fn xpath(file: &Path, expr: &str, limit: usize) -> anyhow::Result<()> {
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let query = xpath::XPath::parse(expr)?;
+    let t = Instant::now();
+    let value = query.evaluate(
+        &doc.src,
+        &doc.index,
+        &std::sync::atomic::AtomicBool::new(false),
+    )?;
+    let took = t.elapsed();
+    match value {
+        Value::Nodes(nodes) => {
+            for n in nodes.iter().take(limit) {
+                let line = doc.line_of(n.span(&doc.src, &doc.index).start as u64) + 1;
+                let path = n.path(&doc.src, &doc.index);
+                let value = n.value(&doc.src, &doc.index, XPATH_VALUE_CHARS);
+                if value.is_empty() {
+                    println!("{line:>8}: {path}");
+                } else {
+                    println!("{line:>8}: {path}  {value}");
+                }
+            }
+            let noun = if nodes.len() == 1 { "node" } else { "nodes" };
+            println!("{} {noun} in {}", nodes.len(), ms(took));
+        }
+        other => {
+            println!("{}", other.to_text().unwrap_or_default());
+            let kind = match other {
+                Value::Number(_) => "a number",
+                Value::String(_) => "a string",
+                _ => "a boolean",
+            };
+            println!("{kind}, in {}", ms(took));
+        }
+    }
     Ok(())
 }
 

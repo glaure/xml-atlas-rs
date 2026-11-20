@@ -54,6 +54,8 @@ pub struct App {
     /// Set once the user agreed to close, so the close request is not asked about again.
     quitting: bool,
     find: crate::find_bar::FindBar,
+    /// Edit > XPath… (D35).
+    xpath: crate::xpath_bar::XPathBar,
     /// Files being opened, in the order asked for.
     loading: Vec<Loading>,
     /// Files the system asks to open while the app runs: from Finder on macOS (D26).
@@ -128,6 +130,8 @@ pub struct Open {
     pub find_within: Option<NodeId>,
     /// The tree asked for the Find bar, to find in `find_within`.
     pub find_requested: bool,
+    /// The last XPath query on this document and what it gave (D35).
+    pub xpath: Option<crate::xpath_bar::Results>,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
     /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
@@ -317,6 +321,7 @@ impl App {
             confirm: None,
             quitting: false,
             find,
+            xpath: Default::default(),
             loading: Vec::new(),
             opened,
             help: Default::default(),
@@ -1360,6 +1365,17 @@ impl App {
                     self.find.open_replace();
                 }
                 if ui
+                    .add_enabled(
+                        !self.docs.is_empty(),
+                        egui::Button::new("XPath…    Ctrl+Shift+X"),
+                    )
+                    .on_hover_text("Select nodes with an XPath 1.0 expression")
+                    .clicked()
+                {
+                    ui.close();
+                    self.xpath.open();
+                }
+                if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Format"))
                     .clicked()
                 {
@@ -1899,6 +1915,8 @@ impl eframe::App for App {
         if let Some(open) = self.docs.active_mut() {
             open.scan_grid(&ctx);
         }
+        // Before Find's: F3 steps through the XPath results while their bar is open.
+        self.xpath.shortcuts(&ctx, self.docs.active_mut());
         self.find.shortcuts(&ctx, self.docs.active_mut());
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
@@ -1997,8 +2015,18 @@ impl eframe::App for App {
                         ui.push_id(open.id, |ui| problems_panel::show(ui, open));
                     });
             }
+            if self.xpath.visible && crate::xpath_bar::has_results(open) {
+                egui::Panel::bottom("xpath-results")
+                    .resizable(true)
+                    .show(ui, |ui| {
+                        ui.push_id(open.id, |ui| crate::xpath_bar::show_results(ui, open));
+                    });
+            }
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
+            }
+            if self.xpath.visible {
+                egui::Panel::top("xpath").show(ui, |ui| self.xpath.show(ui, open));
             }
             if preview_tree {
                 // Added first, so it is the rightmost: main tree | text | preview | its tree.
@@ -2056,6 +2084,7 @@ impl Open {
             mark: None,
             find_within: None,
             find_requested: false,
+            xpath: None,
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),

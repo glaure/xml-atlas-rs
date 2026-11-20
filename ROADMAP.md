@@ -75,7 +75,9 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 
 ## 0.4: Power features (after 1.0, D20)
 
-- [ ] XPath query panel: our own XPath 1.0 on the index, the CLI's `xpath`, then MCP (D35)
+- [x] XPath query panel: our own XPath 1.0 on the index, the window and the CLI's `xpath`
+      (D35, XP-1 to XP-6)
+- [ ] XPath for agents: an MCP tool `xpath` (D35, XP-7)
 - [ ] Schema (XSD) validation
 - [ ] Import other XML files: follow XInclude references (`docs/spec/open.md`)
 - [x] References a rules file defines: go to target (F12), the ones that find nothing as

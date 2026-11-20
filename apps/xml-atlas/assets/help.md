@@ -60,6 +60,18 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
   document, the status bar says so and the problems list shows where; Ctrl+Z undoes it.
   Replace All is one undo step.
 
+## XPath
+
+- Edit > XPath (Ctrl+Shift+X) opens a query bar for an XPath 1.0 expression, such as
+  `//order[@status='open']`, `count(//item)` or `//order[@id='42']/customer/name`. Enter
+  runs it; the list button holds the expressions run before.
+- The nodes it selects are listed at the bottom with their line, path and value. Click one to
+  go to it; F3 and Shift+F3 step through them while the bar is open. A number, text or
+  true/false is shown in the bar.
+- A long query shows a spinner; Stop ends it. After an edit, Enter runs the query again.
+- Names without a prefix also match elements in the default namespace of the root element.
+  Text that is only whitespace between elements is not a node.
+
 ## Formatting
 
 - Edit > Format indents the document; it changes only whitespace between tags. Text, mixed
@@ -83,6 +95,7 @@ and Format. Resting the pointer on a button names it. View > Toolbar hides it.
 - Ctrl+Tab and Ctrl+Shift+Tab next and previous tab
 - Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo
 - Ctrl+F find, Ctrl+H replace, F3 and Shift+F3 next and previous match
+- Ctrl+Shift+X XPath; with its bar open, F3 and Shift+F3 step through its results
 - Alt+Up and Alt+Down drill up and down; Alt+Shift+Up and Alt+Shift+Down move an element
 - F2 rename (tree) or edit a cell (grid); Del delete; Ctrl+D duplicate
 - Alt+Z word wrap; F1 this help

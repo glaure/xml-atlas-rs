@@ -30,6 +30,7 @@ mod theme;
 mod tool_icons;
 mod tree;
 mod update;
+mod xpath_bar;
 
 /// Set to `wgpu` to draw with wgpu instead of OpenGL (D21). The app sets it itself when
 /// OpenGL fails, and starts again.
