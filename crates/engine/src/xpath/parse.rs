@@ -283,6 +283,59 @@ pub(super) fn parse(text: &str) -> Result<Expr, XPathError> {
     Ok(e)
 }
 
+/// The prefixes of the name tests in `e`, each once, in the order they first appear.
+pub(super) fn prefixes(e: &Expr) -> Vec<String> {
+    fn walk(e: &Expr, out: &mut Vec<String>) {
+        match e {
+            Expr::Path(p) => {
+                if let Start::Filter(f) = &p.start {
+                    walk(f, out);
+                }
+                for s in &p.steps {
+                    if let Test::Name {
+                        prefix: Some(prefix),
+                        ..
+                    }
+                    | Test::Any {
+                        prefix: Some(prefix),
+                    } = &s.test
+                        && !out.contains(prefix)
+                    {
+                        out.push(prefix.clone());
+                    }
+                    for pred in &s.predicates {
+                        walk(pred, out);
+                    }
+                }
+            }
+            Expr::Or(a, b)
+            | Expr::And(a, b)
+            | Expr::Compare(_, a, b)
+            | Expr::Arith(_, a, b)
+            | Expr::Union(a, b) => {
+                walk(a, out);
+                walk(b, out);
+            }
+            Expr::Neg(a) => walk(a, out),
+            Expr::Filter(a, preds) => {
+                walk(a, out);
+                for p in preds {
+                    walk(p, out);
+                }
+            }
+            Expr::Call(_, args) => {
+                for a in args {
+                    walk(a, out);
+                }
+            }
+            Expr::Literal(_) | Expr::Number(_) => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(e, &mut out);
+    out
+}
+
 /// Whether a predicate could select by position: it may give a number, or it calls
 /// `position()` or `last()`. Such a predicate keeps `//x[...]` from becoming one scan of the
 /// descendants, as positions count per parent.

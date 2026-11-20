@@ -8,6 +8,10 @@ a fraction of a second (`docs/decisions.md`, D35).
 ## Rules
 
 - **XP-1** `[built]` *Edit > XPath…* (Ctrl+Shift+X) opens a query bar under the find bar.
+  The expression is checked as it is typed: a valid one says *valid*; a wrong one frames
+  the field in the error colour, underlines the character where it goes wrong, says what
+  is expected below the bar ("expected `]`, found the end at 18"), and is not run. A prefix
+  the root element does not declare is wrong too.
   Enter or *Run* runs the expression; *▾* lists the last 20 expressions run in this session;
   Escape or *✕* closes the bar and its results. A query runs off the window's thread: the bar
   shows a spinner and the time, and *Stop* ends it. A new query stops the one before.
