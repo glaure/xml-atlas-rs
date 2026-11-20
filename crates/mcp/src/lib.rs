@@ -36,6 +36,13 @@ pub const MAX_LIMIT: usize = 1000;
 /// Characters of a matching line in `find`.
 const LINE_CHARS: usize = 160;
 
+/// Characters of a node's value in `xpath`.
+const XPATH_VALUE_CHARS: usize = 200;
+
+/// How long `xpath` may run before it is stopped. In the window it runs on the window's
+/// thread, so an expression that walks the document for each node must not freeze it.
+pub const XPATH_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// A tool: its name, what it does, and its arguments as a JSON Schema object.
 pub struct Tool {
     pub name: &'static str,
@@ -240,6 +247,23 @@ pub fn tools() -> Vec<Tool> {
             read_only: true,
         },
         Tool {
+            name: "xpath",
+            description: "Evaluate an XPath 1.0 expression, with the root node as context. A node-set gives its total and a page of nodes in document order, each with kind, path, line, column, name and value (cut at 200 characters); a number, string or boolean gives its value. Names without a prefix also match elements in the root element's default namespace; a prefix means what the root element declares. Text that is only whitespace is not a node. Stopped after 5 seconds.",
+            schema: object(
+                page(props(&[
+                    ("document", &document),
+                    (
+                        "expr",
+                        &string(
+                            "The expression, as `//order[@status='open']/@id` or `count(//item)`.",
+                        ),
+                    ),
+                ])),
+                &["document", "expr"],
+            ),
+            read_only: true,
+        },
+        Tool {
             name: "problems",
             description: "The document's errors and warnings, with line and column.",
             schema: object(page(props(&[("document", &document)])), &["document"]),
@@ -418,6 +442,11 @@ pub fn call(
             let within = within(d, args)?;
             let (offset, limit) = page(args);
             Ok(find(d, &finder, within, offset, limit))
+        }
+        "xpath" => {
+            let d = doc(docs, number(args, "document")?)?;
+            let (offset, limit) = page(args);
+            xpath(d, string(args, "expr")?, offset, limit, XPATH_TIME_LIMIT)
         }
         "problems" => {
             let d = doc(docs, number(args, "document")?)?;
@@ -658,6 +687,89 @@ fn find(d: &Document, finder: &Finder, within: Range<usize>, offset: usize, limi
     json!({"total": total, "matches": matches})
 }
 
+/// Evaluates `expr` (D35), stopped after `time_limit`.
+fn xpath(
+    d: &Document,
+    expr: &str,
+    offset: usize,
+    limit: usize,
+    time_limit: std::time::Duration,
+) -> Result<Value, ToolError> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xml_atlas_engine::xpath::{ItemKind, Value as XValue, XPath, XPathError};
+
+    let query = XPath::parse(expr).map_err(|e| ToolError::Refused(e.to_string()))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let (done, wait) = std::sync::mpsc::channel::<()>();
+    let flag = Arc::clone(&stop);
+    // Sets the flag when the time is up; ends as soon as the query does.
+    let watchdog = std::thread::Builder::new()
+        .name("xpath-limit".into())
+        .spawn(move || {
+            if wait.recv_timeout(time_limit).is_err() {
+                flag.store(true, Ordering::Relaxed);
+            }
+        });
+    let result = query.evaluate(&d.src, &d.index, &stop);
+    let _ = done.send(());
+    if let Ok(w) = watchdog {
+        let _ = w.join();
+    }
+    let value = result.map_err(|e| match e {
+        XPathError::Stopped => ToolError::Refused(format!(
+            "the query took longer than {:.1} s and was stopped; narrow it down",
+            time_limit.as_secs_f64()
+        )),
+        e => ToolError::Refused(e.to_string()),
+    })?;
+    Ok(match value {
+        XValue::Nodes(nodes) => {
+            let shown: Vec<Value> = nodes
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .map(|n| {
+                    let at = n.span(&d.src, &d.index).start;
+                    let (line, column) = position(d, at);
+                    let kind = match n.kind(&d.index) {
+                        ItemKind::Root => "root",
+                        ItemKind::Element => "element",
+                        ItemKind::Attribute => "attribute",
+                        ItemKind::Namespace => "namespace",
+                        ItemKind::Text => "text",
+                        ItemKind::Comment => "comment",
+                        ItemKind::ProcessingInstruction => "processing-instruction",
+                    };
+                    json!({
+                        "kind": kind,
+                        "path": n.path(&d.src, &d.index),
+                        "line": line,
+                        "column": column,
+                        "name": n.name(&d.src, &d.index),
+                        "value": n.value(&d.src, &d.index, XPATH_VALUE_CHARS),
+                    })
+                })
+                .collect();
+            json!({"total": nodes.len(), "nodes": shown})
+        }
+        // A number as JSON when it can be one; NaN and the infinities as XPath writes them.
+        XValue::Number(x) if x.is_finite() => json!({"type": "number", "value": x}),
+        other => {
+            let kind = match other {
+                XValue::Number(_) => "number",
+                XValue::String(_) => "string",
+                _ => "boolean",
+            };
+            let text = other.to_text().unwrap_or_default();
+            match other {
+                XValue::Boolean(b) => json!({"type": kind, "value": b}),
+                _ => json!({"type": kind, "value": cut(&text)}),
+            }
+        }
+    })
+}
+
 /// The source bytes of the element at `within`, its tags included, or the whole source.
 fn within(d: &Document, args: &Map<String, Value>) -> Result<Range<usize>, ToolError> {
     match args.get("within").and_then(Value::as_str) {
@@ -852,5 +964,45 @@ fn find_options(args: &Map<String, Value>) -> FindOptions {
     FindOptions {
         match_case: flag("match_case"),
         whole_word: flag("whole_word"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A query that walks the document again for each node is stopped at the time limit.
+    #[test]
+    fn a_slow_query_is_stopped() {
+        let mut src = String::from("<r>");
+        for i in 0..200_000 {
+            src.push_str(&format!("<a n=\"{i}\"/>"));
+        }
+        src.push_str("</r>");
+        let d = Document::from_bytes(src.into_bytes());
+        let t = std::time::Instant::now();
+        let e = xpath(
+            &d,
+            "count(//a[@n = //a[last()]/@n])",
+            0,
+            10,
+            std::time::Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "the query took longer than 0.1 s and was stopped; narrow it down"
+        );
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        // A quick one is not.
+        let v = xpath(
+            &d,
+            "count(//a)",
+            0,
+            10,
+            std::time::Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(v, json!({"type": "number", "value": 200000.0}));
     }
 }

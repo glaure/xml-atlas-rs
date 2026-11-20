@@ -113,6 +113,10 @@ Context Protocol (MCP):
   makes is selected and named in the status bar, and Ctrl+Z undoes it. An agent cannot close
   a tab with unsaved changes.
 
+Agents read elements, tables of children, lines of text, Find matches, problems and XPath
+results; they change text, attributes and names, delete, duplicate, move, replace, format,
+undo and save.
+
 ## Settings
 
 File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, format

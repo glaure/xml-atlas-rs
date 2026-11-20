@@ -44,7 +44,12 @@ a fraction of a second (`docs/decisions.md`, D35).
 - **XP-6** `[done]` `xml-atlas-cli xpath FILE EXPR` prints each node's line, path and value,
   at most `--limit` of them (20), then how many there are and the time; or the value and its
   kind. A wrong expression fails with the message.
-- **XP-7** `[planned]` An MCP tool `xpath`, on files and on the open window (D27, D28).
+- **XP-7** `[done]` Agents have the MCP tool `xpath`, on files (`xml-atlas-cli mcp`) and on
+  the open tabs (`--window`, D28): a node-set comes as its total and a page of nodes (100 by
+  default), each with kind, path, line, column, name and value (cut at 200 characters); a
+  number, string or boolean as its type and value. A query that runs longer than 5 seconds
+  is stopped and the agent is told to narrow it down, so a query in the window never holds
+  it up for long.
 
 ## How to check it
 
@@ -66,7 +71,7 @@ Not looked at yet: whether XML Marker or the Qt XML Atlas query with XPath.
 
 - Our own XPath 1.0 on the index, not a crate with a tree of its own; a query bar and a
   results panel; names without a prefix also match the root's default namespace; first the
-  engine, the CLI and the window, then the MCP tool. (Owner, 2026-11-19, D35.)
+  engine, the CLI and the window, then the MCP tool (XP-7). (Owner, 2026-11-19, D35.)
 
 ## Questions
 

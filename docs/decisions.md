@@ -883,7 +883,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - Reading: `element` (name, attributes, text, line, and its children by name and count, as
     the grid shows them), `children` (a page of child rows with their columns), `text` (a
     range of lines of the source), `find` (matches with line, column and element path),
-    `problems`.
+    `xpath` (an XPath 1.0 query, D35), `problems`.
   - Changing, each one undo step: `set_text`, `set_attribute`, `remove_attribute`, `rename`,
     `delete`, `duplicate`, `move`, `replace`, `format`, `compact`, `undo`, `redo`.
   - `save` (atomic, D13; keeps the file's encoding, OPEN-8) and `save_as`.
@@ -1438,6 +1438,10 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     counting the tags. Opening (`xml-atlas-cli stats fixtures/orders.xml --repeat 5`, two
     rounds): median 78 and 66 ms before, 75 and 70 ms after, index memory 96.6 MiB both; no
     difference beyond the noise.
+- **Built, step 2 (2026-11-20):** the MCP tool `xpath` in `crates/mcp`, so agents have it
+  on files and on the open tabs alike (XP-7). Nodes come in pages, as `find`'s matches do.
+  In the window the tool runs on the window's thread, as every agent call does (D28), so a
+  query is stopped after 5 seconds; the slowest of the five above takes 0.4 s at 300 MiB.
 
 ## Open questions
 

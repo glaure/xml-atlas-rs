@@ -248,3 +248,64 @@ fn unknown_documents_and_tools_are_named() {
     let e = call(&mut docs, "nonsense", &Map::new()).unwrap_err();
     assert_eq!(e.to_string(), "unknown tool nonsense");
 }
+
+#[test]
+fn xpath_gives_nodes_in_pages_and_values() {
+    let path = write(
+        "xpath.xml",
+        "xpath",
+        "\u{feff}<r>\r\n  <a n=\"1\">Größe</a>\r\n  <a n=\"2\"/>\r\n  <a n=\"3\"/>\r\n</r>\r\n"
+            .as_bytes(),
+    );
+    let mut docs = Files::default();
+    let doc = run(&mut docs, "open", json!({"path": path}))["document"].clone();
+    let x = |docs: &mut Files, a: Value| {
+        let mut a = args(a);
+        a.insert("document".into(), doc.clone());
+        call(docs, "xpath", &a)
+    };
+    let page = x(
+        &mut docs,
+        json!({"expr": "//a | //a/@n", "offset": 1, "limit": 2}),
+    )
+    .unwrap();
+    assert_eq!(page["total"], 6);
+    assert_eq!(
+        page["nodes"],
+        json!([
+            {"kind": "attribute", "path": "/r/a[1]/@n", "line": 2, "column": 6, "name": "n", "value": "1"},
+            {"kind": "element", "path": "/r/a[2]", "line": 3, "column": 3, "name": "a", "value": ""},
+        ])
+    );
+    let text = x(&mut docs, json!({"expr": "//a/text()"})).unwrap();
+    assert_eq!(text["nodes"][0]["kind"], "text");
+    assert_eq!(text["nodes"][0]["value"], "Größe");
+    assert_eq!(
+        x(&mut docs, json!({"expr": "sum(//@n) div count(//a)"})).unwrap(),
+        json!({"type": "number", "value": 2.0})
+    );
+    assert_eq!(
+        x(&mut docs, json!({"expr": "1 div 0"})).unwrap(),
+        json!({"type": "number", "value": "Infinity"})
+    );
+    assert_eq!(
+        x(&mut docs, json!({"expr": "string(//a[1])"})).unwrap(),
+        json!({"type": "string", "value": "Größe"})
+    );
+    assert_eq!(
+        x(&mut docs, json!({"expr": "count(//a) = 3"})).unwrap(),
+        json!({"type": "boolean", "value": true})
+    );
+    // Wrong expressions say what is wrong, and where.
+    let e = x(&mut docs, json!({"expr": "//a[@n = '1'"})).unwrap_err();
+    assert_eq!(e.to_string(), "expected `]`, found the end at 13");
+    let e = x(&mut docs, json!({"expr": "//p:a"})).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "the prefix `p` is not declared on the root element"
+    );
+    assert!(matches!(
+        call(&mut docs, "xpath", &args(json!({"document": doc}))),
+        Err(ToolError::Argument("expr"))
+    ));
+}
