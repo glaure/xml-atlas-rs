@@ -30,6 +30,8 @@ Version 1.1, for Windows, Linux and macOS. What it does:
 - Several documents as tabs, recent files, light and dark theme, a notice when a file changes
   on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
+- XPath 1.0 queries (Edit > XPath, and `xml-atlas-cli xpath`): the nodes in a list to step
+  through, or a count, sum or text; well under a second on a 300 MiB file.
 - References your team defines in a rules file (`xml-atlas-references.json`): go to a
   reference's target (F12), the ones that find nothing in the problems list, and a preview
   of the selected element with them resolved, as text and as a tree, with repeated elements

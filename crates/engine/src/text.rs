@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(sel.head, e - 2);
         sel = apply(&mut d, |d| insert(d, sel, "ße"));
         assert_eq!(sel.head, e + 1);
-        assert_eq!(d.src, SRC);
+        assert_eq!(*d.src, SRC);
         // Nothing before the text start or after the end to delete.
         assert_eq!(backspace(&d, Selection::cursor(3), false), None);
         assert_eq!(backspace(&d, Selection::cursor(0), false), None);
@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(c.selection.head, lf - 2);
         let bad = d.src.iter().position(|&b| b == 0xE4).unwrap();
         let c = delete(&d, Selection::cursor(bad), false).unwrap();
-        let mut copy = d.src.clone();
+        let mut copy = d.src.to_vec();
         History::new().apply(&mut copy, c.edit).unwrap();
         assert_eq!(copy.len(), d.src.len() - 1);
         // Ctrl+Backspace takes the word.
@@ -925,7 +925,7 @@ mod tests {
         d.undo();
         assert_eq!(&d.src[gr..gr + 3], b"aGr");
         d.undo();
-        assert_eq!(d.src, SRC);
+        assert_eq!(*d.src, SRC);
 
         // Cut takes `Grüße` to the clipboard and out of the text in one step; Paste puts it
         // back byte for byte.
@@ -940,10 +940,10 @@ mod tests {
         d.apply(change.edit).unwrap();
         assert_eq!(d.history.undo_label(), Some("Cut"));
         apply(&mut d, |d| paste(d, Selection::cursor(gr), &text));
-        assert_eq!(d.src, SRC);
+        assert_eq!(*d.src, SRC);
         d.undo();
         d.undo();
-        assert_eq!(d.src, SRC);
+        assert_eq!(*d.src, SRC);
         assert!(!d.is_modified());
 
         // Nothing selected: nothing to cut. Pasting what is there already changes nothing.
@@ -953,7 +953,7 @@ mod tests {
         // left in between to tell CRLF by; the clipboard comes back with LF, as egui hands it.
         let (text, change) = cut(&d, select_all(&d)).unwrap();
         d.apply(change.edit).unwrap();
-        assert_eq!(d.src, b"\xEF\xBB\xBF");
+        assert_eq!(*d.src, b"\xEF\xBB\xBF");
         let lf_text = text.replace("\r\n", "\n");
         let all = select_all(&d);
         let pasted = paste(&d, all, &lf_text).unwrap();
@@ -961,13 +961,13 @@ mod tests {
         // Byte for byte, but for the stray byte, which went to the clipboard as `\u{FFFD}`.
         let expected = [&SRC[..15], "\u{FFFD}".as_bytes(), &SRC[16..]].concat();
         assert_eq!(SRC[15], 0xE4);
-        assert_eq!(d.src, expected);
+        assert_eq!(*d.src, expected);
 
         // An LF file gets LF, whatever the clipboard holds.
         let lf = Document::from_bytes(b"<r>\n</r>".to_vec());
         let mut lf = lf;
         let after = apply(&mut lf, |d| paste(d, Selection::cursor(3), "\r\n<a/>\r"));
-        assert_eq!(lf.src, b"<r>\n<a/>\n\n</r>");
+        assert_eq!(*lf.src, b"<r>\n<a/>\n\n</r>");
         assert_eq!(after.head, 9);
     }
 

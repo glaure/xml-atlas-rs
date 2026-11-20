@@ -730,6 +730,26 @@ impl Index {
         })
     }
 
+    /// Each attribute of an element as its raw name and its raw value, without the quotes,
+    /// in the order of [`Index::attributes`]. Allocates nothing; [`unescape`] decodes a value.
+    /// For evaluating queries over many elements (D35).
+    pub fn attribute_pairs<'s>(
+        &self,
+        src: &'s [u8],
+        id: NodeId,
+    ) -> impl Iterator<Item = (&'s [u8], &'s [u8])> + use<'s> {
+        let ws = |b: &u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+        self.attribute_iter(src, id).filter_map(move |r| {
+            let a = &src[r];
+            let eq = a.iter().position(|&b| b == b'=')?;
+            let name = &a[..eq];
+            let name = &name[..name.iter().rposition(|b| !ws(b)).map_or(0, |i| i + 1)];
+            let value = &a[eq + 1..];
+            let open = value.iter().position(|&b| b == b'"' || b == b'\'')?;
+            Some((name, value.get(open + 1..value.len() - 1)?))
+        })
+    }
+
     fn attribute_iter<'s>(&self, src: &'s [u8], id: NodeId) -> AttributeSpans<'s> {
         let n = self.node(id);
         if n.kind != NodeKind::Element {
@@ -986,7 +1006,10 @@ impl Iterator for AttributeSpans<'_> {
     }
 }
 
-fn unescape(raw: &[u8]) -> Cow<'_, str> {
+/// Text or an attribute value as it reads: entity and character references replaced. Bytes
+/// that are not UTF-8 become U+FFFD; text with a reference that is not known is kept as
+/// written, all of it.
+pub fn unescape(raw: &[u8]) -> Cow<'_, str> {
     match String::from_utf8_lossy(raw) {
         Cow::Borrowed(b) => quick_xml::escape::unescape(b).unwrap_or(Cow::Borrowed(b)),
         Cow::Owned(o) => match quick_xml::escape::unescape(&o) {
@@ -1548,6 +1571,18 @@ mod tests {
             .collect();
         assert_eq!(spans, ["x=\"1\"", "y = 'zwei'", "z=\"ä>b\""]);
         assert_eq!(spans.len(), idx.attributes(src, a).len());
+        // The same attributes as raw names and values, without the quotes.
+        let pairs: Vec<(&[u8], &[u8])> = idx.attribute_pairs(src, a).collect();
+        assert_eq!(
+            pairs,
+            [
+                (&b"x"[..], &b"1"[..]),
+                (b"y", b"zwei"),
+                (b"z", "ä>b".as_bytes())
+            ]
+        );
+        assert_eq!(unescape(b"a &amp; &#x263A;"), "a & \u{263A}");
+        assert_eq!(unescape(b"a &amp; &bogus;"), "a &amp; &bogus;");
 
         let mut kids = idx.children(idx.root_element().unwrap()).skip(1);
         let b = kids.next().unwrap();

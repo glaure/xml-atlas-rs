@@ -464,9 +464,9 @@ mod tests {
         let edit = command(doc).unwrap();
         doc.apply(edit).unwrap();
         assert!(doc.index.error.is_none(), "{:?}", doc.index.error);
-        let after = String::from_utf8(doc.src.clone()).unwrap();
+        let after = String::from_utf8(doc.src.to_vec()).unwrap();
         doc.undo();
-        assert_eq!(doc.src, SRC.as_bytes());
+        assert_eq!(*doc.src, SRC.as_bytes());
         after
     }
 
@@ -602,12 +602,12 @@ mod tests {
         let mut e = Document::from_bytes(b"<r>\n  <a/></r>".to_vec());
         let a = resolve(&e, "/r/a").unwrap();
         e.apply(duplicate(&e, a).unwrap()).unwrap();
-        assert_eq!(e.src, b"<r>\n  <a/><a/></r>");
+        assert_eq!(*e.src, b"<r>\n  <a/><a/></r>");
         // Alone on the last line, with no line ending (a file cut short): a new line.
         let mut e = Document::from_bytes(b"<r>\r\n  <a/>".to_vec());
         let a = resolve(&e, "/r/a").unwrap();
         e.apply(duplicate(&e, a).unwrap()).unwrap();
-        assert_eq!(e.src, b"<r>\r\n  <a/>\r\n  <a/>");
+        assert_eq!(*e.src, b"<r>\r\n  <a/>\r\n  <a/>");
     }
 
     #[test]

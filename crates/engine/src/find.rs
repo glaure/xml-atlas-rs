@@ -385,13 +385,13 @@ mod tests {
         doc.apply(edit).unwrap();
         assert!(doc.revision() > revision);
         assert_eq!(
-            String::from_utf8(doc.src.clone()).unwrap(),
+            String::from_utf8(doc.src.to_vec()).unwrap(),
             src.replace("Söhne\"", "Töchter\"")
                 .replace("Söhne &amp; SÖHNE", "Töchter &amp; Töchter")
         );
         assert!(doc.index.error.is_none());
         doc.undo();
-        assert_eq!(doc.src, src.as_bytes());
+        assert_eq!(*doc.src, src.as_bytes());
         // Nothing to replace.
         assert!(
             replace_all(
@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(count, 2);
         let mut doc = crate::Document::from_bytes(src.as_bytes().to_vec());
         doc.apply(edit).unwrap();
-        assert_eq!(doc.src, b"<r><a>xx</a><b>y<c>y</c></b><d>x</d></r>");
+        assert_eq!(*doc.src, b"<r><a>xx</a><b>y<c>y</c></b><d>x</d></r>");
         // A match that runs past the end of the range is not inside it.
         let finder = Finder::new("ab", CASE).unwrap();
         assert_eq!(finder.all(b"abab", 0..3), vec![0..2]);
