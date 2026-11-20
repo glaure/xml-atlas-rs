@@ -1,0 +1,37 @@
+﻿commit 5dae1d9  2026-11-20T16:03:34
+== open tiny (11 bytes)
+  run 1: ready 0.44 s  cpu 0.34 s  peak 81 MiB  title 'tiny.xml — XML Atlas'
+  run 2: ready 0.55 s  cpu 0.39 s  peak 79 MiB  title 'tiny.xml — XML Atlas'
+  run 3: ready 0.52 s  cpu 0.50 s  peak 79 MiB  title 'tiny.xml — XML Atlas'
+target\release\xml-atlas.exe: ready best 0.44 s, median 0.52 s; peak median 79 MiB
+  run 1: ready 0.31 s  cpu 0.17 s  peak 20 MiB  title 'tiny.xml  -  XML Marker version 1.1 '
+  run 2: ready 0.34 s  cpu 0.25 s  peak 20 MiB  title 'tiny.xml  -  XML Marker version 1.1 '
+  run 3: ready 0.33 s  cpu 0.27 s  peak 20 MiB  title 'tiny.xml  -  XML Marker version 1.1 '
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: ready best 0.31 s, median 0.33 s; peak median 20 MiB
+== open orders-10 (10486239 bytes)
+  run 1: ready 0.53 s  cpu 0.59 s  peak 106 MiB  title 'orders-10.xml — XML Atlas'
+  run 2: ready 0.56 s  cpu 0.45 s  peak 106 MiB  title 'orders-10.xml — XML Atlas'
+  run 3: ready 0.58 s  cpu 0.56 s  peak 106 MiB  title 'orders-10.xml — XML Atlas'
+target\release\xml-atlas.exe: ready best 0.53 s, median 0.56 s; peak median 106 MiB
+  run 1: ready 0.91 s  cpu 0.83 s  peak 61 MiB  title 'orders-10.xml  -  XML Marker version 1.1 '
+  run 2: ready 0.92 s  cpu 0.84 s  peak 61 MiB  title 'orders-10.xml  -  XML Marker version 1.1 '
+  run 3: ready 0.91 s  cpu 0.83 s  peak 61 MiB  title 'orders-10.xml  -  XML Marker version 1.1 '
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: ready best 0.91 s, median 0.91 s; peak median 61 MiB
+== open orders (104857919 bytes)
+  run 1: ready 0.67 s  cpu 1.12 s  peak 343 MiB  title 'orders.xml — XML Atlas'
+  run 2: ready 0.57 s  cpu 0.94 s  peak 345 MiB  title 'orders.xml — XML Atlas'
+  run 3: ready 0.59 s  cpu 1.03 s  peak 345 MiB  title 'orders.xml — XML Atlas'
+target\release\xml-atlas.exe: ready best 0.57 s, median 0.59 s; peak median 345 MiB
+  run 1: ready 10.55 s  cpu 10.53 s  peak 437 MiB  title 'orders.xml  -  XML Marker version 1.1 '
+  run 2: ready 10.43 s  cpu 10.48 s  peak 437 MiB  title 'orders.xml  -  XML Marker version 1.1 '
+  run 3: ready 10.60 s  cpu 10.45 s  peak 437 MiB  title 'orders.xml  -  XML Marker version 1.1 '
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: ready best 10.43 s, median 10.55 s; peak median 437 MiB
+== open orders-300 (314573114 bytes)
+  run 1: ready 0.86 s  cpu 2.16 s  peak 885 MiB  title 'orders-300.xml — XML Atlas'
+  run 2: ready 0.82 s  cpu 2.00 s  peak 885 MiB  title 'orders-300.xml — XML Atlas'
+  run 3: ready 0.80 s  cpu 1.78 s  peak 885 MiB  title 'orders-300.xml — XML Atlas'
+target\release\xml-atlas.exe: ready best 0.80 s, median 0.82 s; peak median 885 MiB
+  run 1: ready 56.49 s  cpu 57.20 s  peak 1271 MiB  title 'orders-300.xml  -  XML Marker version 1.1 '
+  run 2: ready 56.42 s  cpu 57.03 s  peak 1270 MiB  title 'orders-300.xml  -  XML Marker version 1.1 '
+  run 3: ready 56.95 s  cpu 57.31 s  peak 1271 MiB  title 'orders-300.xml  -  XML Marker version 1.1 '
+C:\Program Files (x86)\XML Marker\xmlmarker.exe: ready best 56.42 s, median 56.49 s; peak median 1271 MiB

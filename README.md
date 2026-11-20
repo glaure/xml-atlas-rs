@@ -9,6 +9,43 @@ XML Atlas is an independent project. Its behaviour is inspired by XML Marker
 ![XML Atlas with a 10 MiB file: the tree on the left, the text above and the grid of the
 selected element's children below](docs/images/xml-atlas.png)
 
+## Fast on big files
+
+A 300 MiB file with 7 million elements opens in under a second, where XML Marker needs a
+minute. The tree, grid and text views only draw what is on screen, so scrolling costs the
+same in a small file and a huge one.
+
+| Open (Windows 11) | XML Marker 1.1 | XML Atlas 1.2 |
+|-------------------|----------------|---------------|
+| 10 MiB            | 0.91 s         | 0.56 s        |
+| 100 MiB           | 10.6 s         | 0.59 s        |
+| 300 MiB           | 56.5 s         | 0.82 s        |
+
+| Find the last order (Windows 11) | XML Marker 1.1 | XML Atlas 1.2 |
+|----------------------------------|----------------|---------------|
+| 100 MiB                          | 2.2 s          | 34 ms         |
+| 300 MiB                          | 6.8 s          | 67 ms         |
+
+Same machine, median of three runs. XML Marker starts sooner and uses less memory with a tiny
+file, and it is a little quicker in the tree on End, Home and Page Down. Method, caveats and
+the Linux numbers are in [docs/benchmarks.md](docs/benchmarks.md).
+
+Things to try:
+
+1. Make a big file: `cargo xtask gen-fixture --mib 300`, then open it and drag the tree's
+   scroll bar to the end.
+2. Select an element with many children. The grid shows them as rows, with attributes and
+   child elements as columns; click a header to sort, edit a cell, and the text follows.
+3. Edit > XPath: `//order[@status='shipped']`. The query is checked as you type and the
+   matches are a list to step through. Try `count(//order)`.
+4. Delete a closing tag. The file still opens up to the error and past it, with markers and
+   a problems list.
+5. Rename an element and save, then compare with `cmp` or `git diff`: only what you changed
+   differs. Byte order mark, line endings and encoding stay as they were, and saving is
+   atomic.
+6. `claude mcp add xml-atlas -- xml-atlas-cli mcp`, then ask Claude Code to change
+   something in a file (see [For AI agents](#for-ai-agents-mcp)).
+
 ## Status
 
 Version 1.2, for Windows, Linux and macOS. What it does:
