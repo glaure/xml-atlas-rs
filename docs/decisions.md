@@ -1506,7 +1506,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      - (a) in place of the text, switched with *View > Diagram* and a key still to choose
        (Ctrl+D is Duplicate);
      - (b) in a pane of its own, right of the text, as the reference preview is (REF-5);
-     - (c) in a window of its own, beside the main window.
+     - (c) in a window of its own, beside the main window;
+     - (d) in place of the grid, so the text stays in view (the owner's, see below).
 
      Proposed: (a). The diagram needs width; the tree and grid stay.
   2. **What a box says:** the name and the count, and in a smaller line the attributes and
@@ -1524,11 +1525,14 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   5. **Answering the issues:** a short comment on #121 that it is planned and how (the
      structure with counts, and why not every element), linking this decision? It goes out
      under your account.
-- **Decided (owner, 2026-11-20):** in place of the text, switched with *View > Diagram*
-  (the key is chosen when it is built); a box shows the name, the count, the attributes and
-  whether the elements hold text; SVG export first, a PNG of the whole diagram later if it
-  is asked for; a comment on #121 once this is on `main`. The steps were not asked
-  separately and are taken as proposed: #121, then #122 and #123, then #124.
+- **Decided (owner, 2026-11-20):** in place of the grid, switched with *View > Diagram* (the
+  key is chosen when it is built): the user wants the diagram instead of the grid while the XML
+  stays visible. It takes the grid's place above or below the text, as the layout says (WIN-1),
+  and shows there also when View > Grid has hidden the grid. (First answered "in place of the
+  text"; changed by the owner the same day.) A box shows the name, the count, the attributes
+  and whether the elements hold text; SVG export first, a PNG of the whole diagram later if it
+  is asked for; a comment on #121 once this is on `main`. The steps were not asked separately
+  and are taken as proposed: #121, then #122 and #123, then #124.
 
 ## Open questions
 
@@ -1537,7 +1541,7 @@ None.
 ## Answered questions
 
 About D36, the structure diagram (owner, 2026-11-20): one box per path with counts, not one
-per element; in place of the text; name, count, attributes and text in a box; SVG export
+per element; in place of the grid, the text staying in view; name, count, attributes and text in a box; SVG export
 first; a comment on issue #121 once the decision is on `main`.
 
 About D35, the XPath query panel (owner, 2026-11-19): our own XPath 1.0 evaluator on the
