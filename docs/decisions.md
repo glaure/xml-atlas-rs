@@ -1443,11 +1443,102 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   In the window the tool runs on the window's thread, as every agent call does (D28), so a
   query is stopped after 5 seconds; the slowest of the five above takes 0.4 s at 300 MiB.
 
+## D36: A diagram of the document's structure
+
+- **Problem:** a user asks for a diagram view of the XML structure, "for getting a quick
+  overview" (issue #121), with three additions:
+  - collapsing it to a depth (#122);
+  - Find's match highlighted in it (#123);
+  - exporting it as PNG or SVG (#124).
+
+  The tree shows every element: on the 10 MiB fixture that is 235,000 rows, and the shape of
+  the document is hard to see in them. The grid shows one level at a time.
+- **What it draws (owner, 2026-11-20): the structure, not every element.** One box per
+  distinct path of element names, with how many elements have it. On
+  `fixtures/orders-10.xml` (10 MiB) that is nine boxes:
+
+  ```
+  orders ── order ×21,183 ─┬─ customer ×21,183 ─┬─ name ×21,183
+                           │                    └─ email ×21,183
+                           ├─ items ×21,183 ── item ×63,543 ── price ×63,543
+                           └─ note ×2,118
+  ```
+
+  - The count is that of the file, at any size. A box also says, in a smaller line, which
+    attributes its elements have (`@id @date @status`) and whether they hold text.
+  - Every element would be another diagram: 235,000 boxes on 10 MiB and about 7 million on
+    300 MiB. It could not be laid out or read, and the tree already shows them.
+- **The interaction (#121):**
+  - **A click on a box** selects the first element with that path in the tree, grid and
+    text. Clicking again, or F3, goes to the next one (as XPath's results do: the path is
+    the query `/orders/order/items/item`).
+  - **The other way round:** the box of the element selected in the tree, grid or text is
+    marked, and the diagram scrolls it into view.
+  - **Collapsing:** a box with children has a toggle. The diagram remembers per tab what is
+    collapsed, while switching views and tabs.
+- **Depth (#122):** a *Levels* control above the diagram: 1, 2, 3 … or all. It collapses
+  every box below that depth; the toggles open single ones again.
+- **Find and XPath (#123):** the box holding Find's outlined match is marked as the selected
+  one is. XPath's results mark each box that has results, with their number (`item ×63,543,
+  12 found`), so a query shows where in the structure its nodes are.
+- **Export (#124):** *Export as SVG…* writes the whole diagram as it is collapsed, as text we
+  write ourselves: no library, any size, sharp at any zoom. *Export as PNG…* is question 3.
+- **How it is built:**
+  - **The structure** comes from one walk of the index, on a thread, when the diagram is
+    first shown, not when a file opens (`AGENTS.md` rule 1). Each element's path is its
+    parent's path and its name: a table from (parent path, name) to path, with counts and
+    attribute names. Names are compared as bytes, as XPath does (D35). Expected: well under
+    a second at 300 MiB, to be measured. After an edit it is walked again after a pause, as
+    the references are checked (REF-4).
+  - **A recursive document** (sections in sections) has a path per depth. Past 2,000 paths
+    the walk stops and the diagram says so; the boxes it has are right.
+  - **Layout:** a tree drawn left to right, each box's children stacked to its right. It is
+    laid out once per change and drawn with egui's painter: only the boxes on screen, with
+    zoom (Ctrl+wheel, Ctrl+0) and panning (drag, wheel).
+- **Not chosen:**
+  - Every element as a box (owner, above).
+  - Graphviz or another layout program: a C dependency or a process to start, for a layout
+    that is a tree.
+  - A diagram crate for egui: the layout of a tree is short, and what a box shows and does is
+    ours.
+- **Questions for the owner:**
+  1. **Where does it show?**
+     - (a) in place of the text, switched with *View > Diagram* and a key still to choose
+       (Ctrl+D is Duplicate);
+     - (b) in a pane of its own, right of the text, as the reference preview is (REF-5);
+     - (c) in a window of its own, beside the main window.
+
+     Proposed: (a). The diagram needs width; the tree and grid stay.
+  2. **What a box says:** the name and the count, and in a smaller line the attributes and
+     whether it holds text, as proposed? Or the name and count only?
+  3. **PNG:** (a) the whole diagram, drawn by our own code into an image (more code, any
+     size); (b) only what is on screen, from a screenshot of the window (little code); or
+     (c) SVG only (a browser or an image program makes a PNG from it). Proposed: (c) first,
+     and (a) later if it is asked for.
+  4. **Steps:**
+     1. the diagram with clicks both ways and collapsing (#121);
+     2. levels (#122) and the marks of Find and XPath (#123);
+     3. the export (#124).
+
+     Proposed: in this order, one pull request each.
+  5. **Answering the issues:** a short comment on #121 that it is planned and how (the
+     structure with counts, and why not every element), linking this decision? It goes out
+     under your account.
+- **Decided (owner, 2026-11-20):** in place of the text, switched with *View > Diagram*
+  (the key is chosen when it is built); a box shows the name, the count, the attributes and
+  whether the elements hold text; SVG export first, a PNG of the whole diagram later if it
+  is asked for; a comment on #121 once this is on `main`. The steps were not asked
+  separately and are taken as proposed: #121, then #122 and #123, then #124.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D36, the structure diagram (owner, 2026-11-20): one box per path with counts, not one
+per element; in place of the text; name, count, attributes and text in a box; SVG export
+first; a comment on issue #121 once the decision is on `main`.
 
 About D35, the XPath query panel (owner, 2026-11-19): our own XPath 1.0 evaluator on the
 index, not the crate `xpath-eval`; a query bar and a results panel; names without a prefix
