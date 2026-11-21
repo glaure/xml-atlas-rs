@@ -88,6 +88,11 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       ways and collapsing (D36, step 1; issue #121)
 - [x] The diagram's levels and the marks of Find and XPath (D36, step 2; issues #122, #123)
 - [x] The diagram as an SVG file (D36, step 3; issue #124)
+- [ ] Diff between two files: side by side, with the differences marked in the text and the
+      tree; needs a spec ID and a decision on text or structure diff (whitespace-only changes,
+      attribute order) in `docs/decisions.md` first
+- [ ] Diff between git revisions of one file: the same view, with the revisions picked from
+      the file's history; the engine calls `git`, the GUI and CLI use the engine (rule 4)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
