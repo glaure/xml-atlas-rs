@@ -1567,6 +1567,17 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     namespace or a folded text counts for its element, a text node, comment or instruction
     for its parent. Not measured on a result list of millions.
 
+- **Built, step 3 (2026-11-21):** *Export as SVG…* in the diagram's header
+  (`apps/xml-atlas/src/diagram_svg.rs`).
+  - It writes the diagram as it is laid out and collapsed at that moment, in the window's
+    colours, with no marks of the selection, Find or XPath. The file is chosen in a save
+    dialog (`<file>-structure.svg`, in the document's folder) and written atomically.
+  - The text is the window's measure: each piece (name, count, attributes, "text") is its
+    own `<text>` with the width egui measured as `textLength`, so a viewer with another
+    font keeps the boxes and the toggles in their places.
+  - The PNG of the whole diagram stays unbuilt, as decided; a browser or an image program
+    makes one from the SVG. Checked once by rendering a sample with Inkscape.
+
 ## Open questions
 
 None.

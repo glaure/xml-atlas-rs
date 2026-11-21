@@ -25,6 +25,7 @@ use xml_atlas_engine::structure::{MAX_PATHS, PathId, Stopped, Structure};
 use xml_atlas_engine::xml::{Index, NodeId};
 
 use crate::app::Open;
+use crate::diagram_svg::{Palette, Sizes, to_svg};
 
 /// Shows and hides the diagram.
 pub const TOGGLE: KeyboardShortcut =
@@ -33,15 +34,15 @@ const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
 const RESET_ZOOM: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Num0);
 
 /// Space inside a box around its text.
-const PAD: Vec2 = vec2(8.0, 4.0);
+pub(crate) const PAD: Vec2 = vec2(8.0, 4.0);
 /// Between a box and its children's column, room for the toggle and the lines.
-const GAP_X: f32 = 44.0;
+pub(crate) const GAP_X: f32 = 44.0;
 /// Between two boxes in a column.
 const GAP_Y: f32 = 10.0;
 /// Radius of a box's collapse toggle.
-const TOGGLE_RADIUS: f32 = 5.5;
+pub(crate) const TOGGLE_RADIUS: f32 = 5.5;
 /// Around the whole diagram.
-const MARGIN: f32 = 12.0;
+pub(crate) const MARGIN: f32 = 12.0;
 /// Longest name and attribute line a box shows, in characters; the tooltip has all.
 const NAME_CHARS: usize = 40;
 const DETAIL_CHARS: usize = 60;
@@ -85,6 +86,10 @@ pub struct Diagram {
     marked: Option<PathId>,
     /// Scroll the marked box into view on the next frame.
     reveal: bool,
+    /// *Export as SVG…* was clicked: the file is chosen and written on the next frame.
+    export: bool,
+    /// What the last export said, shown in the header.
+    exported: Option<String>,
 }
 
 /// The XPath results counted per box, and what they were counted for.
@@ -103,28 +108,31 @@ struct Job {
 
 /// The boxes as placed, in units of 100 % zoom.
 #[derive(Debug)]
-struct Layout {
+pub(crate) struct Layout {
     /// The visible boxes, a parent before its children.
-    boxes: Vec<Placed>,
-    size: Vec2,
+    pub(crate) boxes: Vec<Placed>,
+    pub(crate) size: Vec2,
     /// What it was laid out for: the generation and the two font sizes.
-    made_for: (u64, f32, f32),
+    pub(crate) made_for: (u64, f32, f32),
 }
 
 #[derive(Debug)]
-struct Placed {
-    path: PathId,
-    rect: Rect,
+pub(crate) struct Placed {
+    pub(crate) path: PathId,
+    pub(crate) rect: Rect,
     /// The places in [`Layout::boxes`] of the children shown.
-    kids: Vec<usize>,
+    pub(crate) kids: Vec<usize>,
     /// Whether the path has children, shown or collapsed.
-    parent: bool,
-    collapsed: bool,
-    name: String,
-    count: String,
+    pub(crate) parent: bool,
+    pub(crate) collapsed: bool,
+    pub(crate) name: String,
+    pub(crate) count: String,
     /// The attribute names, `@a @b`, cut to [`DETAIL_CHARS`].
-    attributes: String,
-    text: bool,
+    pub(crate) attributes: String,
+    pub(crate) text: bool,
+    /// The widths of the name, the count, the attributes and "text" at 100 %: the SVG
+    /// export fixes each piece to its width, as another font would measure it differently.
+    pub(crate) widths: [f32; 4],
 }
 
 /// What the text of a box measures, at 100 %.
@@ -159,6 +167,8 @@ impl Default for Diagram {
             seen: None,
             marked: None,
             reveal: false,
+            export: false,
+            exported: None,
         }
     }
 }
@@ -352,6 +362,9 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         let mut layout = lay_out(&structure, &d.collapsed, &measure);
         layout.made_for = made_for;
         d.layout = Some(layout);
+    }
+    if std::mem::take(&mut d.export) {
+        export(ui, open.doc.path.as_deref(), d);
     }
     // The marked box: the selected element's, found again when the selection changes.
     let selection = (open.selected, Arc::as_ptr(&open.doc.index) as usize);
@@ -597,6 +610,46 @@ fn update_hits(open: &mut Open, structure: &Arc<Structure>) {
     open.diagram.hits = Some(Hits { counts, made_for });
 }
 
+/// Asks for a file name and writes the diagram as laid out, in the window's colours.
+fn export(ui: &Ui, document: Option<&std::path::Path>, d: &mut Diagram) {
+    let Some(layout) = &d.layout else {
+        return;
+    };
+    let visuals = ui.visuals();
+    let theme = crate::theme::current(ui);
+    let palette = Palette {
+        background: visuals.panel_fill,
+        fill: visuals.extreme_bg_color,
+        border: visuals.widgets.noninteractive.bg_stroke.color,
+        line: visuals.weak_text_color(),
+        name: theme.syntax.tag,
+        weak: visuals.weak_text_color(),
+        attributes: theme.syntax.attribute_name,
+        text: theme.syntax.text,
+    };
+    let sizes = Sizes {
+        name: TextStyle::Body.resolve(ui.style()).size,
+        small: TextStyle::Small.resolve(ui.style()).size,
+    };
+    let svg = to_svg(layout, &palette, &sizes);
+    let stem = document
+        .and_then(|p| p.file_stem())
+        .map_or("diagram".into(), |s| s.to_string_lossy().into_owned());
+    let mut dialog = rfd::FileDialog::new()
+        .add_filter("SVG image", &["svg"])
+        .set_file_name(format!("{stem}-structure.svg"));
+    if let Some(dir) = document.and_then(|p| p.parent()) {
+        dialog = dialog.set_directory(dir);
+    }
+    let Some(path) = dialog.save_file() else {
+        return;
+    };
+    d.exported = Some(match xml_atlas_engine::save_atomic(&path, svg.as_bytes()) {
+        Ok(()) => format!("saved {}", path.display()),
+        Err(e) => format!("could not save {}: {e}", path.display()),
+    });
+}
+
 /// What the diagram shows, above it.
 fn header(ui: &mut Ui, d: &mut Diagram) {
     ui.horizontal(|ui| {
@@ -623,6 +676,16 @@ fn header(ui: &mut Ui, d: &mut Diagram) {
                 ui.label(RichText::new("out of date after the edit").weak());
             }
             levels_control(ui, d);
+            if ui
+                .add_enabled(d.layout.is_some(), egui::Button::new("Export as SVG…"))
+                .on_hover_text("The diagram as it is collapsed now, as a vector image")
+                .clicked()
+            {
+                d.export = true;
+            }
+            if let Some(note) = &d.exported {
+                ui.label(RichText::new(note).weak());
+            }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
@@ -851,10 +914,24 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
             kids: Vec::new(),
             parent: parent_box,
             collapsed: is_collapsed,
-            name,
-            count,
+            widths: [
+                measure.name(&name).x,
+                measure.small(&count).x,
+                if attributes.is_empty() {
+                    0.0
+                } else {
+                    measure.small(&attributes).x
+                },
+                if info.text {
+                    measure.small("text").x
+                } else {
+                    0.0
+                },
+            ],
             attributes,
             text: info.text,
+            name,
+            count,
         });
         depth_of.push(depth);
         if let Some(parent) = parent {
@@ -1128,6 +1205,47 @@ mod tests {
         open.mark = Some(at..at + 7);
         let found = s.path_at(&open.doc.src, &open.doc.index, at);
         assert_eq!(found, Some(path(&open, "orders/order/note")));
+    }
+
+    #[test]
+    fn the_svg_is_well_formed_has_every_shown_box_and_leaves_collapsed_ones_out() {
+        use crate::diagram_svg::{Palette, Sizes, to_svg};
+        let mut open = opened(ORDERS);
+        walk(&mut open);
+        let palette = Palette {
+            background: Color32::BLACK,
+            fill: Color32::DARK_GRAY,
+            border: Color32::GRAY,
+            line: Color32::GRAY,
+            name: Color32::LIGHT_BLUE,
+            weak: Color32::GRAY,
+            attributes: Color32::YELLOW,
+            text: Color32::WHITE,
+        };
+        let sizes = Sizes {
+            name: 16.0,
+            small: 12.0,
+        };
+        let svg_of = |open: &Open| to_svg(&layout(open), &palette, &sizes);
+        let check = |svg: &str| {
+            let doc = Document::from_bytes(svg.as_bytes().to_vec());
+            assert!(doc.problems().is_empty(), "{:?}\n{svg}", doc.problems());
+        };
+        let all = svg_of(&open);
+        check(&all);
+        // One <rect> for the background and one per box.
+        assert_eq!(all.matches("<rect ").count(), 1 + 9);
+        assert!(all.contains("@id"));
+        assert!(all.contains("\u{d7}2"));
+        // Collapsed: fewer boxes, and the collapsed one has a plus in its toggle.
+        open.diagram.set_levels(Some(2));
+        let two = svg_of(&open);
+        check(&two);
+        assert_eq!(two.matches("<rect ").count(), 1 + 2);
+        assert!(
+            two.contains("V"),
+            "the toggle of a collapsed box has a plus"
+        );
     }
 
     #[test]

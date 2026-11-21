@@ -15,7 +15,7 @@ How the views are laid out, and how the window looks.
   too. View > Diagram (Ctrl+Shift+D) shows the structure diagram in the grid's place, with a
   height of its own per layout, also while the grid is hidden (D36); remembered too. Its
   *Levels* control collapses it below a depth, and Find's match and XPath's results mark
-  their boxes.
+  their boxes. *Export as SVG…* writes it as an image.
 - **WIN-3** `[done]` Settings are remembered between sessions: the layout (WIN-1), attribute
   rows in the tree (TREE-1), whether the grid is shown (WIN-1), the Format options (FMT-10 to FMT-13), and Find's match case and
   whole word (TEXT-12), and the recent files (OPEN-12). They are kept in `xml-atlas/settings.toml` in the platform's
