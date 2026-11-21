@@ -100,6 +100,26 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Themes: style next to mode, theme files the user can change and share, a native look
       with the system's accent colour (D29, WIN-9, WIN-10)
 
+From XML Marker's 2.x change log (observe it, write the rules in `docs/spec/` first; each
+needs a spec ID before work starts):
+
+- [ ] Bookmarks in text, tree and grid: set (Ctrl+F2), cycle (F2); they follow edits
+- [ ] Go to line (Ctrl+G) in the text view; also with the line of an error
+- [ ] Branch selector: a box that shows the selected element as a path and selects another
+      element when the path is edited (overlaps XPath; decide whether XPath answers it)
+- [ ] Reparse all (F7): the manual form of the index rebuild after text edits (D19)
+- [ ] Option: the mouse wheel scrolls the tree instead of changing the selection
+- [ ] Manual character encoding choice (Options > Character encoding) next to detection
+      (OPEN-8); check that the saved file keeps its encoding
+- [ ] Grid: a cell with attributes and one text shows the text, not the tag name; check
+      against GRID-11 to GRID-13
+- [ ] Test cases from 2.1's crash fixes: very large paste, typing in the tree with an
+      empty document, deeply nested files, sorting numbers that start with 9
+- [ ] Test case from 2.2: Format must never delete comments
+- [ ] JSON: browse and edit JSON files, as a second document kind (needs a decision in
+      `docs/decisions.md`: own index or convert; one root only in XML Marker)
+- [ ] Plain text mode: the editor without highlighting or navigation (low priority)
+
 ## Distribution and automation
 
 - [x] Linux `.deb` (Ubuntu, Debian) and `.rpm` (RHEL, Fedora): `cargo xtask package`, built
