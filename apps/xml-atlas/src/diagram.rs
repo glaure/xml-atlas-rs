@@ -11,7 +11,7 @@
 //! box with children has a toggle that collapses them; each tab keeps what is collapsed.
 //! The wheel and dragging pan, Ctrl+wheel zooms and Ctrl+0 goes back to 100 %.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Weak};
@@ -67,6 +67,11 @@ pub struct Diagram {
     /// The keys ([`Structure::key`]) of the collapsed boxes: they stay when the structure
     /// is read again.
     collapsed: HashSet<Vec<u8>>,
+    /// The depth the *Levels* control last collapsed to; `None` for all, or after a single
+    /// box was toggled.
+    levels: Option<u16>,
+    /// How many of the XPath results each box holds (D36, #123).
+    hits: Option<Hits>,
     layout: Option<Layout>,
     /// Counts changes to the structure and to what is collapsed, for the layout.
     generation: u64,
@@ -80,6 +85,13 @@ pub struct Diagram {
     marked: Option<PathId>,
     /// Scroll the marked box into view on the next frame.
     reveal: bool,
+}
+
+/// The XPath results counted per box, and what they were counted for.
+struct Hits {
+    counts: HashMap<PathId, u64>,
+    /// The results' list, the structure and the index.
+    made_for: (usize, usize, usize, usize),
 }
 
 struct Job {
@@ -137,6 +149,8 @@ impl Default for Diagram {
             failed: None,
             changed: None,
             collapsed: HashSet::new(),
+            levels: None,
+            hits: None,
             layout: None,
             generation: 0,
             pan: Vec2::splat(MARGIN),
@@ -245,7 +259,35 @@ impl Diagram {
         if !self.collapsed.remove(&key) {
             self.collapsed.insert(key);
         }
+        self.levels = None;
         self.generation += 1;
+    }
+
+    /// Collapses every box below depth `levels` (1 is the root element's), or opens all.
+    fn set_levels(&mut self, levels: Option<u16>) {
+        let Some(s) = &self.structure else {
+            return;
+        };
+        self.collapsed = match levels {
+            None => HashSet::new(),
+            Some(n) => (0..s.paths.len() as PathId)
+                .filter(|&p| {
+                    let info = &s.paths[p as usize];
+                    info.depth >= n && !info.children.is_empty()
+                })
+                .map(|p| s.key(p))
+                .collect(),
+        };
+        self.levels = levels;
+        self.generation += 1;
+    }
+
+    /// The deepest path's depth.
+    fn max_depth(&self) -> u16 {
+        self.structure
+            .as_ref()
+            .and_then(|s| s.paths.iter().map(|p| p.depth).max())
+            .unwrap_or(0)
     }
 
     /// The box shown for `path`: its own, or that of the nearest ancestor shown when it is
@@ -278,7 +320,7 @@ pub fn shortcuts(ctx: &egui::Context, open: &mut Open) {
 pub fn show(ui: &mut Ui, open: &mut Open) {
     open.diagram
         .refresh(ui.ctx(), &open.doc.index, &open.doc.src);
-    header(ui, &open.diagram);
+    header(ui, &mut open.diagram);
     let Some(structure) = open.diagram.structure.clone() else {
         if let Some(e) = &open.diagram.failed {
             ui.colored_label(ui.visuals().error_fg_color, e);
@@ -291,6 +333,12 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         ui.centered_and_justified(|ui| ui.label(RichText::new("No elements").weak()));
         return;
     }
+    update_hits(open, &structure);
+    // Find's outlined match: the box of the element that holds it.
+    let found = open
+        .mark
+        .as_ref()
+        .and_then(|m| structure.path_at(&open.doc.src, &open.doc.index, m.start));
     let name_font = TextStyle::Body.resolve(ui.style());
     let small_font = TextStyle::Small.resolve(ui.style());
     let d = &mut open.diagram;
@@ -321,6 +369,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let (area, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     pan_and_zoom(ui, d, area, &response);
     let marked = d.marked.and_then(|p| d.shown(p));
+    let found = found.and_then(|p| d.shown(p));
     if std::mem::take(&mut d.reveal)
         && let Some(i) = marked
     {
@@ -392,13 +441,17 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         }
         let rounding = 4.0 * zoom;
         let is_marked = marked == Some(i);
+        let is_found = found == Some(i) && !is_marked;
+        let hits = d.hits.as_ref().and_then(|h| h.counts.get(&b.path)).copied();
         let is_hovered = matches!(hovered, Some(Click::Box(p)) if p == b.path);
         painter.rect_filled(r, rounding, fill);
-        if is_marked {
+        if is_marked || is_found || hits.is_some() {
             painter.rect_filled(r, rounding, theme.marked_item);
         }
         let stroke = if is_marked {
             Stroke::new(2.0, visuals.selection.stroke.color)
+        } else if is_found || hits.is_some() {
+            Stroke::new(2.0, theme.marked_item_outline)
         } else if is_hovered {
             visuals.widgets.hovered.bg_stroke
         } else {
@@ -441,6 +494,20 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 );
             }
         }
+        if let Some(n) = hits
+            && name_font.size >= MIN_TEXT_SIZE
+        {
+            // Under the box's lower edge, right-aligned: how many results are in it.
+            let text = format!("{} found", grouped(n));
+            let galley =
+                painter.layout_no_wrap(text, small_font.clone(), visuals.strong_text_color());
+            let pad = vec2(4.0, 1.0) * zoom;
+            let size = galley.size() + pad * 2.0;
+            let badge =
+                Rect::from_min_size(pos2(r.right() - size.x, r.bottom() + 2.0 * zoom), size);
+            painter.rect_filled(badge, 3.0 * zoom, theme.marked_item_outline);
+            painter.galley(badge.min + pad, galley, visuals.strong_text_color());
+        }
         if b.parent {
             let c = toggle_center(b.rect);
             let radius = TOGGLE_RADIUS * zoom;
@@ -470,9 +537,10 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         None => response,
     };
     if let Some(Click::Box(p)) = &hovered {
+        let hits = d.hits.as_ref().and_then(|h| h.counts.get(p)).copied();
         response
             .clone()
-            .on_hover_ui_at_pointer(|ui| tooltip(ui, &structure, *p));
+            .on_hover_ui_at_pointer(|ui| tooltip(ui, &structure, *p, hits));
     }
     if response.clicked() {
         match hovered {
@@ -487,8 +555,50 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     }
 }
 
+/// Counts the XPath results per box, again only when the results, the structure or the
+/// index are others than the counts were made for (#123).
+fn update_hits(open: &mut Open, structure: &Arc<Structure>) {
+    let index = Arc::as_ptr(&open.doc.index) as usize;
+    let key = |items: &[xml_atlas_engine::xpath::Item]| {
+        (
+            items.as_ptr() as usize,
+            items.len(),
+            Arc::as_ptr(structure) as usize,
+            index,
+        )
+    };
+    let Some(items) = crate::xpath_bar::result_items(open) else {
+        open.diagram.hits = None;
+        return;
+    };
+    let made_for = key(items);
+    if open
+        .diagram
+        .hits
+        .as_ref()
+        .is_some_and(|h| h.made_for == made_for)
+    {
+        return;
+    }
+    let idx = &open.doc.index;
+    let elements = items.iter().filter_map(|item| {
+        use xml_atlas_engine::xpath::Item;
+        match *item {
+            Item::Attribute(e, _) | Item::Namespace(e, _) | Item::Folded(e) => Some(e),
+            // A text node, comment or instruction is in its parent element.
+            Item::Node(n) if n == xml_atlas_engine::xml::ROOT => None,
+            Item::Node(n) if idx.node(n).kind == xml_atlas_engine::xml::NodeKind::Element => {
+                Some(n)
+            }
+            Item::Node(n) => Some(idx.node(n).parent),
+        }
+    });
+    let counts = structure.count_by_path(&open.doc.src, idx, elements);
+    open.diagram.hits = Some(Hits { counts, made_for });
+}
+
 /// What the diagram shows, above it.
-fn header(ui: &mut Ui, d: &Diagram) {
+fn header(ui: &mut Ui, d: &mut Diagram) {
     ui.horizontal(|ui| {
         if d.job.is_some() {
             ui.spinner();
@@ -512,6 +622,7 @@ fn header(ui: &mut Ui, d: &Diagram) {
             if d.changed.is_some() {
                 ui.label(RichText::new("out of date after the edit").weak());
             }
+            levels_control(ui, d);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
@@ -523,6 +634,42 @@ fn header(ui: &mut Ui, d: &Diagram) {
             );
         });
     });
+}
+
+/// *Levels*: collapses the diagram below a depth (#122); the toggles open single boxes again.
+fn levels_control(ui: &mut Ui, d: &mut Diagram) {
+    let deepest = d.max_depth();
+    if deepest < 2 {
+        return;
+    }
+    let shown = match (d.levels, d.collapsed.is_empty()) {
+        (Some(n), _) => n.to_string(),
+        (None, true) => "all".to_string(),
+        (None, false) => "custom".to_string(),
+    };
+    let mut choice = None;
+    egui::ComboBox::from_id_salt("diagram-levels")
+        .selected_text(format!("Levels: {shown}"))
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(d.levels.is_none() && d.collapsed.is_empty(), "All")
+                .clicked()
+            {
+                choice = Some(None);
+            }
+            // Showing every level is "all": the last level has nothing below it.
+            for n in 1..deepest {
+                if ui
+                    .selectable_label(d.levels == Some(n), n.to_string())
+                    .clicked()
+                {
+                    choice = Some(Some(n));
+                }
+            }
+        });
+    if let Some(levels) = choice {
+        d.set_levels(levels);
+    }
 }
 
 /// The wheel and dragging pan; Ctrl+wheel and pinching zoom around the pointer; Ctrl+0
@@ -625,7 +772,7 @@ fn hit(layout: &Layout, p: Vec2) -> Option<Click> {
 }
 
 /// A box's whole path, count and attributes.
-fn tooltip(ui: &mut Ui, s: &Structure, path: PathId) {
+fn tooltip(ui: &mut Ui, s: &Structure, path: PathId, hits: Option<u64>) {
     let info = &s.paths[path as usize];
     ui.label(RichText::new(format!("/{}", String::from_utf8_lossy(&s.key(path)))).strong());
     ui.label(format!(
@@ -647,6 +794,9 @@ fn tooltip(ui: &mut Ui, s: &Structure, path: PathId) {
     }
     if info.text {
         ui.label("holds text");
+    }
+    if let Some(n) = hits {
+        ui.label(format!("{} found by the XPath query", grouped(n)));
     }
     ui.label(RichText::new("Click: the first one; again or F3: the next").weak());
 }
@@ -912,6 +1062,72 @@ mod tests {
         let items = path(&open, "orders/order/items");
         open.diagram.toggle(items);
         assert_eq!(layout(&open).boxes.len(), 10);
+    }
+
+    #[test]
+    fn levels_collapse_below_a_depth_and_toggles_open_single_boxes() {
+        let mut open = opened(ORDERS);
+        walk(&mut open);
+        assert_eq!(open.diagram.max_depth(), 5);
+        let names = |open: &Open| -> Vec<String> {
+            layout(open).boxes.iter().map(|b| b.name.clone()).collect()
+        };
+        open.diagram.set_levels(Some(1));
+        assert_eq!(names(&open), ["orders"]);
+        open.diagram.set_levels(Some(2));
+        assert_eq!(names(&open), ["orders", "order"]);
+        open.diagram.set_levels(Some(3));
+        assert_eq!(layout(&open).boxes.len(), 5, "customer, items, note");
+        open.diagram.set_levels(Some(4));
+        assert_eq!(layout(&open).boxes.len(), 8, "name, email and item too");
+        // One box opened again: the control no longer says a level.
+        open.diagram.set_levels(Some(2));
+        let order = path(&open, "orders/order");
+        open.diagram.toggle(order);
+        assert_eq!(open.diagram.levels, None);
+        assert_eq!(layout(&open).boxes.len(), 5);
+        // The levels stay after an edit reads the structure again.
+        let at = ORDERS.find("<note>").unwrap();
+        open.doc
+            .apply(Edit::new("Insert").replace(at..at, "<extra/>"))
+            .unwrap();
+        walk(&mut open);
+        open.diagram.set_levels(None);
+        assert!(open.diagram.collapsed.is_empty());
+        assert_eq!(layout(&open).boxes.len(), 10);
+    }
+
+    #[test]
+    fn xpath_results_are_counted_in_their_boxes_and_go_with_the_query() {
+        let mut open = opened(ORDERS);
+        walk(&mut open);
+        let s = open.diagram.structure.clone().unwrap();
+        crate::xpath_bar::run_for_test(&mut open, "//item");
+        update_hits(&mut open, &s);
+        let item = path(&open, "orders/order/items/item");
+        let hits = &open.diagram.hits.as_ref().unwrap().counts;
+        assert_eq!((hits.len(), hits[&item]), (1, 3));
+        // Attributes and text count for their element.
+        crate::xpath_bar::run_for_test(&mut open, "//@sku | //name/text()");
+        update_hits(&mut open, &s);
+        let hits = &open.diagram.hits.as_ref().unwrap().counts;
+        assert_eq!(hits[&item], 1);
+        assert_eq!(hits[&path(&open, "orders/order/customer/name")], 1);
+        // A query without nodes marks nothing.
+        crate::xpath_bar::run_for_test(&mut open, "count(//item)");
+        update_hits(&mut open, &s);
+        assert!(open.diagram.hits.is_none());
+    }
+
+    #[test]
+    fn finds_match_is_in_the_box_of_the_element_holding_it() {
+        let mut open = opened(ORDERS);
+        walk(&mut open);
+        let s = open.diagram.structure.clone().unwrap();
+        let at = ORDERS.find("größer").unwrap() as u64;
+        open.mark = Some(at..at + 7);
+        let found = s.path_at(&open.doc.src, &open.doc.index, at);
+        assert_eq!(found, Some(path(&open, "orders/order/note")));
     }
 
     #[test]

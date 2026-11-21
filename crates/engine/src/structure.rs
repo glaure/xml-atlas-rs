@@ -163,6 +163,50 @@ impl Structure {
         Some(path)
     }
 
+    /// The path of the innermost element that holds byte `offset` of the source: where
+    /// Find's match is. `None` outside the root element and for elements left out after
+    /// [`MAX_PATHS`]. Binary search over the nodes, which are in document order.
+    pub fn path_at(&self, src: &[u8], index: &Index, offset: u64) -> Option<PathId> {
+        let (mut lo, mut hi) = (1usize, index.len());
+        // The last node that starts at or before `offset`.
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if index.node(mid as NodeId).start <= offset {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        let mut id = lo.checked_sub(1)? as NodeId;
+        // Up to the element whose span holds the offset (text, comments and the nodes
+        // before it do not hold it).
+        while id != ROOT && id != xml_atlas_xml::NONE {
+            let n = index.node(id);
+            if n.kind == NodeKind::Element && n.start <= offset && offset < n.end {
+                return self.path_of(src, index, id);
+            }
+            id = n.parent;
+        }
+        None
+    }
+
+    /// How many of `elements` each path has, for the boxes an XPath query's results are in.
+    /// Elements without a path are left out.
+    pub fn count_by_path(
+        &self,
+        src: &[u8],
+        index: &Index,
+        elements: impl IntoIterator<Item = NodeId>,
+    ) -> HashMap<PathId, u64> {
+        let mut counts = HashMap::new();
+        for e in elements {
+            if let Some(p) = self.path_of(src, index, e) {
+                *counts.entry(p).or_insert(0) += 1;
+            }
+        }
+        counts
+    }
+
     /// The first element with path `path` after node `after` in document order, going on
     /// from the start when there is none after it; the first in the document when `after`
     /// is `None`. Skips every subtree that cannot hold the path.
@@ -315,6 +359,40 @@ mod tests {
         </order>\r\n<!-- a comment -->\r\n\
         <order id=\"2\" status=\"open\"><items><item sku=\"b\"/></items><note>größer</note></order>\r\n\
         </orders>";
+
+    #[test]
+    fn the_path_at_a_byte_is_the_innermost_elements() {
+        let (s, index) = walk(ORDERS);
+        let at = |needle: &str| {
+            let off = ORDERS.find(needle).unwrap() as u64;
+            s.path_at(ORDERS.as_bytes(), &index, off)
+                .map(|p| String::from_utf8(s.key(p)).unwrap())
+        };
+        // Inside text: the element holding it; in a tag: that element.
+        assert_eq!(at("Jörg").as_deref(), Some("orders/order/customer/name"));
+        assert_eq!(at("sku=\"b\"").as_deref(), Some("orders/order/items/item"));
+        // Between elements: the parent.
+        assert_eq!(at("<!-- a").as_deref(), Some("orders"));
+        // The byte order mark and the declaration are outside the root element.
+        assert_eq!(s.path_at(ORDERS.as_bytes(), &index, 0), None);
+        assert_eq!(s.path_at(ORDERS.as_bytes(), &index, 1 << 40), None);
+    }
+
+    #[test]
+    fn results_are_counted_per_path() {
+        let (s, index) = walk(ORDERS);
+        let src = ORDERS.as_bytes();
+        let items: Vec<NodeId> = (1..index.len() as NodeId)
+            .filter(|&n| index.node(n).kind == NodeKind::Element && index.name(src, n) == b"item")
+            .collect();
+        assert_eq!(items.len(), 3);
+        let counts = s.count_by_path(src, &index, items.iter().copied());
+        let item = (0..s.paths.len() as PathId)
+            .find(|&p| s.key(p) == b"orders/order/items/item")
+            .unwrap();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[&item], 3);
+    }
 
     #[test]
     fn one_path_per_distinct_name_chain_with_counts() {
