@@ -161,6 +161,83 @@ Seen with the default options on a one-line file.
 - **XM-56** After Indent the tree was collapsed to the root.
 - **XM-57** Indent cannot be undone. (Reported by the owner.)
 
+## XML Marker 2.2
+
+Observed 2026-11-21 in XML Marker 2.2.0 (build date 2013-02-28, the latest release), a small
+UTF-8 file with CRLF line endings and a non-ASCII name. Besides the menus, View > Line
+ending, View > Stat and File > Save as with Encoding were tried; the saves went to copies in a
+temporary folder.
+
+- **XM-60** 2.2 runs in an evaluation mode of 30 days. An "about xml marker" window opens
+  with every start and stays on top of the main window until it is closed; keys sent to the
+  main window in the meantime go nowhere.
+- **XM-61** Menus differ from 1.x. File: New, New DTD, New Json, New Text, Open, Save, Save
+  As, Save as with Encoding, Exit. Edit: Undo, Redo, Cut, Copy, Paste, Delete, Select All,
+  Find, Replace (Indent moved to Navigate). View: Toolbar, Status Bar, Line numbers, Line
+  ending, Stat, Table Selection Browser. Options: Font, Indent Options, Unique
+  Consolidation, Scroll wheel changes tree selection (on), Tabs, Parse this document as…,
+  Character encoding…. Navigate: Drill Up, Drill Down, Locate in tree, Indent, Reparse,
+  Toggle Bookmark, Last Bookmark, Next Bookmark, Clear all Bookmarks. Help: Online
+  documentation, What's new, Check for updates, About. The menus are drawn by the program,
+  not by Windows, so a screenshot is the way to read them.
+- **XM-62** View > Line ending shows every line break in the text as a marked "CR" or "LF"
+  (grey on yellow with a red edge) at the end of the line: "CR LF" for CRLF, "LF" for LF, and
+  a mixed file shows each line's own. It changes how the text is shown, not the file. The
+  setting is off again at every start. A lone CR is not a line break for the view: a file of
+  CR line endings is one line, with a "CR" mark where each break is.
+- **XM-63** View > Stat opens a Stat panel, left of the text, below the tree. It has three
+  lines for a 115-byte file: "Started in 100.96 milliseconds", "Loaded 115 bytes in 257.99
+  milliseconds", "Parsed 115 bytes in 0.12 milliseconds". The panel has a close button.
+- **XM-64** File > Save as with Encoding asks for an encoding in a "Save With Encoding"
+  window with a drop-down list and Ok and Cancel, then for a file name in the usual save
+  dialog, starting in the folder last used. The list starts with Unicode (UTF-8) (offered
+  first), UTF-8 with BOM, UTF-16 little endian, UTF-16 little endian with BOM, UTF-16 big
+  endian, UTF-16 big endian with BOM, then Western (windows-1252) and more below. The window
+  becomes the new file: the title shows the new name.
+- **XM-65** Saving rewrites the XML declaration's encoding to the one chosen, in lower case:
+  `encoding="UTF-8"` became `"utf-8"`, `"utf-16"` for both UTF-16 kinds, `"windows-1252"`.
+  Observed bytes: UTF-8 has no BOM, "UTF-8 with BOM" starts `EF BB BF`, UTF-16 with BOM starts
+  `FF FE`, UTF-16 big endian without BOM starts `00 3C`.
+- **XM-66** Characters the encoding cannot hold: a question "This document contains
+  characters that cannot be saved using the current encoding, These characters will be
+  deleted. Continue?" (Yes, No). After Yes they are gone from the file without a trace: with
+  windows-1252, `Grüße € 日本` was saved as `Grüße € ` (the euro sign is 0x80, ü and ß are
+  `FC DF`, 日本 are dropped).
+- **XM-67** A save through Save as with Encoding added a line break: an 86-byte UTF-8 file
+  with CRLF line endings became 87 bytes, the declaration followed by `0A 0D 0A` (an empty
+  line) instead of `0D 0A`. The rest of the file was kept, CRLF included. Atlas must not do
+  this (rule 7 of AGENTS.md; EDIT-1 to EDIT-4 keep the bytes).
+
+- **XM-68** Stat on larger files (fixtures `orders-10.xml`, `orders.xml`): the Stat panel says
+  "Started in 99.31 milliseconds", "Loaded 10,486,239 bytes in 336.20 milliseconds", "Parsed
+  10,486,239 bytes in 184.88 milliseconds"; for 104,857,919 bytes "Started in 128.73
+  milliseconds", "Loaded ... in 1.00 seconds", "Parsed ... in 1.68 seconds". Units switch
+  from milliseconds to seconds. Working set after opening: 47 MiB (10 MiB file), 304 MiB
+  (100 MiB file). Load and parse are two steps. The numbers are the program's own, taken
+  once on one machine, not a benchmark (`docs/benchmarks.md` has those).
+- **XM-69** File > New Json opens `Untitled.json` and File > New Text opens `Untitled.txt`,
+  each with an empty text view and a grey hint ("(To start, type your JSON here or open
+  existing file.)", "... Plain Text ..."). A new file replaced the document shown; no tabs
+  appeared. Typing marks the title with `*`. Plain text: no tree, no errors, the text is
+  shown in bold; nothing is checked.
+- **XM-70** JSON: the text is parsed as typed. Pasting `{"a":1,"b":[1,2,{"c":"x"}],"d":null,
+  "e":"Grüße"}` gave a tree with the root "JsonDocuement" (sic), then `a = "1"`, a
+  collapsible `b` (an array icon), `d = "null"` and `e = "Grüße"`: values are shown as
+  strings, null as the text "null", numbers in quotes. Text that is not JSON gives one
+  error, "Expecting [ or {", with a red marker under the text and the error count (1) on
+  the second tab. Navigate > Indent worked on JSON: two-space indent steps, `"a" : 1` with
+  spaces around the colon; the tree did not change. JSON keys do not take part in the
+  grid (not checked further).
+- **XM-71** Options > Character encoding… opens a window like Save With Encoding, with the
+  same list, starting on the document's encoding (Unicode (UTF-8)). Choosing windows-1252
+  and Ok changed nothing visible: the text, the declaration and the title stayed the same.
+  Whether it re-reads the file in that encoding, or sets the one a later Save uses, was not
+  found (an attempt to save did not complete: the title kept its `*` and the file did not
+  change).
+- **XM-72** Typing in the text re-parses at once (an error marker and "1 error(s)" appeared
+  after one typed `<`); Navigate > Reparse then changed nothing visible: the tree and the
+  count stayed as they were. What Reparse is for was not found.
+
 ## Qt XML Atlas
 
 - **QT-1** One document, one window. No file argument on the command line. Opening reads the

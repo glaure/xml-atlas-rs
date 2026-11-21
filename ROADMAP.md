@@ -101,24 +101,42 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       with the system's accent colour (D29, WIN-9, WIN-10)
 
 From XML Marker's 2.x change log (observe it, write the rules in `docs/spec/` first; each
-needs a spec ID before work starts):
+needs a spec ID before work starts). Checked against the menus of XML Marker 2.2.0 (the
+latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
 
-- [ ] Bookmarks in text, tree and grid: set (Ctrl+F2), cycle (F2); they follow edits
+- [ ] Bookmarks in text, tree and grid: set (Ctrl+F2), cycle (F2); they follow edits. Navigate
+      menu: Toggle, Last, Next, Clear all bookmarks
+- [ ] New Text and New Json in File > New, next to New DTD (OPEN-22 has New XML; XM-69)
+- [ ] Save as with Encoding: a Save As that asks for the encoding, with and without BOM
+      (OPEN-8, D23; XM-64 to XM-67). Do better than XML Marker: ask before characters are
+      lost, and add no line break
+- [ ] View > Line ending: show line breaks as marks in the text (CR, LF, CR LF, mixed); a
+      display option only (XM-62)
+- [ ] View > Stat: a panel with the time to start, load and parse (XM-63, XM-68); compare
+      with `xml-atlas-cli stats`
 - [ ] Go to line (Ctrl+G) in the text view; also with the line of an error
 - [ ] Branch selector: a box that shows the selected element as a path and selects another
       element when the path is edited (overlaps XPath; decide whether XPath answers it)
-- [ ] Reparse all (F7): the manual form of the index rebuild after text edits (D19)
-- [ ] Option: the mouse wheel scrolls the tree instead of changing the selection
+- [ ] Reparse all (F7): the manual form of the index rebuild after text edits (D19). In 2.2
+      typing re-parses at once and Reparse showed no change (XM-72): find out what it is for
+      before building it
+- [ ] Option: the mouse wheel scrolls the tree instead of changing the selection (Options >
+      Scroll wheel changes tree selection, on by default in 2.2)
+- [ ] Parse this document as DTD (Options, XM-2): observe, then decide whether it is wanted
 - [ ] Manual character encoding choice (Options > Character encoding) next to detection
-      (OPEN-8); check that the saved file keeps its encoding
+      (OPEN-8); check that the saved file keeps its encoding. In 2.2 the choice changed
+      nothing visible (XM-71): find out whether it re-reads or sets the save encoding
 - [ ] Grid: a cell with attributes and one text shows the text, not the tag name; check
       against GRID-11 to GRID-13
 - [ ] Test cases from 2.1's crash fixes: very large paste, typing in the tree with an
       empty document, deeply nested files, sorting numbers that start with 9
 - [ ] Test case from 2.2: Format must never delete comments
 - [ ] JSON: browse and edit JSON files, as a second document kind (needs a decision in
-      `docs/decisions.md`: own index or convert; one root only in XML Marker)
-- [ ] Plain text mode: the editor without highlighting or navigation (low priority)
+      `docs/decisions.md`: own index or convert; one root only in XML Marker). 2.2 shows a
+      tree of name = value with every value as a string, errors with a marker, and Indent for
+      JSON (XM-70)
+- [ ] Plain text mode: the editor without highlighting or navigation (low priority; XM-69:
+      no tree, no checks)
 
 ## Distribution and automation
 
