@@ -403,6 +403,35 @@ pub fn has_results(open: &Open) -> bool {
     open.xpath.as_ref().is_some_and(|r| r.nodes().is_some())
 }
 
+/// Runs `expr` as Enter in the bar does and waits for the answer, for other modules' tests.
+#[cfg(test)]
+pub fn run_for_test(open: &mut Open, expr: &str) {
+    let mut bar = XPathBar {
+        text: expr.into(),
+        ..Default::default()
+    };
+    bar.run(&egui::Context::default(), open);
+    let t = Instant::now();
+    while matches!(
+        open.xpath.as_ref().map(|r| &r.state),
+        Some(State::Running { .. })
+    ) {
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "the query did not end"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+        poll(open);
+    }
+}
+
+/// The nodes of the results shown for `open`, while the document is still the one the query
+/// ran on: for the diagram's marks (D36).
+pub fn result_items(open: &Open) -> Option<&[Item]> {
+    let r = open.xpath.as_ref().filter(|r| r.fresh(open))?;
+    r.nodes()
+}
+
 /// The results panel at the bottom: one row per node, its line, path and value.
 pub fn show_results(ui: &mut Ui, open: &mut Open) {
     let Some(r) = &open.xpath else {

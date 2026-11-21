@@ -1552,6 +1552,21 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
     on 10 MiB, 79–82 ms on 100 MiB, 238–243 ms on 300 MiB. About 60 % of it is reading the
     attribute names. Opening is unchanged: the walk runs only when the diagram is shown.
 
+- **Built, step 2 (2026-11-21):** *Levels* and the marks of Find and XPath.
+  - **Levels** is a drop-down above the diagram: All, 1, 2 … up to one less than the deepest
+    path. Choosing a level fills the same set of collapsed boxes the toggles use, so a toggle
+    afterwards opens or closes one box and the control says *custom*. The level is not kept
+    for paths a later walk adds.
+  - **Find's match** is the box of the innermost element holding the outlined match's first
+    byte (`Structure::path_at`, a binary search over the nodes). It is the same outline the
+    text view draws (`Open::mark`), so a marked grid row or tree row marks its box too.
+    The selected element's box keeps its own look.
+  - **XPath's results** are counted per box on the window's thread, once per query
+    (`Structure::count_by_path`, one walk up per result), not per frame. A box with results
+    is outlined and has a badge `N found`; the tooltip says it too. An attribute, a
+    namespace or a folded text counts for its element, a text node, comment or instruction
+    for its parent. Not measured on a result list of millions.
+
 ## Open questions
 
 None.

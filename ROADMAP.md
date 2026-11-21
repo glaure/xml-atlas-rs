@@ -86,8 +86,8 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Repeated elements expanded in the preview; rules switched off in the file (REF-11, D34)
 - [x] A diagram of the document's structure: one box per path, with counts, clicks both
       ways and collapsing (D36, step 1; issue #121)
-- [ ] The diagram's levels, the marks of Find and XPath, SVG export (D36; issues #122 to
-      #124)
+- [x] The diagram's levels and the marks of Find and XPath (D36, step 2; issues #122, #123)
+- [ ] The diagram as an SVG file (D36, step 3; issue #124)
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
