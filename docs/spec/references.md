@@ -69,6 +69,10 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
     optional.
   - `"enabled": false` in any rule object (an include, `attribute_references`, a context,
     `repeat`) leaves that rule out; for `repeat`, *Expand repeats* then starts off.
+
+  The search for the file starts where the document really is: `..` in its path is resolved,
+  and a document opened through a link is searched from the link's target (D40). The folders
+  such a path only passes through are not above the document.
 - **REF-2** `[done]` A path is a small part of XPath: child names, `*`, `.`, `..`, `//`, a
   leading `/`, and last `@name`, `@*` or `text()`; the conditions `[@a='v']`, `[@a]` and
   `[n]`. Anything else is a reference the preview cannot read, said as such.

@@ -520,7 +520,7 @@ fn structure(file: &Path) -> anyhow::Result<()> {
 fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, Rules)> {
     let path = match rules {
         Some(p) => p,
-        None => Rules::find(&std::path::absolute(file)?).with_context(|| {
+        None => Rules::find(file).with_context(|| {
             format!(
                 "no {} next to {} or in a folder above it; give one with --rules",
                 references::RULES_FILE,

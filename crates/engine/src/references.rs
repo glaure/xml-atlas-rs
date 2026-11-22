@@ -10,7 +10,7 @@
 
 use std::fmt::Write as _;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 
 use serde_json::Value;
 use xml_atlas_xml::{NodeId, NodeKind, ROOT};
@@ -351,10 +351,12 @@ impl Rules {
     }
 
     /// The rules file for a document: [`RULES_FILE`] next to it or in the nearest folder
-    /// above it.
+    /// above it. The folders are those where the document really is, so `..` and links in
+    /// `document` are resolved first (D40); a relative path is taken from the current folder.
     pub fn find(document: &Path) -> Option<PathBuf> {
-        let start = document.parent()?;
-        start
+        let document = resolved(document)?;
+        document
+            .parent()?
             .ancestors()
             .map(|dir| dir.join(RULES_FILE))
             .find(|p| p.is_file())
@@ -1416,6 +1418,40 @@ fn text_of(v: &Value, at: &str) -> Result<String, RulesError> {
         .ok_or_else(|| invalid(format!("{at} is not a string")))
 }
 
+/// Where `path` really is: absolute, without `..` or links. For a file that is not there,
+/// where its folder is. `None` when that cannot be known without guessing what a `..` means.
+fn resolved(path: &Path) -> Option<PathBuf> {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return Some(without_verbatim(real));
+    }
+    let name = path.file_name()?;
+    let folder = match path.parent()? {
+        p if p.as_os_str().is_empty() => Path::new("."),
+        p => p,
+    };
+    if let Ok(real) = std::fs::canonicalize(folder) {
+        return Some(without_verbatim(real).join(name));
+    }
+    // Some Windows drives cannot say where a file really is. `absolute` takes out `..` there;
+    // elsewhere it keeps them, and they would lead the search into folders left again.
+    let plain = std::path::absolute(path).ok()?;
+    let climbs = plain.components().any(|c| c == Component::ParentDir);
+    (!climbs).then_some(plain)
+}
+
+/// `C:\dir` for the `\\?\C:\dir` that `canonicalize` gives on Windows, to show the path as the
+/// user knows it.
+fn without_verbatim(path: PathBuf) -> PathBuf {
+    let mut parts = path.components();
+    if let Some(Component::Prefix(prefix)) = parts.next()
+        && let Prefix::VerbatimDisk(drive) = prefix.kind()
+    {
+        parts.next(); // The root after the drive.
+        return Path::new(&format!("{}:\\", char::from(drive))).join(parts.as_path());
+    }
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1822,11 +1858,69 @@ mod tests {
         std::fs::create_dir_all(&deep).unwrap();
         assert_eq!(Rules::find(&deep.join("f.xml")), None);
         std::fs::write(dir.join(RULES_FILE), "{}").unwrap();
-        assert_eq!(Rules::find(&deep.join("f.xml")), Some(dir.join(RULES_FILE)));
+        // The temporary folder can itself be behind a link (macOS) or a short name (Windows).
+        let found = || Rules::find(&deep.join("f.xml")).map(|p| p.canonicalize().unwrap());
+        let real = |p: &Path| p.join(RULES_FILE).canonicalize().unwrap();
+        assert_eq!(found(), Some(real(&dir)));
         std::fs::write(deep.join(RULES_FILE), "{}").unwrap();
+        assert_eq!(found(), Some(real(&deep)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `..` is resolved before the search (D40): the folders a path only passes through
+    /// are not above the document.
+    #[test]
+    fn rules_of_a_folder_the_path_leaves_are_not_used() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-dots-{}", std::process::id()));
+        let (passed, other) = (dir.join("Größe"), dir.join("other"));
+        std::fs::create_dir_all(&passed).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(passed.join(RULES_FILE), "{}").unwrap();
+        std::fs::write(other.join("f.xml"), "<a/>").unwrap();
+        let document = passed.join("..").join("other").join("f.xml");
+        assert_eq!(Rules::find(&document), None);
+        // The same for a file that is not there (yet, or any more).
+        assert_eq!(Rules::find(&document.with_file_name("new.xml")), None);
+        std::fs::write(other.join(RULES_FILE), "{}").unwrap();
+        let found = Rules::find(&document).unwrap();
+        assert!(
+            !found
+                .components()
+                .any(|c| c == std::path::Component::ParentDir)
+        );
         assert_eq!(
-            Rules::find(&deep.join("f.xml")),
-            Some(deep.join(RULES_FILE))
+            std::fs::canonicalize(found).unwrap(),
+            std::fs::canonicalize(other.join(RULES_FILE)).unwrap()
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The rules file is named with the drive as the user writes it.
+    #[cfg(windows)]
+    #[test]
+    fn a_found_path_has_no_verbatim_prefix() {
+        let path = without_verbatim(PathBuf::from(r"\\?\C:\Größe\f.xml"));
+        assert_eq!(path.as_os_str(), r"C:\Größe\f.xml");
+    }
+
+    /// A document opened through a link is searched from the link's target (D40); a rules
+    /// file that is itself a link still counts.
+    #[cfg(unix)]
+    #[test]
+    fn rules_are_searched_from_a_links_target() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("xml-atlas-links-{}", std::process::id()));
+        let (real, links) = (dir.join("real"), dir.join("links"));
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&links).unwrap();
+        std::fs::write(real.join("f.xml"), "<a/>").unwrap();
+        std::fs::write(real.join("named.json"), "{}").unwrap();
+        symlink(real.join("named.json"), real.join(RULES_FILE)).unwrap();
+        std::fs::write(links.join(RULES_FILE), "{}").unwrap();
+        symlink(real.join("f.xml"), links.join("f.xml")).unwrap();
+        assert_eq!(
+            Rules::find(&links.join("f.xml")),
+            Some(std::fs::canonicalize(&real).unwrap().join(RULES_FILE))
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

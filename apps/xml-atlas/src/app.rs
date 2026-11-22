@@ -2658,7 +2658,7 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 /// The reference rules for a document at `path` (REF-1): the rules file next to it or above
 /// it, if there is one.
 fn load_rules(path: &Path) -> Option<Result<(PathBuf, Arc<Rules>), String>> {
-    let file = Rules::find(&std::path::absolute(path).ok()?)?;
+    let file = Rules::find(path)?;
     Some(match Rules::read(&file) {
         Ok(rules) => {
             log::info!("reference rules from {}", file.display());
