@@ -105,6 +105,12 @@ How the views are laid out, and how the window looks.
   attribute rows, the toolbar and the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
   only in Settings. Not in Settings: the recent files, window and pane sizes, the find
   options (`docs/decisions.md`, D31).
+- **WIN-12** `[built]` Settings > Appearance shows how each theme looks: above each of
+  *Follow system*, *Light*, *Dark*, *Soft grey* and *Classic* a small example window with
+  menu, toolbar, tree, coloured text, the selected element, grid and status bar, in that
+  theme's colours. *Follow system* is half light, half dark; it and *Light* show the chosen
+  light style. A click on an example chooses it. The examples are drawn from the themes,
+  not stored as images. On a screen too low for the section, it scrolls.
 
 ## Acceptance tests
 
@@ -117,6 +123,8 @@ How the views are laid out, and how the window looks.
   whole window turns dark at once, without reopening the file.
 - With Follow system, switch the desktop between light and dark while XML Atlas runs: the
   window follows within a moment.
+- In Settings > Appearance click the picture of Dark: the window turns dark. Click the
+  picture of Classic: the pictures of Light and of Follow system's left half change with it.
 - Press F1: the help window opens, its text wraps with the window's width and scrolls. Help >
   About XML Atlas shows the version the package was built as; its links open in the browser.
 - Turn on *Allow AI agents (MCP)* in Settings and connect Claude Code with `xml-atlas-cli mcp

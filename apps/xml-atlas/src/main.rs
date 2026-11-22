@@ -29,6 +29,7 @@ mod system_theme;
 mod tabs;
 mod text_view;
 mod theme;
+mod theme_preview;
 mod tool_icons;
 mod tree;
 mod update;
