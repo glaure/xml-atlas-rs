@@ -138,7 +138,8 @@ undo and save.
 ## Settings
 
 File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, format
-options, updates and AI agents. A change applies at once.
+options, updates and AI agents. A change applies at once. Appearance shows an example of
+each theme; click one to use it.
 
 ## Updates
 
