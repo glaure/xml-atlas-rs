@@ -32,6 +32,7 @@ pub mod problems;
 pub mod references;
 pub mod repeat;
 pub mod rules_folder;
+pub mod rules_text;
 pub mod structure;
 pub mod text;
 pub mod tree;

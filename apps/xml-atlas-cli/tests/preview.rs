@@ -90,3 +90,34 @@ fn rules_come_from_the_configuration_folder() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("1 found"));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// `references --check` says what is wrong with the rules, and fails only on an error
+/// (REF-14).
+#[test]
+fn check_names_the_mistakes_in_the_rules() {
+    let dir = std::env::temp_dir().join(format!("xml-atlas-cli-check-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (file, rules) = (dir.join("doc.xml"), dir.join("rules.json"));
+    std::fs::write(&file, "<R><Größe/></R>").unwrap();
+    let run = |text: &str| {
+        std::fs::write(&rules, text).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_xml-atlas-cli"))
+            .args(["references", "--check"])
+            .arg(&file)
+            .arg("--rules")
+            .arg(&rules)
+            .env("XML_ATLAS_SETTINGS", dir.join("settings.toml"))
+            .output()
+            .unwrap();
+        (out.status.success(), String::from_utf8(out.stdout).unwrap())
+    };
+    let (ok, out) = run("\u{feff}{\r\n  \"include\": []\r\n}");
+    assert!(ok, "warnings do not fail: {out}");
+    assert!(
+        out.contains(":2:3: warning:") && out.contains("\"includes\"?"),
+        "{out}"
+    );
+    let (ok, out) = run("{\n  \"includes\": [],\n}");
+    assert!(!ok && out.contains(":3:1: error: trailing comma"), "{out}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

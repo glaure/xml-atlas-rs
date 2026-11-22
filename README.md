@@ -128,12 +128,14 @@ A file can point from one part to another with conventions of its own, such as
 (`docs/spec/references.md`). In File > Settings > References import one or make a new one,
 switch it on, fill in *Use for* with the documents it is for (`catalog*.xml`), and turn on
 Resolve references (off by default). Rules files are kept in the configuration folder; one
-lying beside an XML file is not used (until 1.2 it was: import it once). Then F12 goes to what the selected reference finds, the ones
+lying beside an XML file is not used (until 1.2 it was: import it once). *Edit…* opens one
+with a check beside it. Then F12 goes to what the selected reference finds, the ones
 that find nothing are listed as problems, and View > Preview with references resolved shows
 the selected element with them resolved. The file is never changed.
 
 ```sh
 cargo run --release -p xml-atlas-cli -- references file.xml          # check them all
+cargo run --release -p xml-atlas-cli -- references file.xml --check  # check the rules
 cargo run --release -p xml-atlas-cli -- preview file.xml /Doc/Unit   # one element resolved
 ```
 

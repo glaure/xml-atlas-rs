@@ -26,6 +26,9 @@ use xml_atlas_engine::problems::{Problem, Severity};
 use xml_atlas_engine::references::{self, Rules};
 use xml_atlas_engine::rules_folder::Library;
 
+/// The rules a tab uses, with their file, or that file and why it cannot be used.
+pub type TabRules = Result<(PathBuf, Arc<Rules>), (PathBuf, String)>;
+
 /// Time a frame spends looking at a long grid's rows for columns (GRID-3).
 const GRID_SCAN_TIME: Duration = Duration::from_millis(6);
 
@@ -158,7 +161,9 @@ pub struct Open {
     references_from: Option<(Arc<Library>, Option<PathBuf>)>,
     /// The reference rules for this file (REF-13), or why they could not be read; `None`
     /// while references are off or no file is for it.
-    pub references: Option<Result<(PathBuf, Arc<Rules>), String>>,
+    pub references: Option<TabRules>,
+    /// The preview asked to edit this rules file; the app takes it.
+    pub edit_rules: Option<PathBuf>,
     /// References that find nothing, as of the last check.
     reference_problems: Vec<Problem>,
     /// When to check the references again: typing waits for a pause.
@@ -681,6 +686,10 @@ impl App {
                 }
             }
             Action::Quit => {
+                // The rules editor asks about its changes first (REF-15).
+                if !self.rules_files.may_quit() {
+                    return;
+                }
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -1602,6 +1611,18 @@ impl App {
 
     /// File > Settings… (WIN-11). The window changes the settings; what a change means beyond
     /// the setting is applied here.
+    /// The rules editor (REF-15), before the keys that act on the document.
+    fn rules_editor(&mut self, ctx: &egui::Context) {
+        let asked = self.docs.active_mut().and_then(|o| o.edit_rules.take());
+        if let Some(path) = asked {
+            self.rules_files.edit(&path);
+        }
+        self.rules_files.show_editor(ctx, self.docs.active());
+        if self.rules_files.take_quit() {
+            self.request(ctx, Action::Quit);
+        }
+    }
+
     fn settings_window(&mut self, ctx: &egui::Context) {
         if !self.settings_window.open {
             return;
@@ -1932,7 +1953,7 @@ impl eframe::App for App {
         // The window's close button: hold the close until the user has answered.
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
-            && self.docs.iter().any(|o| o.doc.is_modified())
+            && (self.rules_files.has_unsaved() || self.docs.iter().any(|o| o.doc.is_modified()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if self.confirm.is_none() {
@@ -1956,6 +1977,7 @@ impl eframe::App for App {
             self.settings_window.open = true;
         }
         self.settings_window(&ctx);
+        self.rules_editor(&ctx);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
         if ctx.input_mut(|i| {
             i.consume_shortcut(&KeyboardShortcut::new(
@@ -2034,7 +2056,9 @@ impl eframe::App for App {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         self.update_title(&ctx);
         // After the menu and Settings, where it is switched, and before the views.
-        let needed = self.settings.references || self.settings_window.shows_references();
+        let needed = self.settings.references
+            || self.settings_window.shows_references()
+            || self.rules_files.is_editing();
         self.rules_files.update(&ctx, needed);
         if ctx.input(|i| i.viewport().close_requested()) {
             self.rules_files.flush();
@@ -2187,6 +2211,7 @@ impl Open {
             resolve_references: false,
             references_from: None,
             references: None,
+            edit_rules: None,
             reference_problems: Vec::new(),
             references_due: None,
             reference_preview: None,
@@ -2242,15 +2267,15 @@ impl Open {
             .and_then(|l| l.for_document(self.doc.path.as_deref()))
             .map(|entry| match &entry.rules {
                 Ok(rules) => Ok((entry.path.clone(), Arc::clone(rules))),
-                Err(e) => Err(format!("{}: {e}", entry.path.display())),
+                Err(e) => Err((entry.path.clone(), e.clone())),
             });
         let on = library.is_some();
         if on == self.resolve_references && rules == self.references {
             return;
         }
-        let file = |rules: &Option<Result<(PathBuf, Arc<Rules>), String>>| match rules {
-            Some(Ok((file, _))) => Some(file.clone()),
-            _ => None,
+        let file = |rules: &Option<TabRules>| match rules {
+            Some(Ok((file, _)) | Err((file, _))) => Some(file.clone()),
+            None => None,
         };
         // Sections chosen under one file's rules mean nothing under another's.
         if !on || file(&rules) != file(&self.references) {

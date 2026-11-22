@@ -19,6 +19,8 @@ use crate::Document;
 use crate::format::newline_style;
 use crate::problems::{Problem, Severity};
 
+pub mod check;
+
 /// Imports inside imports are followed this deep; deeper ones are left as they are.
 pub const MAX_DEPTH: usize = 10;
 
@@ -196,6 +198,7 @@ impl Preview {
 impl Rules {
     /// Reads rules from the JSON text of a rules file.
     pub fn parse(text: &str) -> Result<Self, RulesError> {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let v: Value = serde_json::from_str(text)?;
         let top = v
             .as_object()
@@ -1792,6 +1795,12 @@ mod tests {
         assert_eq!(p.text, "<Box N=\"3\" M=\"b\" L=\"z\"/>");
         // Not a section: no choice.
         assert_eq!(choice_for(&d, &rules, b), None);
+    }
+
+    /// Windows editors write one (D39).
+    #[test]
+    fn rules_may_start_with_a_byte_order_mark() {
+        assert_eq!(Rules::parse(&format!("\u{feff}{RULES}")).unwrap(), rules());
     }
 
     #[test]

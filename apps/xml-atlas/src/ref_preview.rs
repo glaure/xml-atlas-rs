@@ -107,15 +107,23 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
             );
             return;
         }
-        Some(Err(e)) => {
+        Some(Err((file, e))) => {
             ui.label(RichText::new("The reference rules cannot be read").strong());
-            ui.label(e.as_str());
+            ui.label(format!("{}: {e}", file.display()));
+            if ui.button("Edit rules…").clicked() {
+                open.edit_rules = Some(file.clone());
+            }
             return;
         }
         Some(Ok((file, rules))) => {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
-            ui.add(Label::new(RichText::new(format!("Rules: {name}")).weak()).truncate())
-                .on_hover_text(file.display().to_string());
+            ui.horizontal(|ui| {
+                if ui.small_button("Edit rules…").clicked() {
+                    open.edit_rules = Some(file.clone());
+                }
+                ui.add(Label::new(RichText::new(format!("Rules: {name}")).weak()).truncate())
+                    .on_hover_text(file.display().to_string());
+            });
             std::sync::Arc::clone(rules)
         }
     };
