@@ -9,6 +9,8 @@ use egui::{Context, RichText, Ui};
 use xml_atlas_engine::FormatOptions;
 
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
+use crate::theme::Theme;
+use crate::theme_preview::choice;
 
 /// Under the Views section.
 const VIEWS_NOTE: &str = "The View menu switches these too. Alt+Z switches word wrap for the \
@@ -24,6 +26,13 @@ const UPDATES_NOTE: &str = "XML Atlas asks GitHub for the latest release and tel
                             anything.";
 /// Width of the list of sections on the left.
 const SECTIONS_WIDTH: f32 = 120.0;
+/// Height kept free around a section for the window's title, margins and the program's own
+/// bars; a section taller than the rest of the screen scrolls.
+const SECTION_MARGIN: f32 = 120.0;
+/// The window's id.
+const WINDOW_ID: &str = "settings-window";
+/// The least height a section scrolls in.
+const SECTION_MIN_HEIGHT: f32 = 120.0;
 
 /// A part of the Settings window.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -112,7 +121,9 @@ impl SettingsWindow {
     ) -> Option<Request> {
         let mut open = self.open;
         let mut request = None;
+        let height = (ctx.content_rect().height() - SECTION_MARGIN).max(SECTION_MIN_HEIGHT);
         egui::Window::new("Settings")
+            .id(egui::Id::unique(WINDOW_ID))
             .open(&mut open)
             .collapsible(false)
             .default_size([560.0, 360.0])
@@ -125,14 +136,23 @@ impl SettingsWindow {
                         }
                     });
                     ui.separator();
+                    // Vertical first: a scroll area lays out as the row it is in would.
                     ui.vertical(|ui| {
-                        ui.heading(self.section.title());
-                        ui.add_space(6.0);
-                        request = section(ui, self.section, settings, checking);
-                        ui.add_space(12.0);
-                        if ui.button("Reset to defaults").clicked() {
-                            self.section.reset(settings);
-                        }
+                        egui::ScrollArea::vertical()
+                            .id_salt(("settings-section", self.section.title()))
+                            .max_height(height)
+                            // Without it a section would scroll at the window's default
+                            // height, also where the screen has room.
+                            .min_scrolled_height(height)
+                            .show(ui, |ui| {
+                                ui.heading(self.section.title());
+                                ui.add_space(6.0);
+                                request = section(ui, self.section, settings, checking);
+                                ui.add_space(12.0);
+                                if ui.button("Reset to defaults").clicked() {
+                                    self.section.reset(settings);
+                                }
+                            });
                     });
                 });
             });
@@ -184,27 +204,12 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> O
     let mut request = None;
     match section {
         Section::Appearance => {
+            theme_choices(ui, s);
+            ui.add_space(8.0);
             egui::Grid::new("settings-appearance")
                 .num_columns(2)
                 .spacing([12.0, 8.0])
                 .show(ui, |ui| {
-                    ui.label("Theme");
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut s.theme, ThemeChoice::System, "Follow system");
-                        ui.radio_value(&mut s.theme, ThemeChoice::Light, "Light");
-                        ui.radio_value(&mut s.theme, ThemeChoice::Dark, "Dark");
-                    });
-                    ui.end_row();
-                    ui.label("Light style");
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut s.light_style, LightStyle::Soft, "Soft grey");
-                        ui.radio_value(
-                            &mut s.light_style,
-                            LightStyle::Classic,
-                            "Classic, as in 1.0",
-                        );
-                    });
-                    ui.end_row();
                     ui.label("Font");
                     ui.horizontal(|ui| {
                         let f = &s.text_font;
@@ -290,6 +295,36 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> O
     request
 }
 
+/// The theme mode and the light style, each choice under an example of how it looks
+/// (WIN-12). Light, and the light half of Follow system, are in the chosen light style.
+fn theme_choices(ui: &mut Ui, s: &mut Settings) {
+    let (soft, classic, dark) = (Theme::light(), Theme::light_classic(), Theme::dark());
+    let light = match s.light_style {
+        LightStyle::Soft => &soft,
+        LightStyle::Classic => &classic,
+    };
+    ui.label("Theme");
+    ui.horizontal_top(|ui| {
+        let (theme, system) = (&mut s.theme, ThemeChoice::System);
+        choice(ui, theme, system, "Follow system", &[light, &dark]);
+        choice(ui, theme, ThemeChoice::Light, "Light", &[light]);
+        choice(ui, theme, ThemeChoice::Dark, "Dark", &[&dark]);
+    });
+    ui.add_space(8.0);
+    ui.label("Light style");
+    ui.horizontal_top(|ui| {
+        let style = &mut s.light_style;
+        choice(ui, style, LightStyle::Soft, "Soft grey", &[&soft]);
+        choice(
+            ui,
+            style,
+            LightStyle::Classic,
+            "Classic, as in 1.0",
+            &[&classic],
+        );
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -354,6 +389,51 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(reset, expected);
+    }
+
+    /// With the theme examples, Appearance still fits: whole in the program's own window
+    /// size, and inside a small screen, where it scrolls.
+    #[test]
+    fn appearance_fits_the_screen() {
+        for (size, whole) in [
+            (egui::vec2(1280.0, 820.0), true),
+            (egui::vec2(800.0, 420.0), false),
+        ] {
+            let ctx = Context::default();
+            let mut window = SettingsWindow {
+                open: true,
+                ..Default::default()
+            };
+            let mut settings = Settings::default();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+            let mut reset_shown = false;
+            // A window learns its size in its first frames.
+            for _ in 0..4 {
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| {
+                    window.show(ui.ctx(), &mut settings, false);
+                });
+                out.textures_delta.clear();
+                // The last widget: not painted at all when scrolled out, or clipped.
+                reset_shown = out.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == "Reset to defaults" => s
+                        .clip_rect
+                        .contains_rect(t.galley.rect.translate(t.pos.to_vec2())),
+                    _ => false,
+                });
+            }
+            let rect = ctx
+                .memory(|m| m.area_rect(egui::Id::unique(WINDOW_ID)))
+                .expect("the window was drawn");
+            assert!(
+                screen.expand(1.0).contains_rect(rect),
+                "{rect:?} in {screen:?}"
+            );
+            assert_eq!(reset_shown, whole, "in {screen:?}");
+        }
     }
 
     /// Drawing every section changes no setting and closes nothing.

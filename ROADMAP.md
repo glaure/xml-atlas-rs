@@ -103,6 +103,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Font, style and size of the text, tree and grid (TEXT-25)
 - [x] Themes, step 1 and 2: every colour in one theme; a softer Light, with 1.0's Light kept
       as *Classic* (D29, WIN-8)
+- [x] Themes: an example of each in Settings > Appearance (WIN-12)
 - [ ] Themes: style next to mode, theme files the user can change and share, a native look
       with the system's accent colour (D29, WIN-9, WIN-10)
 
