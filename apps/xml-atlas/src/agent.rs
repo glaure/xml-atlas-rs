@@ -6,8 +6,10 @@
 //! tree, grid and text follow, it is one undo step, and what it changed is selected.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use xml_atlas_engine::Document;
+use xml_atlas_engine::rules_folder::Library;
 use xml_atlas_mcp::{Documents, ToolError};
 
 use crate::app::Open;
@@ -19,8 +21,8 @@ pub struct WindowDocs<'a> {
     pub next_id: &'a mut u64,
     /// View > Attributes in the tree, for a tab an agent opens.
     pub tree_attributes: bool,
-    /// View > Resolve references (REF-12), for the same.
-    pub references: bool,
+    /// The rules files while View > Resolve references is on (REF-12), for the same.
+    pub references: Option<Arc<Library>>,
 }
 
 impl WindowDocs<'_> {
@@ -48,7 +50,7 @@ impl Documents for WindowDocs<'_> {
             self.docs,
             self.next_id,
             self.tree_attributes,
-            self.references,
+            self.references.as_ref(),
             doc,
         ))
     }
@@ -106,7 +108,7 @@ pub fn add_tab(
     docs: &mut Tabs<Open>,
     next_id: &mut u64,
     tree_attributes: bool,
-    references: bool,
+    references: Option<&Arc<Library>>,
     doc: Document,
 ) -> u64 {
     *next_id += 1;
@@ -141,12 +143,12 @@ mod tests {
         std::fs::write(&path, "\u{feff}<r>\r\n  <a n=\"1\"/>\r\n  <b/>\r\n</r>\r\n").unwrap();
         let mut docs = Tabs::default();
         let mut next_id = 0;
-        add_tab(&mut docs, &mut next_id, true, false, Document::untitled());
+        add_tab(&mut docs, &mut next_id, true, None, Document::untitled());
         let mut w = WindowDocs {
             docs: &mut docs,
             next_id: &mut next_id,
             tree_attributes: true,
-            references: true,
+            references: Some(Arc::default()),
         };
 
         let doc = call(&mut w, "open", json!({"path": path})).unwrap()["document"].clone();

@@ -68,8 +68,12 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 
 ## References
 
-- For files with references of their own, described in `xml-atlas-references.json` next to
-  the file or in a folder above it. Off until you turn on View > Resolve references.
+- For files with references of their own, described in rules files. Off until you turn on
+  View > Resolve references.
+- File > Settings > References lists the rules files. Import one or make a new one, switch it
+  on and say in Use for which documents it is for: `catalog*.xml` by name, `*/XML/*catalog.xml`
+  by path, `*` for every document. Of several for one document the upper one is used.
+- A rules file lying beside an XML file is not used: import it.
 - Then F12 goes to what the selected reference finds, and references that find nothing are
   listed as problems.
 - View > Preview with references resolved shows the selected element resolved; Preview tree
@@ -146,8 +150,8 @@ undo and save.
 
 ## Settings
 
-File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, format
-options, updates and AI agents. A change applies at once. Appearance shows an example of
+File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, references,
+format options, updates and AI agents. A change applies at once. Appearance shows an example of
 each theme; click one to use it.
 
 ## Updates

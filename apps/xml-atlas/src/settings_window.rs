@@ -8,6 +8,7 @@
 use egui::{Context, RichText, Ui};
 use xml_atlas_engine::FormatOptions;
 
+use crate::rules_files::RulesFiles;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::theme::Theme;
 use crate::theme_preview::choice;
@@ -40,6 +41,7 @@ pub enum Section {
     #[default]
     Appearance,
     Views,
+    References,
     Format,
     Updates,
     Agents,
@@ -54,6 +56,12 @@ pub enum Request {
     CheckForUpdates,
 }
 
+/// What Settings > References shows: the rules files, and the document they may be for.
+pub struct RulesList<'a> {
+    pub files: &'a mut RulesFiles,
+    pub document: Option<&'a std::path::Path>,
+}
+
 /// Whether the window is open, and the section shown.
 #[derive(Default)]
 pub struct SettingsWindow {
@@ -63,9 +71,10 @@ pub struct SettingsWindow {
 
 impl Section {
     /// Every section, in the order the window lists them.
-    pub const ALL: [Section; 5] = [
+    pub const ALL: [Section; 6] = [
         Section::Appearance,
         Section::Views,
+        Section::References,
         Section::Format,
         Section::Updates,
         Section::Agents,
@@ -75,6 +84,7 @@ impl Section {
         match self {
             Section::Appearance => "Appearance",
             Section::Views => "Views",
+            Section::References => "References",
             Section::Format => "Format",
             Section::Updates => "Updates",
             Section::Agents => "AI agents",
@@ -97,10 +107,13 @@ impl Section {
                 settings.grid = d.grid;
                 settings.cell_pane = d.cell_pane;
                 settings.diagram = d.diagram;
+                settings.word_wrap = d.word_wrap;
+            }
+            // The switches only: the files and their list are the user's.
+            Section::References => {
                 settings.references = d.references;
                 settings.reference_preview = d.reference_preview;
                 settings.preview_tree = d.preview_tree;
-                settings.word_wrap = d.word_wrap;
             }
             Section::Format => settings.format = d.format,
             // When it last asked, and what it told, are not settings to reset.
@@ -111,12 +124,18 @@ impl Section {
 }
 
 impl SettingsWindow {
+    /// Whether the list of rules files is in view.
+    pub fn shows_references(&self) -> bool {
+        self.open && self.section == Section::References
+    }
+
     /// Shows the window while it is open; changes go straight into `settings`. `checking`: an
     /// update check is under way.
     pub fn show(
         &mut self,
         ctx: &Context,
         settings: &mut Settings,
+        rules: RulesList<'_>,
         checking: bool,
     ) -> Option<Request> {
         let mut open = self.open;
@@ -147,7 +166,7 @@ impl SettingsWindow {
                             .show(ui, |ui| {
                                 ui.heading(self.section.title());
                                 ui.add_space(6.0);
-                                request = section(ui, self.section, settings, checking);
+                                request = section(ui, self.section, settings, rules, checking);
                                 ui.add_space(12.0);
                                 if ui.button("Reset to defaults").clicked() {
                                     self.section.reset(settings);
@@ -200,7 +219,13 @@ pub fn format_options(ui: &mut Ui, edit: &mut FormatOptions) {
 }
 
 /// The controls of one section.
-fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> Option<Request> {
+fn section(
+    ui: &mut Ui,
+    section: Section,
+    s: &mut Settings,
+    rules: RulesList<'_>,
+    checking: bool,
+) -> Option<Request> {
     let mut request = None;
     match section {
         Section::Appearance => {
@@ -252,13 +277,17 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> O
                             ),
                         );
                         ui.checkbox(&mut s.diagram, "Diagram, in the grid's place");
-                        crate::ref_preview::switches(ui, s);
                         ui.checkbox(&mut s.word_wrap, "Word wrap");
                     });
                     ui.end_row();
                 });
             ui.add_space(6.0);
             ui.label(RichText::new(VIEWS_NOTE).weak());
+        }
+        Section::References => {
+            crate::ref_preview::switches(ui, s);
+            ui.add_space(8.0);
+            rules.files.show(ui, rules.document);
         }
         Section::Format => {
             format_options(ui, &mut s.format);
@@ -405,6 +434,7 @@ mod tests {
                 ..Default::default()
             };
             let mut settings = Settings::default();
+            let mut files = RulesFiles::default();
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
             let mut reset_shown = false;
             // A window learns its size in its first frames.
@@ -414,7 +444,7 @@ mod tests {
                     ..Default::default()
                 };
                 let mut out = ctx.run_ui(input, |ui| {
-                    window.show(ui.ctx(), &mut settings, false);
+                    window.show(ui.ctx(), &mut settings, no_rules(&mut files), false);
                 });
                 out.textures_delta.clear();
                 // The last widget: not painted at all when scrolled out, or clipped.
@@ -436,6 +466,13 @@ mod tests {
         }
     }
 
+    fn no_rules(files: &mut RulesFiles) -> RulesList<'_> {
+        RulesList {
+            files,
+            document: None,
+        }
+    }
+
     /// Drawing every section changes no setting and closes nothing.
     #[test]
     fn drawing_the_window_changes_nothing() {
@@ -445,10 +482,14 @@ mod tests {
             ..Default::default()
         };
         let mut settings = Settings::default();
+        let mut files = RulesFiles::default();
         for section in Section::ALL {
             window.section = section;
             let mut out = ctx.run_ui(Default::default(), |ui| {
-                assert_eq!(window.show(ui.ctx(), &mut settings, false), None);
+                assert_eq!(
+                    window.show(ui.ctx(), &mut settings, no_rules(&mut files), false),
+                    None
+                );
             });
             out.textures_delta.clear();
             assert!(window.open);

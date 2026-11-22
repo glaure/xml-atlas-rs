@@ -6,8 +6,9 @@ use std::process::Command;
 fn preview_expands_repeats_unless_told_not_to() {
     let dir = std::env::temp_dir().join(format!("xml-atlas-cli-repeat-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    let rules = dir.join("rules.json");
     std::fs::write(
-        dir.join("xml-atlas-references.json"),
+        &rules,
         r#"{"repeat": {"count": "Count", "index": ["[Index]"]}}"#,
     )
     .unwrap();
@@ -22,6 +23,9 @@ fn preview_expands_repeats_unless_told_not_to() {
             .arg("preview")
             .arg(&file)
             .arg("/R")
+            .arg("--rules")
+            .arg(&rules)
+            .env("XML_ATLAS_SETTINGS", dir.join("settings.toml"))
             .args(extra)
             .output()
             .unwrap();
@@ -40,5 +44,49 @@ fn preview_expands_repeats_unless_told_not_to() {
         run(&["--no-repeat"]).trim_end(),
         "<R>\r\n  <Größe Count=\"2\" N=\"[Index]\"/>\r\n</R>"
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Without `--rules` the configuration folder decides, not a file beside the document
+/// (REF-13, D41).
+#[test]
+fn rules_come_from_the_configuration_folder() {
+    let dir = std::env::temp_dir().join(format!("xml-atlas-cli-folder-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (config, docs) = (dir.join("config"), dir.join("docs"));
+    std::fs::create_dir_all(&docs).unwrap();
+    let rules = r#"{"includes": [{"element": "Include", "attribute": "src"}]}"#;
+    std::fs::write(docs.join("xml-atlas-references.json"), rules).unwrap();
+    let file = docs.join("Größe.xml");
+    std::fs::write(&file, "<R><P/><Include src=\"../P\"/></R>").unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_xml-atlas-cli"))
+            .arg("references")
+            .arg(&file)
+            .env("XML_ATLAS_SETTINGS", config.join("settings.toml"))
+            .output()
+            .unwrap()
+    };
+    let out = run();
+    assert!(
+        !out.status.success(),
+        "a file beside the document is not used"
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--rules"));
+
+    let folder = xml_atlas_engine::rules_folder::RulesFolder::new(&config);
+    let name = folder
+        .import(&docs.join("xml-atlas-references.json"))
+        .unwrap();
+    assert!(!run().status.success(), "imported, it is off");
+    folder.set_on(&name, true).unwrap();
+    folder.set_use_for(&name, "Größe.xml").unwrap();
+    let out = run();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("1 found"));
     std::fs::remove_dir_all(dir).unwrap();
 }

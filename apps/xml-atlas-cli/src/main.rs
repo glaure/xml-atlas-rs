@@ -11,6 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
 use xml_atlas_engine::references::{self, Resolution, Rules};
+use xml_atlas_engine::rules_folder::RulesFolder;
 use xml_atlas_engine::structure::{MAX_PATHS, PathId, Structure};
 use xml_atlas_engine::xpath::{self, Value};
 use xml_atlas_engine::{Document, Edit, FormatOptions, truncate};
@@ -107,7 +108,8 @@ enum Command {
     /// nothing.
     References {
         file: PathBuf,
-        /// The rules file; by default `xml-atlas-references.json` next to FILE or above it.
+        /// The rules file; by default the one that is on and for FILE in the
+        /// configuration folder (Settings > References).
         #[arg(long, value_name = "PATH")]
         rules: Option<PathBuf>,
         /// Print at most this many references that find nothing; all are counted.
@@ -119,7 +121,8 @@ enum Command {
         file: PathBuf,
         /// The element, by path: `/root/child[2]`.
         path: String,
-        /// The rules file; by default `xml-atlas-references.json` next to FILE or above it.
+        /// The rules file; by default the one that is on and for FILE in the
+        /// configuration folder (Settings > References).
         #[arg(long, value_name = "PATH")]
         rules: Option<PathBuf>,
         /// Take a `nearest` context from this section, by path (REF-9); may be given once per
@@ -516,20 +519,32 @@ fn structure(file: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The rules for `file`: from `rules`, or the rules file next to it or above it.
+/// The rules for `file`: from `rules`, or the file Settings > References uses for it
+/// (REF-13). View > Resolve references does not count here (REF-12).
 fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, Rules)> {
-    let path = match rules {
-        Some(p) => p,
-        None => Rules::find(&std::path::absolute(file)?).with_context(|| {
-            format!(
-                "no {} next to {} or in a folder above it; give one with --rules",
-                references::RULES_FILE,
-                file.display()
-            )
-        })?,
-    };
-    let rules = Rules::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    Ok((path, rules))
+    if let Some(path) = rules {
+        let rules = Rules::read(&path).with_context(|| format!("reading {}", path.display()))?;
+        return Ok((path, rules));
+    }
+    let settings =
+        xml_atlas_mcp::bridge::settings_file().context("there is no configuration folder")?;
+    let folder = RulesFolder::new(settings.parent().unwrap_or(Path::new(".")));
+    let library = folder.load();
+    if let Some(e) = library.error {
+        anyhow::bail!(e);
+    }
+    let entry = library.for_document(Some(file)).with_context(|| {
+        format!(
+            "no rules file in {} is on and for {}; switch one on in File > Settings > \
+             References, or give one with --rules",
+            folder.path().display(),
+            file.display()
+        )
+    })?;
+    match &entry.rules {
+        Ok(rules) => Ok((entry.path.clone(), Rules::clone(rules))),
+        Err(e) => anyhow::bail!("reading {}: {e}", entry.path.display()),
+    }
 }
 
 /// References (REF-4), the same check as the GUI's problems list.

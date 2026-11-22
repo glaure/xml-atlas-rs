@@ -1,8 +1,8 @@
 //! References inside a document: elements that stand for other elements, and attribute
 //! values that stand for values (`docs/spec/references.md`, REF-1 to REF-7; D32).
 //!
-//! Nothing here changes the document. A rules file next to the document, or in a folder
-//! above it, says which elements and attributes are references and where their named
+//! Nothing here changes the document. A rules file from the configuration folder
+//! (`rules_folder`, REF-13) says which elements and attributes are references and where their named
 //! contexts are; this module finds the references, resolves them for a preview and lists
 //! those that find nothing. The syntax is `Context:path` (or `[Context:path]` in an
 //! attribute), where the path is a small part of XPath: child names, `*`, `.`, `..`, `//`,
@@ -18,9 +18,6 @@ use xml_atlas_xml::{NodeId, NodeKind, ROOT};
 use crate::Document;
 use crate::format::newline_style;
 use crate::problems::{Problem, Severity};
-
-/// Name of the rules file, looked for next to the document and in each folder above it.
-pub const RULES_FILE: &str = "xml-atlas-references.json";
 
 /// Imports inside imports are followed this deep; deeper ones are left as they are.
 pub const MAX_DEPTH: usize = 10;
@@ -348,16 +345,6 @@ impl Rules {
             error,
         })?;
         Self::parse(&text)
-    }
-
-    /// The rules file for a document: [`RULES_FILE`] next to it or in the nearest folder
-    /// above it.
-    pub fn find(document: &Path) -> Option<PathBuf> {
-        let start = document.parent()?;
-        start
-            .ancestors()
-            .map(|dir| dir.join(RULES_FILE))
-            .find(|p| p.is_file())
     }
 
     /// Whether the rules name any reference at all.
@@ -1813,21 +1800,5 @@ mod tests {
         let p = preview(&d, &rules(), d.index.root_element().unwrap(), 64);
         assert!(p.cut);
         assert!(p.text.ends_with("<!-- XML Atlas: cut after 64 bytes -->"));
-    }
-
-    #[test]
-    fn rules_file_is_found_next_to_the_document_or_above() {
-        let dir = std::env::temp_dir().join(format!("xml-atlas-refs-{}", std::process::id()));
-        let deep = dir.join("a").join("b");
-        std::fs::create_dir_all(&deep).unwrap();
-        assert_eq!(Rules::find(&deep.join("f.xml")), None);
-        std::fs::write(dir.join(RULES_FILE), "{}").unwrap();
-        assert_eq!(Rules::find(&deep.join("f.xml")), Some(dir.join(RULES_FILE)));
-        std::fs::write(deep.join(RULES_FILE), "{}").unwrap();
-        assert_eq!(
-            Rules::find(&deep.join("f.xml")),
-            Some(deep.join(RULES_FILE))
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -26,12 +26,10 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
 
 ## Rules
 
-- **REF-1** `[done]` A rules file, `xml-atlas-references.json`, next to the document or in a
-  folder above it (the nearest wins), says what is a reference. Without one, nothing in this
-  file applies. It is read when the document opens with references on, or when they are
-  turned on (REF-12); after changing the rules, turn them off and on.
+- **REF-1** `[done]` A rules file says what is a reference. It is one of the files in the
+  configuration folder (REF-13); without one for the document, nothing in this file applies.
   A rules file that cannot be read is named in the preview pane with the reason. The rules
-  stay outside XML Atlas, so a team keeps its conventions in its own repository.
+  stay outside XML Atlas, so a team's conventions stay its own.
 
   ```json
   {
@@ -98,7 +96,8 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
 - **REF-6** `[done]` The CLI does the same: `xml-atlas-cli references FILE [--rules PATH]
   [--limit N]` counts the references and lists those that find nothing;
   `xml-atlas-cli preview FILE PATH [--rules PATH] [--section PATH]...` prints the element at
-  PATH resolved, up to 16 MiB, with the sections chosen as in REF-9.
+  PATH resolved, up to 16 MiB, with the sections chosen as in REF-9. Without `--rules` both
+  take the file REF-13 gives for FILE, and say when there is none.
 - **REF-7** `[done]` A preview, not the program's own resolution: contexts known only at run
   time stay, `nearest` stands in for whatever the program merges, and nothing is cached or
   resolved in a second pass. The file never changes.
@@ -140,18 +139,41 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   5.9 MiB file of the owner's: three elements of count 8 became copies 0 to 7, those of
   count 0 went, and no count attribute was left. The owner checked it in the window with
   their rules (2026-11-19).
-- **REF-12** `[built]` View > *Resolve references*, also in Settings > Views, switches
+- **REF-12** `[built]` View > *Resolve references*, also in Settings > References, switches
   references on and off for every tab; off by default and remembered (WIN-3). Off, no rules
   file is looked for, read or checked: no reference warnings (REF-4), no *Go to reference
   target* in the tree's menu, F12 says where to turn them on, and neither preview pane shows.
   The two preview switches stand indented under it, greyed out while it is off, and keep
-  their choice. Turned on, each tab looks for its rules and is checked at once. Turned off,
+  their choice. Turned on, each tab gets its rules (REF-13) and is checked at once. Turned off,
   the sections chosen in the preview (REF-9) are forgotten. Settings saved before the switch
   existed count as off, also with the preview on. An agent's tab follows the switch; the
   CLI's `references` and `preview` do not, as they are asked for by name.
+- **REF-13** `[built]` The rules files are the JSON files in `references/` beside the settings
+  file (WIN-3). Nothing is looked for beside or above a document (D41). Settings > References
+  lists them, each with:
+  - a checkbox: off, the file is not used. A new, imported, copied or hand-placed file is off;
+  - *Use for*: patterns separated by `;`. `*` stands for any characters, folders included,
+    `?` for one. A pattern without `/` is compared with the document's file name, one with
+    `/` with the end of its resolved path (links and `..` resolved) from a folder's start;
+    one starting with `/` or `*` with the whole path. Empty names no document, `*` every
+    one, also one without a file yet. Case does not count on Windows and macOS. *+ shown*
+    adds the name of the document shown. Typing is written after a pause or when the field
+    is left;
+  - its error when it cannot be read, and whether it is in use for the document shown;
+  - Up and Down, Duplicate, Rename and Delete (asks first).
+
+  Under the list are New, Import (a byte-for-byte copy; the original stays, and an existing
+  file is never replaced) and Open folder. Of the files that are on and name a document, the
+  upper one is used, alone, also when it cannot be read: then it says so and the next does
+  not step in. The preview's first line names the file in use. A change in the folder is
+  taken within about a second. The switches, patterns and order are in `references.json`
+  beside the folder; when that cannot be read, no file is on and it is not written over.
 
 ## Acceptance tests
 
+- Import a rules file in Settings > References: it is off. Switch it on and click *+ shown*:
+  the preview names it and resolves. Switch it off: preview and warnings go, in every tab.
+  A document beside which an `xml-atlas-references.json` lies gets no rules from it.
 - With a fresh settings file open a document that has rules: no reference warnings, no
   preview, F12 says references are off. Turn on View > Resolve references: the warnings
   appear and F12 works; turn on the preview and its tree, then Resolve references off: both
@@ -185,6 +207,8 @@ Neither XML Marker nor the Qt XML Atlas knows about references.
   D34.)
 
 - A switch for references as a whole, off by default (REF-12). (Owner, 2026-11-22.)
+- Rules files in the configuration folder, each switched on and off and with the documents
+  it is for; no search beside or above the document (REF-13). (Owner, 2026-11-22, D41.)
 
 ## Questions
 
