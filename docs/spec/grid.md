@@ -30,11 +30,12 @@ this file needs the most observation.
   children. Double-clicking a cell that stands for a child element selects that child.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows, and
-  with rows that have hundreds of thousands of children: a frame costs what is on screen. The
-  cells of a row are worked out once when it comes on screen, with one walk over its children
-  for all columns, and again only when the document's nodes or the columns change. Hatching
-  (GRID-13) is drawn only where it is in sight, however many columns are out of it. The same
-  in the cell pane (GRID-16).
+  with rows that have hundreds of thousands of children. The cells of a row are worked out
+  once when it comes on screen, with one walk over its children for all columns, and again
+  only when the document's nodes or the columns change. Hatching (GRID-13) is drawn only
+  where it is in sight. The same in the cell pane (GRID-16). Not yet: columns out of sight
+  still cost their empty cells in each frame, as the table lays out every column (about 1 µs
+  a cell: 2 ms for 13 rows of 136 columns, where those in sight alone take 0.3 ms).
 - **GRID-10** `[done]` Editing a cell changes the attribute or text in the document
   (EDIT-5, EDIT-6). Clicking a cell marks it; Left and Right move the mark along the row (left
   of the first column the whole row is marked again). F2 or Enter on the marked cell, or
