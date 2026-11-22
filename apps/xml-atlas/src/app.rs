@@ -162,6 +162,9 @@ pub struct Open {
     /// The reference rules for this file (REF-13), or why they could not be read; `None`
     /// while references are off or no file is for it.
     pub references: Option<TabRules>,
+    /// The text of their file, and its check for the preview's header (REF-16).
+    pub rules_text: Option<Arc<str>>,
+    pub rules_status: crate::rules_status::RulesStatus,
     /// The preview asked to edit this rules file; the app takes it.
     pub edit_rules: Option<PathBuf>,
     /// References that find nothing, as of the last check.
@@ -2211,6 +2214,8 @@ impl Open {
             resolve_references: false,
             references_from: None,
             references: None,
+            rules_text: None,
+            rules_status: Default::default(),
             edit_rules: None,
             reference_problems: Vec::new(),
             references_due: None,
@@ -2263,12 +2268,20 @@ impl Open {
             return;
         }
         self.references_from = library.map(|l| (Arc::clone(l), self.doc.path.clone()));
-        let rules = library
-            .and_then(|l| l.for_document(self.doc.path.as_deref()))
-            .map(|entry| match &entry.rules {
-                Ok(rules) => Ok((entry.path.clone(), Arc::clone(rules))),
-                Err(e) => Err((entry.path.clone(), e.clone())),
-            });
+        let entry = library.and_then(|l| l.for_document(self.doc.path.as_deref()));
+        // Before the rules are compared: a misspelt key changes the text and not the rules.
+        let text = entry.and_then(|entry| entry.text.clone());
+        // Kept when it is the same: the header compares the pointer each frame.
+        if text != self.rules_text {
+            self.rules_text = text;
+        }
+        if self.rules_text.is_none() {
+            self.rules_status = Default::default();
+        }
+        let rules = entry.map(|entry| match &entry.rules {
+            Ok(rules) => Ok((entry.path.clone(), Arc::clone(rules))),
+            Err(e) => Err((entry.path.clone(), e.clone())),
+        });
         let on = library.is_some();
         if on == self.resolve_references && rules == self.references {
             return;
@@ -3010,6 +3023,7 @@ mod tests {
                 on: true,
                 use_for: use_for.into(),
                 rules: Rules::parse(rules).map(Arc::new).map_err(|e| e.to_string()),
+                text: Some(rules.into()),
             }],
             error: None,
         })

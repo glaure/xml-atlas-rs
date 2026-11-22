@@ -1738,8 +1738,9 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Decided (owner, 2026-11-22):** as proposed. The four steps in this order, the editor
   as a window.
 - **Built, steps 1 to 3 (2026-11-22, #148):** `crates/engine/src/references/check.rs` and
-  `apps/xml-atlas/src/rules_editor.rs`, REF-14 and REF-15, but for one part of step 2: the
-  preview's header names the file and not yet the check's result, which is in the editor.
+  `apps/xml-atlas/src/rules_editor.rs`, REF-14 and REF-15, but for one part of step 2, the
+  check's result in the preview's header.
+- **Built, the rest of step 2 (2026-11-22):** `apps/xml-atlas/src/rules_status.rs`, REF-16.
   Step 4 is not built.
 
 ## D40: The rules file under another name

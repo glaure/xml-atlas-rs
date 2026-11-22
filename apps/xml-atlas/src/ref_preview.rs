@@ -98,6 +98,13 @@ pub fn switches(ui: &mut Ui, settings: &mut Settings) {
 
 /// Draws the pane. `font` is the text view's.
 pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
+    let status = open.rules_text.as_ref().map(|text| {
+        let now = std::time::Instant::now();
+        if let Some(wait) = open.rules_status.update(text, &open.doc, now) {
+            ui.ctx().request_repaint_after(wait);
+        }
+        &open.rules_status
+    });
     let rules = match &open.references {
         None => {
             ui.label(RichText::new("No reference rules for this file").strong());
@@ -110,15 +117,22 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         Some(Err((file, e))) => {
             ui.label(RichText::new("The reference rules cannot be read").strong());
             ui.label(format!("{}: {e}", file.display()));
-            if ui.button("Edit rules…").clicked() {
-                open.edit_rules = Some(file.clone());
-            }
+            ui.horizontal_wrapped(|ui| {
+                let mut edit = ui.button("Edit rules…").clicked();
+                edit |= status.is_some_and(|status| status.show(ui));
+                if edit {
+                    open.edit_rules = Some(file.clone());
+                }
+            });
             return;
         }
         Some(Ok((file, rules))) => {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
             ui.horizontal(|ui| {
-                if ui.small_button("Edit rules…").clicked() {
+                let mut edit = ui.small_button("Edit rules…").clicked();
+                // Before the name, which is cut to what is left.
+                edit |= status.is_some_and(|status| status.show(ui));
+                if edit {
                     open.edit_rules = Some(file.clone());
                 }
                 ui.add(Label::new(RichText::new(format!("Rules: {name}")).weak()).truncate())
@@ -682,9 +696,67 @@ mod tests {
                 rules: Rules::parse(rules)
                     .map(std::sync::Arc::new)
                     .map_err(|e| e.to_string()),
+                text: Some(rules.into()),
             }],
             error: None,
         })
+    }
+
+    /// D39, step 2 (REF-16): the header has the check's result, follows a change of the
+    /// file that does not change what the rules mean, and a click on it opens the editor.
+    #[test]
+    fn the_header_shows_the_checks_result() {
+        let src = "<Doc><Shared/><Use M=\"[Shared:N]\"><Include src=\"Shared:N\"/></Use></Doc>";
+        let mut open = resolving(
+            Document::from_bytes(src.as_bytes().to_vec()),
+            "ref-16",
+            &library(RULES),
+        );
+        let ctx = egui::Context::default();
+        let drawn = |open: &mut Open, events: Vec<egui::Event>, label: &str| {
+            let input = egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    vec2(300.0, 500.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| show(ui, open, &FontId::monospace(13.0)));
+            out.textures_delta.clear();
+            out.shapes.iter().find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == label => {
+                    let at = t.pos + t.galley.rect.center().to_vec2();
+                    s.clip_rect.contains(at).then_some(at)
+                }
+                _ => None,
+            })
+        };
+        drawn(&mut open, Vec::new(), "");
+        assert!(drawn(&mut open, Vec::new(), "check OK").is_some());
+
+        let typo = RULES.replace(
+            "\"attribute\": \"src\"",
+            "\"attribute\": \"src\", \"enabeld\": false",
+        );
+        open.set_references(Some(&library(&typo)));
+        drawn(&mut open, Vec::new(), "");
+        let at = drawn(&mut open, Vec::new(), "1 warning").expect("the new result, in 300 points");
+        assert!(open.edit_rules.is_none());
+        for pressed in [true, false] {
+            let button = egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            drawn(&mut open, vec![egui::Event::PointerMoved(at), button], "");
+        }
+        assert!(open.edit_rules.is_some(), "a click edits the rules");
+
+        open.set_references(Some(&library("{\"includes\": [],}")));
+        drawn(&mut open, Vec::new(), "");
+        assert!(drawn(&mut open, Vec::new(), "1 error").is_some());
     }
 
     /// Draws the preview pane, and the tree pane when `tree`, for two frames.

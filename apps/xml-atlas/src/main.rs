@@ -24,6 +24,7 @@ mod problems_panel;
 mod ref_preview;
 mod rules_editor;
 mod rules_files;
+mod rules_status;
 mod scroll;
 mod settings;
 mod settings_window;

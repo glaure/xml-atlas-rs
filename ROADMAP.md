@@ -121,8 +121,8 @@ Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`):
       REF-13; #147)
 - [x] References: a check of the rules files and an editor for them (D39, D41, REF-14, REF-15;
       #148)
-- [ ] References: the check's result in the preview's header, which so far names only the
-      file (D39, the rest of step 2)
+- [x] References: the check's result in the preview's header, beside the file's name (D39,
+      the rest of step 2; REF-16)
 - [ ] References, later: rules from the selection and a JSON Schema (D39, step 4)
 
 From XML Marker's 2.x change log (observe it, write the rules in `docs/spec/` first; each
