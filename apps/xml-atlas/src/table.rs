@@ -518,18 +518,18 @@ impl Plan {
             if response.is_pointer_button_down_on() || response.dragged() {
                 self.state.pressed = Some(i);
             }
-            if response.dragged() {
-                if let Some(pointer) = ui.ctx().pointer_latest_pos() {
-                    let mut new = *width + pointer.x - x;
-                    if i == 0 {
-                        // A little each frame, so that contents that give way can.
-                        new = new.max(self.first_used - 8.0);
-                    }
-                    let new = range.clamp(new);
-                    let moved = x - *width + new;
-                    (p0.x, p1.x) = (moved, moved);
-                    *width = new;
+            if response.dragged()
+                && let Some(pointer) = ui.ctx().pointer_latest_pos()
+            {
+                let mut new = *width + pointer.x - x;
+                if i == 0 {
+                    // A little each frame, so that contents that give way can.
+                    new = new.max(self.first_used - 8.0);
                 }
+                let new = range.clamp(new);
+                let moved = x - *width + new;
+                (p0.x, p1.x) = (moved, moved);
+                *width = new;
             }
             let busy = ui.input(|i| i.pointer.any_down() || i.pointer.any_pressed());
             let hover = response.hovered() && !busy;
