@@ -73,6 +73,8 @@ pub struct RulesEditor {
     leaving: Option<Then>,
     /// The answer allowed quitting; the app takes it.
     quit: bool,
+    /// The answer stopped quitting; the app takes that too.
+    quit_cancelled: bool,
     error: Option<String>,
     raise: bool,
 }
@@ -145,6 +147,18 @@ impl RulesEditor {
 
     pub fn take_quit(&mut self) -> bool {
         std::mem::take(&mut self.quit)
+    }
+
+    /// Whether quitting was given up at the question: Cancel, or saving failed.
+    pub fn take_quit_cancelled(&mut self) -> bool {
+        std::mem::take(&mut self.quit_cancelled)
+    }
+
+    #[cfg(test)]
+    pub fn set_text(&mut self, text: &str) {
+        if let Some(file) = &mut self.file {
+            file.text = text.to_owned();
+        }
     }
 
     /// The file got another name in the list.
@@ -357,11 +371,15 @@ impl RulesEditor {
         };
         let mut written = false;
         match answer {
-            Answer::Cancel => return false,
+            Answer::Cancel => {
+                self.quit_cancelled = matches!(then, Then::Quit);
+                return false;
+            }
             Answer::Save => {
                 written = self.save(false);
                 if !written {
                     // It changed on disk or cannot be written: the window says which.
+                    self.quit_cancelled = matches!(then, Then::Quit);
                     return false;
                 }
             }
@@ -606,6 +624,7 @@ mod tests {
         assert!(!editor.may_quit());
         assert!(!editor.answer(Answer::Save), "not over theirs");
         assert!(editor.is_modified() && !editor.take_quit());
+        assert!(editor.take_quit_cancelled(), "a failed save stops quitting");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"theirs\": 1}");
         assert!(editor.save(true));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"mine\": 1}");
