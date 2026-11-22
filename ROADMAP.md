@@ -100,11 +100,9 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Grid: remember the column widths, also in the cell pane; they are lost on exit. Needs a
       spec ID, and a decision on what a width is kept by (today the parent element, for the
       session only)
-- [ ] Bug: a tree row's cost per frame follows the file (TREE-7). Every frame decodes all
-      attributes of a row's element and whole texts before they are cut to 40 or 60
-      characters, and walks the children to tell the row's kind. In the engine alone: 10 ms
-      for 40 elements of 1,000 attributes, 30 ms for a 50 MiB text, 203 ms for a 50 MiB
-      attribute value, 11 ms for 1,000,000 comments in one element
+- [x] Bug: a tree row's cost per frame followed the file (TREE-7): 4 s a frame for the
+      attribute rows of an element with a 50 MiB value. Now rows are worked out when they
+      come on screen or change, and read only as much of a value as they show
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)

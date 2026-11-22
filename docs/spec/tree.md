@@ -22,7 +22,14 @@ The tree shows the structure of the document and is the main way to move around 
   `name="value"` gets the second highlight in the text view (TEXT-11).
 - **TREE-6** `[built]` When an element is selected from the grid or the text view, the tree
   expands its ancestors and scrolls to it.
-- **TREE-7** `[built]` The tree stays responsive with hundreds of thousands of rows expanded.
+- **TREE-7** `[built]` The tree stays responsive with hundreds of thousands of rows expanded,
+  with thousands of attributes on an element and with values and texts of many megabytes.
+  What a row shows is worked out once when it comes on screen, and again only when the
+  document's nodes or View > Attributes in the tree change; a frame in which nothing changed
+  reads nothing from the document. Working a row out reads a value as far as the row shows it
+  (but a reference in that part needs a look at all the value's references: one that is not
+  known leaves the whole value as written), and walks a start tag once for all its attribute
+  rows.
 - **TREE-8** `[done]` Keyboard, after a click in the tree: Up and Down move the selection,
   Right expands (on an expanded element it moves to the first row inside), Left collapses (on
   a collapsed element, an attribute or a text row it moves to the parent element), Home and End

@@ -18,8 +18,11 @@ use quick_xml::Reader;
 use quick_xml::encoding::EncodingError;
 use quick_xml::events::{BytesStart, Event};
 
+mod decode;
 mod parallel;
 mod scan;
+
+pub use decode::{AttributeParts, Decoded};
 
 /// Index of a node in [`Index::nodes`].
 pub type NodeId = u32;
@@ -692,10 +695,7 @@ impl Index {
         if n.kind != NodeKind::Element {
             return Vec::new();
         }
-        let head = &src[n.start as usize + 1..n.start as usize + n.head_len as usize];
-        let head = head.strip_suffix(b">").unwrap_or(head);
-        let head = head.strip_suffix(b"/").unwrap_or(head);
-        let head = String::from_utf8_lossy(head);
+        let head = String::from_utf8_lossy(head_inside(src, n));
         let tag = BytesStart::from_content(head, n.name_len as usize);
         tag.attributes()
             .with_checks(false)
@@ -705,6 +705,16 @@ impl Index {
                 (key, unescape(a.value.as_bytes()).into_owned())
             })
             .collect()
+    }
+
+    /// The attributes of [`Index::attributes`], raw and one at a time: for a view that shows
+    /// some of them, or the start of a value ([`Decoded`]).
+    pub fn attribute_parts<'s>(&self, src: &'s [u8], id: NodeId) -> AttributeParts<'s> {
+        let n = self.node(id);
+        if n.kind != NodeKind::Element {
+            return AttributeParts::new(&[], 0);
+        }
+        AttributeParts::new(head_inside(src, n), n.name_len as usize)
     }
 
     /// Byte range of each attribute of an element, from the first byte of its name to the
@@ -738,16 +748,8 @@ impl Index {
         src: &'s [u8],
         id: NodeId,
     ) -> impl Iterator<Item = (&'s [u8], &'s [u8])> + use<'s> {
-        let ws = |b: &u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
-        self.attribute_iter(src, id).filter_map(move |r| {
-            let a = &src[r];
-            let eq = a.iter().position(|&b| b == b'=')?;
-            let name = &a[..eq];
-            let name = &name[..name.iter().rposition(|b| !ws(b)).map_or(0, |i| i + 1)];
-            let value = &a[eq + 1..];
-            let open = value.iter().position(|&b| b == b'"' || b == b'\'')?;
-            Some((name, value.get(open + 1..value.len() - 1)?))
-        })
+        self.attribute_iter(src, id)
+            .filter_map(move |r| split_attribute(&src[r]))
     }
 
     fn attribute_iter<'s>(&self, src: &'s [u8], id: NodeId) -> AttributeSpans<'s> {
@@ -771,6 +773,22 @@ impl Index {
 
     /// Text content of a text or CDATA node, or the folded text of an element, unescaped.
     pub fn text<'s>(&self, src: &'s [u8], id: NodeId) -> Cow<'s, str> {
+        match self.text_source(src, id) {
+            (raw, true) => unescape(raw),
+            (raw, false) => String::from_utf8_lossy(raw),
+        }
+    }
+
+    /// The characters of [`Index::text`], read as far as they are taken.
+    pub fn text_chars<'s>(&self, src: &'s [u8], id: NodeId) -> Decoded<'s> {
+        match self.text_source(src, id) {
+            (raw, true) => Decoded::escaped(raw),
+            (raw, false) => Decoded::as_written(raw),
+        }
+    }
+
+    /// The bytes [`Index::text`] reads, and whether references in them are replaced.
+    fn text_source<'s>(&self, src: &'s [u8], id: NodeId) -> (&'s [u8], bool) {
         let n = self.node(id);
         let (kind, span) = match (n.kind, n.folded, self.folded_span(src, id)) {
             (NodeKind::Element, Folded::Text, Some(span)) => (NodeKind::Text, span),
@@ -779,12 +797,13 @@ impl Index {
         };
         let raw = &src[span];
         match kind {
-            NodeKind::Text => unescape(raw),
+            NodeKind::Text => (raw, true),
             // Inside `<![CDATA[` and `]]>`; all of it while a typed change has broken them.
-            NodeKind::CData => {
-                String::from_utf8_lossy(raw.get(9..raw.len().saturating_sub(3)).unwrap_or(raw))
-            }
-            _ => String::from_utf8_lossy(raw),
+            NodeKind::CData => (
+                raw.get(9..raw.len().saturating_sub(3)).unwrap_or(raw),
+                false,
+            ),
+            _ => (raw, false),
         }
     }
 
@@ -994,16 +1013,31 @@ impl Iterator for AttributeSpans<'_> {
             .get(i)
             .filter(|&&q| i < end && (q == b'"' || q == b'\''))?;
         i += 1;
-        while i < end && src[i] != quote {
-            i += 1;
-        }
-        if i >= end {
-            return None;
-        }
-        i += 1;
+        i += memchr::memchr(quote, &src[i..end])? + 1;
         self.at = i;
         Some(name..i)
     }
+}
+
+fn is_space(b: &u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n')
+}
+
+/// An element's start tag without `<`, and without `>` or `/>`.
+fn head_inside<'s>(src: &'s [u8], n: &Node) -> &'s [u8] {
+    let head = &src[n.start as usize + 1..n.start as usize + n.head_len as usize];
+    let head = head.strip_suffix(b">").unwrap_or(head);
+    head.strip_suffix(b"/").unwrap_or(head)
+}
+
+/// Raw name and value, without the quotes, of `name = "value"` as [`AttributeSpans`] gives it.
+fn split_attribute(a: &[u8]) -> Option<(&[u8], &[u8])> {
+    let eq = a.iter().position(|&b| b == b'=')?;
+    let name = &a[..eq];
+    let name = &name[..name.iter().rposition(|b| !is_space(b)).map_or(0, |i| i + 1)];
+    let value = &a[eq + 1..];
+    let open = value.iter().position(|&b| b == b'"' || b == b'\'')?;
+    Some((name, value.get(open + 1..value.len() - 1)?))
 }
 
 /// Text or an attribute value as it reads: entity and character references replaced. Bytes

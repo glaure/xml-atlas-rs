@@ -37,6 +37,7 @@ pub mod rules_text;
 pub mod structure;
 pub mod text;
 pub mod tree;
+pub mod tree_rows;
 pub mod wrap;
 pub mod xpath;
 
@@ -617,6 +618,19 @@ pub fn truncate(s: &str, max: usize) -> String {
         Some((i, _)) => format!("{}…", &s[..i]),
         None => s.to_string(),
     }
+}
+
+/// [`truncate`] of characters as they come, for a value that may be large: takes no more of
+/// them than it needs.
+pub(crate) fn truncate_chars(chars: impl Iterator<Item = char>, max: usize) -> String {
+    let mut chars = chars.skip_while(|c| c.is_whitespace());
+    let mut out: String = chars.by_ref().take(max).collect();
+    if chars.any(|c| !c.is_whitespace()) {
+        out.push('…');
+    } else {
+        out.truncate(out.trim_end().len());
+    }
+    out
 }
 
 /// Writes `bytes` to `path` without ever leaving a half-written file there.

@@ -5,9 +5,9 @@
 //! nodes in the index, so a row is either a node or "attribute `index` of `element`"; nothing
 //! is stored for an attribute until its element is expanded.
 
-use xml_atlas_xml::{Folded, NodeId, NodeKind, NodeSplice, ROOT};
+use xml_atlas_xml::{AttributeParts, Decoded, Folded, NodeId, NodeKind, NodeSplice, ROOT};
 
-use crate::{Document, truncate};
+use crate::{Document, truncate_chars};
 
 /// Characters of text or attribute value shown in a row.
 pub const VALUE_CHARS: usize = 60;
@@ -123,14 +123,19 @@ pub fn children(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
 
 /// Whether a row can be expanded: an element with any rows under it.
 pub fn has_children(doc: &Document, row: Row, options: TreeOptions) -> bool {
-    let Row::Node(id) = row else { return false };
-    let idx = &doc.index;
-    if idx.node(id).kind != NodeKind::Element {
-        return false;
+    expandable(doc, row, kind(doc, row), options)
+}
+
+/// [`has_children`] of a row of kind `kind`.
+pub(crate) fn expandable(doc: &Document, row: Row, kind: RowKind, options: TreeOptions) -> bool {
+    match (row, kind) {
+        // Its children that are rows are its elements and its text.
+        (_, RowKind::Parent | RowKind::TextElement) => true,
+        (Row::Node(id), RowKind::Empty) => {
+            options.attributes && doc.index.attribute_parts(&doc.src, id).next().is_some()
+        }
+        _ => false,
     }
-    idx.node(id).folded != Folded::No
-        || idx.children(id).any(|c| is_row(doc, c, id))
-        || (options.attributes && !idx.attributes(&doc.src, id).is_empty())
 }
 
 /// The rows to show, in order: every top-level row, and the rows under every expanded element.
@@ -253,7 +258,7 @@ fn own_rows(doc: &Document, id: NodeId, options: TreeOptions) -> Vec<Row> {
         return rows;
     }
     if options.attributes {
-        let count = idx.attributes(&doc.src, id).len() as u32;
+        let count = idx.attribute_parts(&doc.src, id).count() as u32;
         rows.extend((0..count).map(|index| Row::Attribute { element: id, index }));
     }
     if idx.node(id).folded != Folded::No {
@@ -296,13 +301,15 @@ pub fn kind(doc: &Document, row: Row) -> RowKind {
     if idx.node(id).kind != NodeKind::Element {
         return RowKind::Text;
     }
-    if idx
-        .children(id)
-        .any(|c| idx.node(c).kind == NodeKind::Element)
-    {
-        return RowKind::Parent;
+    let mut text = idx.node(id).folded != Folded::No;
+    for c in idx.children(id) {
+        match idx.node(c).kind {
+            NodeKind::Element => return RowKind::Parent,
+            NodeKind::Text | NodeKind::CData => text = true,
+            _ => {}
+        }
     }
-    if idx.has_text(id) {
+    if text {
         RowKind::TextElement
     } else {
         RowKind::Empty
@@ -311,18 +318,32 @@ pub fn kind(doc: &Document, row: Row) -> RowKind {
 
 /// What `row` shows.
 pub fn label(doc: &Document, row: Row) -> Label {
+    label_in(doc, row, &mut AttributeWalk::default())
+}
+
+/// How far the walk along one element's attributes has come, so that its rows, which follow
+/// one another, share it.
+#[derive(Default)]
+pub(crate) struct AttributeWalk<'d> {
+    /// The element, the index of its next attribute, and the walk from there.
+    at: Option<(NodeId, u32, AttributeParts<'d>)>,
+}
+
+/// [`label`], going on with `walk` for an attribute row.
+pub(crate) fn label_in<'d>(doc: &'d Document, row: Row, walk: &mut AttributeWalk<'d>) -> Label {
     let idx = &doc.index;
     let src = &doc.src;
     match row {
         Row::Attribute { element, index } => {
-            let (name, value) = idx
-                .attributes(src, element)
-                .into_iter()
-                .nth(index as usize)
-                .unwrap_or_default();
+            let (next, mut parts) = match walk.at.take() {
+                Some((of, next, parts)) if of == element && next <= index => (next, parts),
+                _ => (0, idx.attribute_parts(src, element)),
+            };
+            let (name, value) = parts.nth((index - next) as usize).unwrap_or_default();
+            walk.at = Some((element, index + 1, parts));
             Label::Attribute {
-                name,
-                value: truncate(&value, VALUE_CHARS),
+                name: String::from_utf8_lossy(&name).into_owned(),
+                value: truncate_chars(Decoded::escaped(&value), VALUE_CHARS),
             }
         }
         Row::Node(id) if idx.node(id).kind == NodeKind::Element => Label::Element {
@@ -330,7 +351,7 @@ pub fn label(doc: &Document, row: Row) -> Label {
             hint: hint(doc, id),
         },
         Row::Node(id) | Row::FoldedText(id) => {
-            Label::Text(truncate(&idx.text(src, id), VALUE_CHARS))
+            Label::Text(truncate_chars(idx.text_chars(src, id), VALUE_CHARS))
         }
     }
 }
@@ -349,13 +370,22 @@ fn is_row(doc: &Document, id: NodeId, parent: NodeId) -> bool {
 /// its first attribute (TREE-2).
 fn hint(doc: &Document, id: NodeId) -> Option<String> {
     let idx = &doc.index;
+    let src = &doc.src;
     if idx.is_text_only(id) {
-        return Some(truncate(&idx.element_text(&doc.src, id), VALUE_CHARS));
+        // Its only text: folded into it, or its one child.
+        let from = match idx.node(id).folded {
+            Folded::No => idx.children(id).next()?,
+            Folded::Text | Folded::CData => id,
+        };
+        return Some(truncate_chars(idx.text_chars(src, from), VALUE_CHARS));
     }
-    idx.attributes(&doc.src, id)
-        .into_iter()
-        .next()
-        .map(|(k, v)| format!("{k}=\"{}\"", truncate(&v, HINT_ATTRIBUTE_CHARS)))
+    idx.attribute_parts(src, id).next().map(|(name, value)| {
+        format!(
+            "{}=\"{}\"",
+            String::from_utf8_lossy(&name),
+            truncate_chars(Decoded::escaped(&value), HINT_ATTRIBUTE_CHARS)
+        )
+    })
 }
 
 #[cfg(test)]
@@ -545,6 +575,190 @@ mod tests {
         // Mixed content keeps its text nodes.
         let mixed = children(&d, element(&d, "mixed"), TreeOptions::default());
         assert!(matches!(mixed[0], Row::Node(_)));
+    }
+
+    /// Cutting takes only what the cut needs, or a label would cost as much as its value.
+    #[test]
+    fn cutting_takes_no_more_than_it_needs() {
+        let mut taken = 0;
+        let endless = std::iter::repeat('ü').inspect(|_| taken += 1);
+        assert_eq!(
+            truncate_chars(endless.take(1_000_000), 60).chars().count(),
+            61
+        );
+        assert_eq!(taken, 61);
+        for s in [
+            "",
+            " ",
+            " a ",
+            "ab",
+            "abc",
+            "ab  ",
+            " a b",
+            "a  b",
+            "\r\nü\u{a0}",
+            "ab c  ",
+        ] {
+            for max in 0..5 {
+                assert_eq!(
+                    truncate_chars(s.chars(), max),
+                    crate::truncate(s, max),
+                    "{s:?} at {max}"
+                );
+            }
+        }
+    }
+
+    /// What a row shows is what its element's attributes and texts give when decoded whole
+    /// (TREE-2, TREE-7): checked on documents of awkward pieces, whole and while typing has
+    /// broken them.
+    #[test]
+    fn rows_show_what_decoding_the_whole_gives() {
+        let long = "Größe ".repeat(20);
+        let late_bad = format!("&amp; {long}&unknown;");
+        let late_ref = format!("  {long}&#252;\r\n");
+        let edge = format!("{}&amp; ", "ü".repeat(VALUE_CHARS - 1));
+        let over = format!("{}  &#32; x", "ü".repeat(VALUE_CHARS));
+        let blank = format!("{}&#32;\r\n", "ü".repeat(HINT_ATTRIBUTE_CHARS));
+        let pieces: [&str; 27] = [
+            "<e>",
+            "</e>",
+            "<größe/>",
+            "<e a=\"&lt;1&gt;\">",
+            "<e a=1 b='2'/>",
+            "<e a=\"1\"b=\"2\"/>",
+            "<e =\"1\" c=\"3\">",
+            "<e a = '1' a='2' d>",
+            "<!--c-->",
+            "<?p?>",
+            "<![CDATA[ &amp; ü ]]>",
+            "&amp;",
+            "&",
+            "&bad;",
+            "&#0;",
+            " ",
+            "\r\n",
+            "Zoë",
+            &long,
+            &late_bad,
+            &late_ref,
+            &edge,
+            &over,
+            &blank,
+            "\"",
+            "<",
+            ">",
+        ];
+        let mut rng = Lcg(20261122);
+        let mut seen = 0;
+        for round in 0..6000 {
+            let mut src: String = if round % 2 == 0 { "\u{feff}" } else { "" }.to_owned();
+            let value = pieces[18 + rng.below(6)];
+            src.push_str(&format!("<r a=\"{value}\" b='2'>\r\n"));
+            for _ in 0..rng.below(9) {
+                let piece = pieces[rng.below(pieces.len())];
+                src.push_str(&match rng.below(5) {
+                    0 => format!("<t>{piece}</t>"),
+                    1 => format!("<v k=\"{piece}\" l='{value}'/>"),
+                    _ => piece.to_owned(),
+                });
+            }
+            src.push_str("</r>");
+            let mut bytes = src.into_bytes();
+            if round % 11 == 0 {
+                let at = rng.below(bytes.len());
+                bytes[at] = 0xC3;
+            }
+            let mut doc = Document::from_bytes(bytes);
+            for typed in 0..3 {
+                if typed > 0 {
+                    let at = crate::text::snap(&doc.src, rng.below(doc.src.len() + 1));
+                    let sel = crate::text::Selection::cursor(at);
+                    if let Some(edit) = match rng.below(3) {
+                        0 => crate::text::backspace(&doc, sel, false),
+                        _ => crate::text::insert(&doc, sel, TYPED[rng.below(TYPED.len())]),
+                    }
+                    .map(|change| change.edit)
+                    {
+                        let _ = doc.apply_typed(edit);
+                    }
+                }
+                let options = TreeOptions {
+                    attributes: rng.below(4) != 0,
+                };
+                let mut rows = Vec::new();
+                visible_rows(&doc, &vec![true; doc.index.len()], options, &mut rows);
+                let mut kept = crate::tree_rows::Rows::default();
+                for (&row, shown) in rows.iter().zip(kept.show(&doc, options, &rows)) {
+                    let (depth, expandable, kind, label) = decoded_whole(&doc, row, options);
+                    let at = format!("{row:?} in {:?}", String::from_utf8_lossy(&doc.src));
+                    assert_eq!(shown.depth, depth, "{at}");
+                    assert_eq!(shown.expandable, expandable, "{at}");
+                    assert_eq!(shown.kind, kind, "{at}");
+                    assert_eq!(shown.label, label, "{at}");
+                    assert_eq!(super::label(&doc, row), label, "{at}");
+                    if let Row::Node(id) = row
+                        && options.attributes
+                        && doc.index.node(id).kind == NodeKind::Element
+                    {
+                        let all = doc.index.attributes(&doc.src, id).len();
+                        let own = own_rows(&doc, id, options);
+                        let shown = own.iter().filter(|r| matches!(r, Row::Attribute { .. }));
+                        assert_eq!(shown.count(), all, "{at}");
+                    }
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen > 50_000, "{seen}");
+    }
+
+    /// A row worked out from its element's attributes and texts decoded whole.
+    fn decoded_whole(
+        doc: &Document,
+        row: Row,
+        options: TreeOptions,
+    ) -> (u16, bool, RowKind, Label) {
+        let (idx, src) = (&doc.index, &doc.src[..]);
+        let depth = row.depth(doc);
+        match row {
+            Row::Attribute { element, index } => {
+                let (name, value) = idx.attributes(src, element).swap_remove(index as usize);
+                let value = crate::truncate(&value, VALUE_CHARS);
+                (
+                    depth,
+                    false,
+                    RowKind::Attribute,
+                    Label::Attribute { name, value },
+                )
+            }
+            Row::Node(id) if idx.node(id).kind == NodeKind::Element => {
+                let all = idx.attributes(src, id);
+                let element = idx
+                    .children(id)
+                    .any(|c| idx.node(c).kind == NodeKind::Element);
+                let text = idx.has_text(id);
+                let kind = match (element, text) {
+                    (true, _) => RowKind::Parent,
+                    (false, true) => RowKind::TextElement,
+                    (false, false) => RowKind::Empty,
+                };
+                let expandable = element || text || (options.attributes && !all.is_empty());
+                let hint = if idx.is_text_only(id) {
+                    Some(crate::truncate(&idx.element_text(src, id), VALUE_CHARS))
+                } else {
+                    all.first().map(|(k, v)| {
+                        format!("{k}=\"{}\"", crate::truncate(v, HINT_ATTRIBUTE_CHARS))
+                    })
+                };
+                let name = String::from_utf8_lossy(idx.name(src, id)).into_owned();
+                (depth, expandable, kind, Label::Element { name, hint })
+            }
+            Row::Node(id) | Row::FoldedText(id) => {
+                let text = crate::truncate(&idx.text(src, id), VALUE_CHARS);
+                (depth, false, RowKind::Text, Label::Text(text))
+            }
+        }
     }
 
     /// Small generator for edits; no dependency needed.

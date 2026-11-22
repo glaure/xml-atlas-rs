@@ -7,6 +7,7 @@ use xml_atlas_engine::Document;
 use xml_atlas_engine::command::{self, Direction};
 use xml_atlas_engine::references::{self, RefKind, Rules};
 use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
+use xml_atlas_engine::tree_rows::Rows;
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
 use crate::app::{Note, Open, Shift};
@@ -72,6 +73,8 @@ pub struct TreeState {
     scroll_to: Option<usize>,
     /// Rows on screen in the last frame.
     visible: Range<usize>,
+    /// What the rows on screen show (TREE-7).
+    kept: Rows,
     rename: Option<Rename>,
 }
 
@@ -85,6 +88,7 @@ impl TreeState {
             dirty: true,
             scroll_to: None,
             visible: 0..0,
+            kept: Rows::default(),
             rename: None,
         };
         if let Some(root) = doc.index.root_element() {
@@ -362,8 +366,9 @@ pub fn draw<C>(
     let mut rename_shown = false;
     area.show_rows(ui, row_h, state.rows.len(), |ui, range| {
         state.visible = range.clone();
-        for i in range {
-            let row = state.rows[i];
+        let on_screen = &state.rows[range];
+        let shown = state.kept.show(doc, state.options, on_screen);
+        for (&row, shown) in on_screen.iter().zip(shown) {
             let (rect, resp) = ui
                 .allocate_exact_size(vec2(ui.available_width().max(300.0), row_h), Sense::click());
             let painter = ui.painter();
@@ -373,8 +378,8 @@ pub fn draw<C>(
             } else if resp.hovered() {
                 painter.rect_filled(rect, 2.0, visuals.widgets.hovered.weak_bg_fill);
             }
-            let x = rect.left() + row.depth(doc) as f32 * INDENT;
-            let expandable = tree::has_children(doc, row, state.options);
+            let x = rect.left() + shown.depth as f32 * INDENT;
+            let expandable = shown.expandable;
             if let (true, Row::Node(id)) = (expandable, row) {
                 arrow(
                     painter,
@@ -395,7 +400,7 @@ pub fn draw<C>(
             icons::draw(
                 painter,
                 pos2(x + INDENT + 2.0 + icons::WIDTH / 2.0 - 2.0, rect.center().y),
-                tree::kind(doc, row),
+                shown.kind,
                 &theme.syntax,
             );
             let left = pos2(x + INDENT + 2.0 + icons::WIDTH, rect.center().y);
@@ -411,15 +416,15 @@ pub fn draw<C>(
                 }
                 continue;
             }
-            match tree::label(doc, row) {
+            match &shown.label {
                 Label::Element { name, hint } => {
-                    let r = text(left, &name, strong);
+                    let r = text(left, name, strong);
                     if let Some(hint) = hint {
-                        text(pos2(r.right() + 8.0, left.y), &hint, weak);
+                        text(pos2(r.right() + 8.0, left.y), hint, weak);
                     }
                 }
                 Label::Attribute { name, value } => {
-                    let r = text(left, &name, strong);
+                    let r = text(left, name, strong);
                     text(
                         pos2(r.right() + 4.0, left.y),
                         &format!("= \"{value}\""),
@@ -427,7 +432,7 @@ pub fn draw<C>(
                     );
                 }
                 Label::Text(s) => {
-                    text(left, &s, weak);
+                    text(left, s, weak);
                 }
             }
             if let Some(menu) = menu {
@@ -733,6 +738,36 @@ mod tests {
         }
         t.rebuild(doc);
         t.selected.map(|r| name(doc, r)).unwrap_or_default()
+    }
+
+    /// TREE-7 and AGENTS.md, rule 2: a frame in which nothing changed reads nothing from the
+    /// document, however large the row's value is.
+    #[test]
+    fn an_idle_frame_works_out_no_row() {
+        let big = "Größe ".repeat(10_000);
+        let src = format!("\u{feff}<r a=\"{big}\" b=\"2\">\r\n<t>{big}</t></r>");
+        let mut doc = Document::from_bytes(src.into_bytes());
+        let mut state = TreeState::new(&doc);
+        let ctx = egui::Context::default();
+        let frame = |doc: &Document, state: &mut TreeState| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                draw::<()>(ui, doc, state, None, "test", NONE, None);
+            });
+            out.textures_delta.clear();
+            state.kept.worked_out()
+        };
+        for _ in 0..3 {
+            frame(&doc, &mut state);
+        }
+        let settled = frame(&doc, &mut state);
+        assert!(settled >= 4, "the rows on screen: {settled}");
+        for _ in 0..10 {
+            assert_eq!(frame(&doc, &mut state), settled);
+        }
+        let at = doc.src.len() - "</r>".len();
+        doc.apply(xml_atlas_engine::Edit::new("Type").replace(at..at, " "))
+            .unwrap();
+        assert!(frame(&doc, &mut state) > settled, "after an edit");
     }
 
     #[test]
