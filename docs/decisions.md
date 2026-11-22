@@ -1229,7 +1229,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   result, not XML Atlas resolving the file the way that program does.
 - **Decided (owner, 2026-11-18):**
   - Generic rules in a file the user keeps, `xml-atlas-references.json` next to the document
-    or in a folder above it: which elements and attributes are references, where each named
+    or in a folder above it (superseded by D41: in the app's configuration folder): which elements and attributes are references, where each named
     context is, which contexts exist only at run time (REF-1). XML Atlas holds no team's
     names or rules; the repository is public, and the conventions belong to their owners.
   - Go to target (F12), references that find nothing in the problems list, and the preview
@@ -1615,7 +1615,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   Navigate  Drill Up  Drill Down | Go to reference target | Next tab  Previous tab
             (later: Go to line, bookmarks)
   Tools     XPath | Format  Compact  Format options
-            | References> (Resolve references  Preview  Preview tree  Edit rules  Rules file)
+            | References> (Resolve references  Preview  Preview tree  Rules files)
   Help      XML Atlas Help | Check for updates now | About
   ```
 
@@ -1688,6 +1688,9 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 
 ## D39: Help with editing the rules file
 
+- **Changed by D41 (owner, 2026-11-22):** the check and the editor stand. They work on the
+  files in the configuration folder and are opened from Settings > References, not from
+  *References > Edit rules*.
 - **Problem:** the rules file (REF-1) is written by hand from the spec, and its mistakes are
   silent. Tried with `xml-atlas-cli references`:
 
@@ -1734,6 +1737,9 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 
 ## D40: The rules file under another name
 
+- **Superseded by D41 (owner, 2026-11-22), before it was built:** there is no search beside
+  or above the document any more, so no name to look for and no `format` line. The defect
+  below goes with the search.
 - **Problem:** the owner wants rules named after their document, `catalog.json` for
   `catalog.xml`, instead of `xml-atlas-references.json`.
 - **A defect to fix first:** the search walks the path as given. Opened as
@@ -1781,11 +1787,59 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   for a file named after its document; the search starts from a symbolic link's target.
   Not built yet.
 
+## D41: Rules files in the app's configuration folder
+
+- **Problem:** the owner, later on 2026-11-22: finding rules beside or above the document is
+  too implicit, and it means deploying JSON files into other repositories. They want the
+  files in the app's configuration folder, a list of them in Settings, each switched on and
+  off, and each editable there.
+- **Measured** (the owner's rules on about 1,160 XML files of one source tree): of the five
+  files with the document's name, four resolve and one, of another structure, gets only
+  false warnings. A general `attribute_references` rule reports `[A1:B9]` and `[12:30]` in
+  an unrelated document as broken references. So "every active file applies to every
+  document" is not enough, and neither is the document's name alone.
+- **Decided (owner, 2026-11-22):**
+  1. **The folder:** `references/` beside `settings.toml` in the configuration folder, one
+     JSON file per set of rules, in the format of REF-1.
+  2. **The list:** Settings > References shows every file with a checkbox, *Use for*, its
+     error if it has one, and *Edit*; and New, Import (a copy), Duplicate, Rename, Delete
+     and Open folder.
+  3. **Which file applies:** one that is switched on and whose *Use for* matches the
+     document. An empty *Use for* matches nothing, `*` every document. Of several, the upper
+     one wins, and the preview's header names the file in use. Files are never combined.
+  4. **The search beside and above the document is removed,** without a fallback. The CLI
+     uses the same list, or the file given with `--rules`. The release notes say to import
+     the file once.
+  5. **Editing:** the check and the editor window of D39.
+- **How:**
+  - *Use for* holds patterns separated by `;`. `*` stands for any characters, folders
+    included, `?` for one. A pattern without `/` is compared with the file's name, one with
+    `/` with the end of its resolved path from a folder's start: `catalog*.xml`,
+    `*/XML/*catalog.xml`.
+  - The switches, patterns and order are kept in `references.json` beside the folder, not
+    in `settings.toml`, which an older XML Atlas rewrites without the keys it does not know,
+    and not in the rules files, whose bytes are the user's.
+  - The engine does the folder, the matching and the check; the window and the CLI call it.
+  - A file that is new in the folder is off until the user switches it on. With references
+    off (REF-12) the window reads none of this until Settings > References is shown.
+- **Order of work, a pull request each:** (1) the folder, the list, the matching, import,
+  and the end of the search; (2) the check and the editor.
+- **Not chosen:**
+  - Every active file for every document: see above.
+  - A choice per document: each copy and checkout would need its own.
+  - The old search as an option, or only to offer an import: a second mechanism to keep.
+- **Cost accepted:** a team that shares its rules through git imports them on each machine,
+  and again when they change.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D41 (owner, 2026-11-22), replacing D40: rules files in the configuration folder, each
+switched on and off, with a *Use for* pattern; the search beside and above the document is
+removed; the folder and list first, then the editor.
 
 About D37 to D40 (owner, 2026-11-22), all as proposed: six menus with References under Tools,
 Ctrl+Q and Ctrl+I; remembered sizes first, then the preview's position, Text/Tree/Both,
