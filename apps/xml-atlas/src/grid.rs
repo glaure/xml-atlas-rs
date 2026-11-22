@@ -551,15 +551,27 @@ fn nested_text(ui: &Ui, s: String) -> RichText {
     RichText::new(s).color(ui.visuals().hyperlink_color)
 }
 
-/// Diagonal lines over `rect`: the row has no such attribute, child or text (GRID-13).
+/// Diagonal lines over `rect`: the row has no such attribute, child or text (GRID-13). Only
+/// those in sight are drawn: labels leave themselves out when out of sight, shapes do not,
+/// and a grid can have a hundred columns beside the few on screen.
 fn hatch(ui: &Ui, rect: Rect) {
     let painter = ui.painter_at(rect);
+    let seen = painter.clip_rect();
+    if !seen.is_positive() {
+        return;
+    }
     let stroke = Stroke::new(1.0, crate::theme::current(ui).hatch);
     let h = rect.height();
-    let mut x = rect.left() - h;
-    while x < rect.right() {
+    let start = rect.left() - h;
+    // The first line that reaches into sight, in step with those left out.
+    let mut step = ((seen.left() - h - start) / HATCH_STEP).floor().max(0.0);
+    loop {
+        let x = start + step * HATCH_STEP;
+        if x >= rect.right() || x > seen.right() + stroke.width {
+            break;
+        }
         painter.line_segment([pos2(x, rect.bottom()), pos2(x + h, rect.top())], stroke);
-        x += HATCH_STEP;
+        step += 1.0;
     }
 }
 
@@ -709,5 +721,50 @@ mod tests {
             draw(&mut open);
         }
         assert_eq!(worked_out(&open), before);
+    }
+
+    /// AGENTS.md, rule 2: hatching costs what is on screen, not a line for every step of
+    /// every absent cell in the columns scrolled out of view (GRID-13).
+    #[test]
+    fn only_hatching_on_screen_is_drawn() {
+        // A row for each column: all but the diagonal is absent.
+        let rows: String = (0..60).map(|i| format!("<o a{i}=\"1\"/>")).collect();
+        let doc = Document::from_bytes(format!("<r>{rows}</r>").into_bytes());
+        let mut open = Open::new(doc, egui::Id::unique("grid-hatch"));
+        let root = open.doc.index.root_element().unwrap();
+        open.select(root);
+        let ctx = egui::Context::default();
+        let mut shapes = Vec::new();
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(700.0, 400.0))),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| show(ui, &mut open));
+            out.textures_delta.clear();
+            shapes = out.shapes;
+        }
+        let (mut seen, mut unseen) = (0, 0);
+        for s in &shapes {
+            // Hatching is diagonal; the table's column borders are not.
+            if let egui::Shape::LineSegment { points, .. } = &s.shape
+                && points[0].x != points[1].x
+                && points[0].y != points[1].y
+            {
+                let clip = s.clip_rect;
+                // A step more on either side is the price of not measuring each line.
+                let near = clip.expand(HATCH_STEP + 2.0);
+                if clip.is_positive() && near.intersects(s.shape.visual_bounding_rect()) {
+                    seen += 1;
+                } else {
+                    unseen += 1;
+                }
+            }
+        }
+        assert!(seen > 50, "the hatching on screen is still drawn: {seen}");
+        assert_eq!(
+            unseen, 0,
+            "lines drawn out of sight, beside {seen} in sight"
+        );
     }
 }
