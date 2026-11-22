@@ -153,7 +153,8 @@ impl Kind {
             ("windows", "x86_64") => {
                 let folder = exe.parent()?;
                 let per_user = place.local_app_data?.join("Programs").join("XML Atlas");
-                let lower = |p: &Path| p.to_string_lossy().to_lowercase();
+                // As Windows compares paths: without case, and either separator.
+                let lower = |p: &Path| p.to_string_lossy().replace('\\', "/").to_lowercase();
                 // The zip has no icon file beside the program.
                 (lower(folder) == lower(&per_user) && exists(&folder.join("xml-atlas.ico")))
                     .then_some(Kind::Msi)
@@ -779,9 +780,32 @@ mod tests {
             "all users"
         );
 
+        // Windows takes either separator, and joins with a backslash.
+        let mixed = Place {
+            os: "windows",
+            arch: "x86_64",
+            exe: Path::new(&user_exe),
+            local_app_data: Some(Path::new("\\Users\\Zoë\\AppData\\Local")),
+        };
+        let icon = |p: &Path| p == Path::new(&user_ico);
+        assert_eq!(Kind::of(&mixed, icon), Some(Kind::Msi), "either separator");
+
         let app = "/Applications/XML Atlas.app/Contents/MacOS/xml-atlas";
         assert_eq!(of("macos", "aarch64", app, &[]), Some(Kind::Dmg));
         assert_eq!(of("macos", "x86_64", built, &[]), None);
+    }
+
+    /// The paths as Windows gives them, with another case in `LOCALAPPDATA`.
+    #[cfg(windows)]
+    #[test]
+    fn the_msi_of_the_current_user_is_known_by_its_folder() {
+        let place = Place {
+            os: "windows",
+            arch: "x86_64",
+            exe: Path::new(r"C:\Users\Zoë\AppData\Local\Programs\XML Atlas\xml-atlas.exe"),
+            local_app_data: Some(Path::new(r"c:\users\ZOË\AppData\Local")),
+        };
+        assert_eq!(Kind::of(&place, |_| true), Some(Kind::Msi));
     }
 
     /// The names are those of the 1.3.0 release.
