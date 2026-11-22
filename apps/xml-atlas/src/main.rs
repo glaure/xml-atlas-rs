@@ -30,6 +30,7 @@ mod settings;
 mod settings_window;
 mod sizes;
 mod system_theme;
+mod table;
 mod tabs;
 mod text_view;
 mod theme;

@@ -2,17 +2,24 @@
 //! (`docs/spec/grid.md`, GRID-16). An experiment; View > Cell pane turns it off.
 //!
 //! The pane is worked out once per click ([`Grid::detail`]) and kept until the click, the
-//! grid or the document's nodes change. Its table draws only the rows on screen, and works
-//! each out once.
+//! grid or the document's nodes change. Its table draws only the rows and columns on screen
+//! (`crate::table`), and works each row out once.
 
 use egui::{RichText, Ui};
-use egui_extras::{Column as TableColumn, TableBuilder};
 use xml_atlas_engine::grid::{Column, Detail, Grid};
 use xml_atlas_engine::grid_cells::Cells;
 use xml_atlas_engine::xml::{NodeId, NodeKind};
 use xml_atlas_engine::{Document, NodesVersion};
 
 use crate::app::Open;
+use crate::table;
+
+/// The table's columns before the element's own: the row number and the name.
+const LEAD: usize = 2;
+/// The first widths of the name and of the element's own columns, and the least of both.
+const NAME_WIDTH: f32 = 90.0;
+const COLUMN_WIDTH: f32 = 110.0;
+const COLUMN_MIN: f32 = 40.0;
 
 /// What the pane shows, and for which click.
 pub struct CellPane {
@@ -141,49 +148,48 @@ fn table(ui: &mut Ui, doc: &Document, grid: &Grid, cells: &mut Cells) -> Option<
     cells.begin(doc, grid);
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let mut go = None;
-    TableBuilder::new(ui)
-        .id_salt(("cell-pane-table", grid.parent))
-        .striped(true)
-        .resizable(true)
-        .auto_shrink(false)
-        .sense(egui::Sense::click())
-        .column(TableColumn::auto().at_least(24.0))
-        .column(TableColumn::initial(90.0).at_least(40.0).clip(true))
-        .columns(
-            TableColumn::initial(110.0).at_least(40.0).clip(true),
-            grid.columns.len(),
-        )
-        .header(row_h + 2.0, |mut h| {
-            h.col(|ui| {
-                ui.strong("#");
-            });
-            h.col(|ui| {
-                ui.strong("element");
-            });
-            for c in &grid.columns {
-                h.col(|ui| {
-                    ui.strong(crate::grid::column_name(c));
+    let mut columns = vec![
+        table::Column::auto(24.0),
+        table::Column::new(NAME_WIDTH, COLUMN_MIN),
+    ];
+    columns.resize(
+        LEAD + grid.columns.len(),
+        table::Column::new(COLUMN_WIDTH, COLUMN_MIN),
+    );
+    let body = table::Table::new(ui, ("cell-pane-table", grid.parent), columns).header(
+        row_h + 2.0,
+        |row| {
+            while let Some(column) = row.next_column() {
+                let title = match column {
+                    0 => "#".to_owned(),
+                    1 => "element".to_owned(),
+                    _ => crate::grid::column_name(&grid.columns[column - LEAD]),
+                };
+                row.col(|ui| {
+                    ui.strong(title);
                 });
             }
-        })
-        .body(|body| {
-            body.rows(row_h, grid.rows.len(), |mut row| {
-                let i = row.index();
-                let id = grid.rows[i];
-                row.col(|ui| {
+        },
+    );
+    body.rows(row_h, grid.rows.len(), |row| {
+        let i = row.index();
+        let id = grid.rows[i];
+        let shown = cells.row(doc, id);
+        while let Some(column) = row.next_column() {
+            row.col(|ui| match column {
+                0 => {
                     ui.label(RichText::new(grid.number(i).to_string()).weak());
-                });
-                row.col(|ui| {
+                }
+                1 => {
                     ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
-                });
-                for shown in cells.row(doc, id) {
-                    row.col(|ui| crate::grid::draw_cell(ui, &shown.cell));
                 }
-                if row.response().double_clicked() {
-                    go = Some(id);
-                }
+                _ => crate::grid::draw_cell(ui, &shown[column - LEAD].cell),
             });
-        });
+        }
+        if row.response().is_some_and(|r| r.double_clicked()) {
+            go = Some(id);
+        }
+    });
     cells.end();
     go
 }

@@ -12,7 +12,6 @@ xml-atlas-engine.workspace = true
 # The MCP tools, for agents in the open window (agent.rs, D28).
 xml-atlas-mcp = { path = "../../crates/mcp" }
 egui.workspace = true
-egui_extras = { version = "0.37", default-features = false }
 eframe.workspace = true
 rfd.workspace = true
 log.workspace = true
