@@ -25,6 +25,7 @@ mod ref_preview;
 mod scroll;
 mod settings;
 mod settings_window;
+mod sizes;
 mod system_theme;
 mod tabs;
 mod text_view;
@@ -66,9 +67,12 @@ fn main() -> eframe::Result {
         Ok(icon) => viewport = viewport.with_icon(icon),
         Err(e) => log::warn!("window icon: {e}"),
     }
+    // Needed before there is a window, so before the app reads its settings (WIN-3).
+    let window = settings::Settings::load().window;
     let options = eframe::NativeOptions {
         viewport: viewport
-            .with_inner_size([1280.0, 820.0])
+            .with_inner_size([f32::from(window.width), f32::from(window.height)])
+            .with_maximized(window.maximized)
             .with_drag_and_drop(true),
         // OpenGL starts in about half the time and memory of wgpu (D21).
         renderer: if wgpu {

@@ -16,6 +16,7 @@ use xml_atlas_engine::{
 
 use crate::disk_watch::DiskWatch;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
+use crate::sizes::Split;
 use crate::tabs::Tabs;
 use crate::tool_icons::{self, Tool};
 use crate::update::{self, Notice};
@@ -42,6 +43,12 @@ pub struct App {
     /// Settings remembered between sessions (WIN-3), and what was last written to disk.
     settings: Settings,
     saved: Settings,
+    /// Follows the window's size for the settings (WIN-3).
+    window: crate::sizes::Tracker,
+    /// The panes as last shown, to notice Reset layout whenever it comes.
+    shown_panes: crate::sizes::Panes,
+    /// X11 ignores a maximize asked for before the window shows; it is asked again then.
+    maximize: Option<u8>,
     /// The desktop's light or dark preference as it arrives (WIN-2); `None` until known.
     desktop_theme: Option<egui::Theme>,
     desktop_theme_rx: Option<Receiver<egui::Theme>>,
@@ -314,6 +321,9 @@ impl App {
             docs: Tabs::default(),
             next_id: 0,
             title: String::new(),
+            window: crate::sizes::Tracker::new(std::time::Instant::now()),
+            shown_panes: settings.panes,
+            maximize: settings.window.maximized.then_some(0),
             settings: settings.clone(),
             saved: settings,
             desktop_theme: None,
@@ -584,6 +594,25 @@ impl App {
     }
 
     /// Writes the settings when they changed since they were last written (WIN-3).
+    /// Notes the window's size for the settings (WIN-3).
+    fn follow_window(&mut self, ctx: &egui::Context) {
+        if let Some(frames) = self.maximize {
+            // The window shows after the first frame.
+            if frames == 0 {
+                self.maximize = Some(1);
+                ctx.request_repaint();
+            } else {
+                self.maximize = None;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            }
+        }
+        let now = std::time::Instant::now();
+        let seen = crate::sizes::Seen::now(ctx);
+        if let Some(wait) = self.window.observe(seen, &mut self.settings.window, now) {
+            ctx.request_repaint_after(wait);
+        }
+    }
+
     fn save_settings(&mut self) {
         self.settings.find = self.find.options();
         if self.settings == self.saved {
@@ -1475,6 +1504,14 @@ impl App {
                     Layout::TextAbove,
                     "Text above grid (as in XML Marker)",
                 );
+                if ui
+                    .button("Reset layout")
+                    .on_hover_text("The panes' first sizes again")
+                    .clicked()
+                {
+                    ui.close();
+                    self.settings.panes = Default::default();
+                }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("XML Atlas Help    F1").clicked() {
@@ -1826,12 +1863,19 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.window
+            .finish(&mut self.settings.window, std::time::Instant::now());
+        self.save_settings();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_loading();
         self.check_disk();
         self.apply_theme(&ctx);
         self.check_for_updates(&ctx);
+        self.follow_window(&ctx);
         self.save_settings();
 
         // Every file dropped opens, each in its own tab.
@@ -1985,15 +2029,15 @@ impl eframe::App for App {
         // The font chosen in View > Font… for tree, grid and cell pane too (TEXT-25).
         let view_font = self.settings.text_font.view_font_id();
         let theme = crate::theme::current(ui);
-        egui::Panel::left("tree")
-            .frame(theme.view_frame(ui.style(), false))
-            .resizable(true)
-            .default_size(320.0)
-            .show(ui, |ui| {
-                let id = open.id;
-                crate::fonts::use_in_views(ui, view_font.as_ref());
-                ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
-            });
+        // Reset layout, here or in Settings: what egui holds for this session goes too.
+        crate::sizes::follow_reset(&ctx, &mut self.shown_panes, self.settings.panes);
+        let frame = theme.view_frame(ui.style(), false);
+        let panes = &mut self.settings.panes;
+        panes.show(ui, Split::Tree, Some(frame), |ui, _| {
+            let id = open.id;
+            crate::fonts::use_in_views(ui, view_font.as_ref());
+            ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
+        });
         if std::mem::take(&mut open.find_requested) {
             self.find.open_within(open);
         }
@@ -2007,67 +2051,52 @@ impl eframe::App for App {
         let wrap = open.wraps(self.settings.word_wrap);
         let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
-            let total = ui.available_height();
+            let panes = &mut self.settings.panes;
             if show_diagram {
                 // In the grid's place (D36), with a height of its own per layout.
-                let diagram = match layout {
-                    Layout::GridAbove => egui::Panel::top("diagram"),
-                    Layout::TextAbove => egui::Panel::bottom("diagram-below"),
+                let split = match layout {
+                    Layout::GridAbove => Split::DiagramAbove,
+                    Layout::TextAbove => Split::DiagramBelow,
                 };
-                diagram
-                    .frame(theme.view_frame(ui.style(), false))
-                    .resizable(true)
-                    .default_size(total * 0.45)
-                    .show(ui, |ui| {
-                        crate::fonts::use_in_views(ui, view_font.as_ref());
-                        ui.push_id(open.id, |ui| crate::diagram::show(ui, open));
-                    });
+                let frame = theme.view_frame(ui.style(), false);
+                panes.show(ui, split, Some(frame), |ui, _| {
+                    crate::fonts::use_in_views(ui, view_font.as_ref());
+                    ui.push_id(open.id, |ui| crate::diagram::show(ui, open));
+                });
             }
             if show_grid {
                 // Each layout has its own panel, so each remembers its own height.
-                let grid = match layout {
-                    Layout::GridAbove => egui::Panel::top("grid"),
-                    Layout::TextAbove => egui::Panel::bottom("grid-below"),
+                let split = match layout {
+                    Layout::GridAbove => Split::GridAbove,
+                    Layout::TextAbove => Split::GridBelow,
                 };
-                grid.frame(theme.view_frame(ui.style(), false))
-                    .resizable(true)
-                    .default_size(total * 0.45)
-                    .show(ui, |ui| {
-                        crate::fonts::use_in_views(ui, view_font.as_ref());
-                        ui.push_id(open.id, |ui| {
-                            if cell_pane {
-                                let width = ui.available_width() * 0.35;
-                                egui::Panel::right("cell-pane")
-                                    .frame(theme.view_frame(ui.style(), false))
-                                    .resizable(true)
-                                    .default_size(width)
-                                    .show(ui, |ui| {
-                                        ui.push_id("cell-pane", |ui| {
-                                            crate::cell_pane::show(ui, open)
-                                        });
-                                    });
-                            }
-                            egui::CentralPanel::default()
-                                .frame(theme.view_frame(ui.style(), true))
-                                .show(ui, |ui| crate::grid::show(ui, open));
-                        });
+                let frame = theme.view_frame(ui.style(), false);
+                panes.show(ui, split, Some(frame), |ui, panes| {
+                    crate::fonts::use_in_views(ui, view_font.as_ref());
+                    ui.push_id(open.id, |ui| {
+                        if cell_pane {
+                            let frame = theme.view_frame(ui.style(), false);
+                            panes.show(ui, Split::CellPane, Some(frame), |ui, _| {
+                                ui.push_id("cell-pane", |ui| crate::cell_pane::show(ui, open));
+                            });
+                        }
+                        egui::CentralPanel::default()
+                            .frame(theme.view_frame(ui.style(), true))
+                            .show(ui, |ui| crate::grid::show(ui, open));
                     });
+                });
             }
             if !open.problems.is_empty() {
-                egui::Panel::bottom("problems")
-                    .resizable(true)
-                    .show(ui, |ui| {
-                        ui.push_id(open.id, |ui| problems_panel::show(ui, open));
-                    });
+                panes.show(ui, Split::Problems, None, |ui, _| {
+                    ui.push_id(open.id, |ui| problems_panel::show(ui, open));
+                });
             }
             if self.xpath.visible && crate::xpath_bar::has_results(open) {
                 // The views' background, as tree and text have: a list to click in.
-                egui::Panel::bottom("xpath-results")
-                    .frame(theme.view_frame(ui.style(), false))
-                    .resizable(true)
-                    .show(ui, |ui| {
-                        ui.push_id(open.id, |ui| crate::xpath_bar::show_results(ui, open));
-                    });
+                let frame = theme.view_frame(ui.style(), false);
+                panes.show(ui, Split::XPathResults, Some(frame), |ui, _| {
+                    ui.push_id(open.id, |ui| crate::xpath_bar::show_results(ui, open));
+                });
             }
             if self.find.visible {
                 egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
@@ -2077,27 +2106,19 @@ impl eframe::App for App {
             }
             if preview_tree {
                 // Added first, so it is the rightmost: main tree | text | preview | its tree.
-                let width = ui.available_width() * 0.2;
-                egui::Panel::right("reference-tree")
-                    .frame(theme.view_frame(ui.style(), false))
-                    .resizable(true)
-                    .default_size(width)
-                    .show(ui, |ui| {
-                        crate::fonts::use_in_views(ui, view_font.as_ref());
-                        ui.push_id(open.id, |ui| {
-                            crate::ref_preview::show_tree(ui, open, view_font.as_ref())
-                        });
+                let frame = theme.view_frame(ui.style(), false);
+                panes.show(ui, Split::PreviewTree, Some(frame), |ui, _| {
+                    crate::fonts::use_in_views(ui, view_font.as_ref());
+                    ui.push_id(open.id, |ui| {
+                        crate::ref_preview::show_tree(ui, open, view_font.as_ref())
                     });
+                });
             }
             if reference_preview {
-                let width = ui.available_width() * 0.45;
-                egui::Panel::right("reference-preview")
-                    .frame(theme.view_frame(ui.style(), false))
-                    .resizable(true)
-                    .default_size(width)
-                    .show(ui, |ui| {
-                        ui.push_id(open.id, |ui| crate::ref_preview::show(ui, open, &text_font));
-                    });
+                let frame = theme.view_frame(ui.style(), false);
+                panes.show(ui, Split::Preview, Some(frame), |ui, _| {
+                    ui.push_id(open.id, |ui| crate::ref_preview::show(ui, open, &text_font));
+                });
             }
             egui::CentralPanel::default()
                 .frame(theme.view_frame(ui.style(), true))
