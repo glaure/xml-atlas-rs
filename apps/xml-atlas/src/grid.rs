@@ -1,5 +1,6 @@
 //! The grid view: draws an engine [`Grid`] (`docs/spec/grid.md`). Cells are decoded only for
-//! visible rows.
+//! visible rows, and once while a row stays on screen: what a frame needs of a cell comes
+//! from `grid_cells::Cells`, never from a walk over the document.
 
 use egui::{Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
 use egui_extras::{Column as TableColumn, TableBuilder};
@@ -266,6 +267,7 @@ pub(crate) fn attributes(ui: &mut Ui, grid: &Grid) {
 fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> Option<Action> {
     let Open {
         grid,
+        grid_cells,
         doc,
         focus,
         grid_cell,
@@ -287,6 +289,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
     let number_width = digits
         * ui.fonts_mut(|f| f.glyph_width(&egui::TextStyle::Body.resolve(ui.style()), '0'))
         + 16.0;
+    grid_cells.begin(doc, grid);
     let mut builder = TableBuilder::new(ui);
     if let Some(row) = scroll {
         builder = builder.scroll_to_row(row, None);
@@ -341,8 +344,8 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     }
                 });
                 let mut cell_action = None;
+                let cells = grid_cells.row(doc, id);
                 for &ci in &shown {
-                    let c = &grid.columns[ci];
                     let editing = grid_edit.as_mut().filter(|e| e.row == id && e.column == ci);
                     if let Some(editor) = editing {
                         editor_shown = true;
@@ -353,10 +356,11 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                         });
                         continue;
                     }
-                    let cell = grid.cell(doc, id, c);
+                    let kept = &cells[ci];
+                    let cell = &kept.cell;
                     let nested = matches!(cell, Cell::Element(_) | Cell::Repeated { .. });
                     let (_, resp) = row.col(|ui| {
-                        draw_cell(ui, &cell);
+                        draw_cell(ui, cell);
                         if marked && *grid_cell == Some(ci) {
                             outline(ui);
                             if reveal {
@@ -366,7 +370,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     });
                     // A nested cell stands for its child element: a click highlights that
                     // child, a double-click opens it.
-                    let child = nested.then(|| grid.cell_node(doc, id, c)).flatten();
+                    let child = kept.node.filter(|_| nested);
                     let target = child.unwrap_or(id);
                     if resp.double_clicked() && child.is_some() {
                         cell_action = Some(Action::Enter(target));
@@ -379,10 +383,9 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                                 cell_action = Some(Action::Enter(child));
                             }
                         } else {
-                            let editable = grid.edit_target(doc, id, c).is_some();
                             let button = ui
-                                .add_enabled(editable, egui::Button::new("Edit    F2"))
-                                .on_disabled_hover_text(not_editable(&cell));
+                                .add_enabled(kept.editable, egui::Button::new("Edit    F2"))
+                                .on_disabled_hover_text(not_editable(cell));
                             if button.clicked() {
                                 cell_action = Some(Action::Edit {
                                     row: id,
@@ -406,6 +409,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                 }
             });
         });
+    grid_cells.end();
     // Asked for here, outside the table: the table's own scroll area, which scrolls only up
     // and down, would swallow it.
     if let Some(rect) = reveal_rect {
@@ -655,4 +659,55 @@ pub fn key(open: &mut Open, key: GridKey) {
     // The marked column stays, as in a spreadsheet.
     open.focus(row);
     open.grid_scroll_to = Some(target);
+}
+
+#[cfg(test)]
+mod tests {
+    use xml_atlas_engine::{Document, command};
+
+    use super::*;
+
+    /// AGENTS.md, rule 2: frames in which nothing changes work out no cell, in the grid or in
+    /// the cell pane beside it.
+    #[test]
+    fn idle_frames_work_out_no_cells() {
+        let many = "<v/>".repeat(1000);
+        let src = format!("<r><o><Größe>1</Größe>{many}</o><o>{many}</o></r>");
+        let doc = Document::from_bytes(src.into_bytes());
+        let mut open = Open::new(doc, egui::Id::unique("grid-idle"));
+        let root = command::resolve(&open.doc, "/r").unwrap();
+        open.select(root);
+        let first = open.grid.as_ref().unwrap().rows[0];
+        open.focus(first);
+        let ctx = egui::Context::default();
+        let draw = |open: &mut Open| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 600.0))),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::Panel::right("pane")
+                    .default_size(400.0)
+                    .show(ui, |ui| crate::cell_pane::show(ui, open));
+                egui::CentralPanel::default().show(ui, |ui| show(ui, open));
+            });
+            out.textures_delta.clear();
+        };
+        let worked_out = |open: &Open| {
+            let pane = open.cell_pane.as_ref().unwrap();
+            (open.grid_cells.worked_out(), pane.worked_out())
+        };
+        // A table learns its size in its first frames.
+        for _ in 0..5 {
+            draw(&mut open);
+        }
+        // So that a cache made anew each frame, with the same count each time, differs.
+        open.cell_pane.as_mut().unwrap().count_one_more(&open.doc);
+        let before = worked_out(&open);
+        assert!(before.0 >= 2 && before.1 >= 1, "drawn: {before:?}");
+        for _ in 0..10 {
+            draw(&mut open);
+        }
+        assert_eq!(worked_out(&open), before);
+    }
 }

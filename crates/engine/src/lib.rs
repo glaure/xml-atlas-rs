@@ -28,6 +28,7 @@ pub mod encoding;
 pub mod find;
 pub mod format;
 pub mod grid;
+pub mod grid_cells;
 pub mod problems;
 pub mod references;
 pub mod repeat;
@@ -148,6 +149,13 @@ impl Timings {
     pub fn total(&self) -> Duration {
         self.read + self.decode + self.together.unwrap_or(self.index + self.lines)
     }
+}
+
+/// A state of a document's nodes ([`Document::nodes_version`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodesVersion {
+    revision: u64,
+    stale: bool,
 }
 
 impl Document {
@@ -374,6 +382,17 @@ impl Document {
     /// Goes up with every change to the source: an edit, an undo, a redo.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Tells one state of the nodes from another: what to key anything kept from the nodes
+    /// by. The [`revision`](Self::revision) alone is not enough, as reading the document
+    /// again after typing ([`Document::finish_reparse`]) replaces the nodes and keeps it.
+    /// When that replaces them, the document stops being stale.
+    pub fn nodes_version(&self) -> NodesVersion {
+        NodesVersion {
+            revision: self.revision,
+            stale: self.stale.is_some(),
+        }
     }
 
     /// Brings the node and line index up to date after the source changed. A single change

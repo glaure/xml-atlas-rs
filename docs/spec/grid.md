@@ -29,7 +29,11 @@ this file needs the most observation.
 - **GRID-7** `[built]` Double-clicking a row selects that element, so the grid then shows its
   children. Double-clicking a cell that stands for a child element selects that child.
 - **GRID-8** `[built]` Above the table: the path of the selected element and the row count.
-- **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows.
+- **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows, and
+  with rows that have hundreds of thousands of children: a frame costs what is on screen. The
+  cells of a row are worked out once when it comes on screen, with one walk over its children
+  for all columns, and again only when the document's nodes or the columns change. The same
+  in the cell pane (GRID-16).
 - **GRID-10** `[done]` Editing a cell changes the attribute or text in the document
   (EDIT-5, EDIT-6). Clicking a cell marks it; Left and Right move the mark along the row (left
   of the first column the whole row is marked again). F2 or Enter on the marked cell, or

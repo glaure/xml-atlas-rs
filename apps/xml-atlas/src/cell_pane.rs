@@ -2,13 +2,15 @@
 //! (`docs/spec/grid.md`, GRID-16). An experiment; View > Cell pane turns it off.
 //!
 //! The pane is worked out once per click ([`Grid::detail`]) and kept until the click, the
-//! grid or the document changes. Its table draws only the rows on screen.
+//! grid or the document's nodes change. Its table draws only the rows on screen, and works
+//! each out once.
 
 use egui::{RichText, Ui};
 use egui_extras::{Column as TableColumn, TableBuilder};
-use xml_atlas_engine::Document;
 use xml_atlas_engine::grid::{Column, Detail, Grid};
+use xml_atlas_engine::grid_cells::Cells;
 use xml_atlas_engine::xml::{NodeId, NodeKind};
+use xml_atlas_engine::{Document, NodesVersion};
 
 use crate::app::Open;
 
@@ -16,15 +18,31 @@ use crate::app::Open;
 pub struct CellPane {
     key: Key,
     detail: Detail,
+    cells: Cells,
 }
 
-/// What the pane was worked out for: the row, the column, the grid and the document revision.
+/// What the pane was worked out for: the row, the column, the grid and the state of the
+/// document's nodes.
 #[derive(Clone, PartialEq)]
 struct Key {
     row: NodeId,
     column: Option<Column>,
     parent: NodeId,
-    revision: u64,
+    nodes: NodesVersion,
+}
+
+impl CellPane {
+    /// How often a row was worked out, for tests.
+    #[cfg(test)]
+    pub(crate) fn worked_out(&self) -> u64 {
+        self.cells.worked_out()
+    }
+
+    /// Works out one more row, so that cells made anew in a frame count less, for tests.
+    #[cfg(test)]
+    pub(crate) fn count_one_more(&mut self, doc: &Document) {
+        self.cells.row(doc, self.key.parent);
+    }
 }
 
 pub fn show(ui: &mut Ui, open: &mut Open) {
@@ -36,9 +54,15 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let stale = open.cell_pane.as_ref().is_none_or(|p| p.key != key);
     if stale && let Some(grid) = &open.grid {
         let detail = grid.detail(&open.doc, key.row, key.column.as_ref());
-        open.cell_pane = Some(CellPane { key, detail });
+        open.cell_pane = Some(CellPane {
+            key,
+            detail,
+            cells: Cells::default(),
+        });
     }
-    let Some(pane) = &open.cell_pane else { return };
+    let Some(pane) = &mut open.cell_pane else {
+        return;
+    };
     let mut go = None;
     match &pane.detail {
         Detail::Absent => {
@@ -64,16 +88,17 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 RichText::new(&grid.path).strong(),
                 &[format!("{} rows", grid.rows.len())],
             );
-            if matches!(pane.detail, Detail::Element(_)) {
+            if matches!(&pane.detail, Detail::Element(_)) {
                 crate::grid::attributes(ui, grid);
             }
+            let cells = &mut pane.cells;
             go = ui
                 .scope(|ui| {
                     ui.style_mut().interaction.selectable_labels = false;
                     egui::ScrollArea::horizontal()
                         .id_salt(("cell-pane-across", grid.parent))
                         .auto_shrink(false)
-                        .show(ui, |ui| table(ui, &open.doc, grid))
+                        .show(ui, |ui| table(ui, &open.doc, grid, cells))
                         .inner
                 })
                 .inner;
@@ -107,12 +132,13 @@ fn key(open: &Open) -> Option<Key> {
         row,
         column,
         parent: grid.parent,
-        revision: open.doc.revision(),
+        nodes: open.doc.nodes_version(),
     })
 }
 
 /// The rows of `grid`, read only. Returns the row double-clicked.
-fn table(ui: &mut Ui, doc: &Document, grid: &Grid) -> Option<NodeId> {
+fn table(ui: &mut Ui, doc: &Document, grid: &Grid, cells: &mut Cells) -> Option<NodeId> {
+    cells.begin(doc, grid);
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let mut go = None;
     TableBuilder::new(ui)
@@ -150,13 +176,58 @@ fn table(ui: &mut Ui, doc: &Document, grid: &Grid) -> Option<NodeId> {
                 row.col(|ui| {
                     ui.label(String::from_utf8_lossy(doc.index.name(&doc.src, id)));
                 });
-                for c in &grid.columns {
-                    row.col(|ui| crate::grid::draw_cell(ui, &grid.cell(doc, id, c)));
+                for shown in cells.row(doc, id) {
+                    row.col(|ui| crate::grid::draw_cell(ui, &shown.cell));
                 }
                 if row.response().double_clicked() {
                     go = Some(id);
                 }
             });
         });
+    cells.end();
     go
+}
+
+#[cfg(test)]
+mod reparse_tests {
+    use xml_atlas_engine::{Edit, command};
+
+    use super::*;
+
+    /// Reading a document again after typing (TEXT-22) replaces its nodes without a new
+    /// revision: the pane follows it.
+    #[test]
+    fn the_pane_follows_the_document_read_again() {
+        let src = "\u{feff}<r>\r\n<Größe></Größe>\r\n</r>";
+        let doc = Document::from_bytes(src.as_bytes().to_vec());
+        let mut open = Open::new(doc, egui::Id::unique("pane-reparse"));
+        let leaf = command::resolve(&open.doc, "/r/Größe").unwrap();
+        open.select(leaf);
+        let ctx = egui::Context::default();
+        let draw = |open: &mut Open| {
+            let mut out = ctx.run_ui(Default::default(), |ui| show(ui, open));
+            out.textures_delta.clear();
+        };
+
+        let at = src.find("</Größe>").unwrap();
+        open.type_edit(Edit::new("Type").replace(at..at, "<![CDATA[hi"))
+            .unwrap();
+        let end = at + "<![CDATA[hi".len();
+        open.type_edit(Edit::new("Type").replace(end..end, "]]>"))
+            .unwrap();
+        assert!(open.doc.stale().is_some(), "waits to be read again");
+        draw(&mut open);
+        open.settle();
+        assert!(open.doc.stale().is_none());
+        draw(&mut open);
+
+        let Some(CellPane {
+            detail: Detail::Element(shown),
+            ..
+        }) = &open.cell_pane
+        else {
+            panic!("the pane shows the element");
+        };
+        assert_eq!(shown.columns, open.grid.as_ref().unwrap().columns);
+    }
 }

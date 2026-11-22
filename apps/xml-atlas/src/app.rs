@@ -149,6 +149,8 @@ pub struct Open {
     pub diagram: crate::diagram::Diagram,
     pub tree: tree::TreeState,
     pub grid: Option<Grid>,
+    /// The cells of the grid's rows on screen, kept from frame to frame (GRID-9).
+    pub grid_cells: xml_atlas_engine::grid_cells::Cells,
     /// Where the text view jumps on the next frame: a byte of the source. Its line, or with
     /// word wrap its row, goes near the top, and a long line scrolls sideways to it.
     pub scroll_text_to: Option<u64>,
@@ -2206,6 +2208,7 @@ impl Open {
             xpath: None,
             diagram: Default::default(),
             grid: None,
+            grid_cells: Default::default(),
             scroll_text_to: None,
             problems: Vec::new(),
             resolve_references: false,
