@@ -1625,6 +1625,8 @@ impl App {
         self.rules_files.show_editor(ctx, self.docs.active());
         if self.rules_files.take_quit() {
             self.request(ctx, Action::Quit);
+        } else if self.rules_files.take_quit_cancelled() {
+            self.cancel_quit();
         }
     }
 
@@ -3113,6 +3115,60 @@ mod tests {
         let gone = dir.join("gone.xml");
         assert!(same_file(&gone, &gone));
         assert!(!same_file(&gone, &file));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// OPEN-11, REF-15: quitting given up at the rules editor's question forgets "Don't save"
+    /// for the documents, so the next quit asks again about what was typed since.
+    #[test]
+    fn cancel_at_the_rules_question_stops_the_whole_quit() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-quit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rules = dir.join("Größe.json");
+        std::fs::write(&rules, "{}").unwrap();
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.new_document();
+        app.docs
+            .active_mut()
+            .unwrap()
+            .type_edit(Edit::new("Type").replace(0..0, " "))
+            .unwrap();
+        app.rules_files.edit(&rules);
+        app.rules_files.set_editor_text("{ }");
+
+        app.request(&ctx, Action::Quit);
+        assert!(app.confirm.take().is_some(), "asks about the document");
+        // Don't save: on to the rules editor, which asks.
+        app.docs.active_mut().unwrap().discard = true;
+        app.request(&ctx, Action::Quit);
+        assert!(!app.quitting);
+        let escape = egui::Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        // Cancel there.
+        for events in [vec![], vec![], vec![escape], vec![]] {
+            let input = egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |_| app.rules_editor(&ctx));
+            out.textures_delta.clear();
+        }
+        app.rules_files.set_editor_text("{}");
+        assert!(!app.rules_files.has_unsaved());
+        app.request(&ctx, Action::Quit);
+        assert!(!app.quitting, "quit and lost the document's changes");
+        assert!(app.confirm.is_some(), "asks about the document again");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

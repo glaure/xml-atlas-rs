@@ -136,6 +136,15 @@ impl RulesFiles {
         self.editor.take_quit()
     }
 
+    pub fn take_quit_cancelled(&mut self) -> bool {
+        self.editor.take_quit_cancelled()
+    }
+
+    #[cfg(test)]
+    pub fn set_editor_text(&mut self, text: &str) {
+        self.editor.set_text(text);
+    }
+
     /// Opens a file in the editor.
     pub fn edit(&mut self, path: &Path) {
         self.editor.edit(path);
