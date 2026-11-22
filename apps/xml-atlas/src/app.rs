@@ -1821,17 +1821,7 @@ impl App {
             .small_button("×")
             .on_hover_text("Close this notice")
             .clicked();
-        match notice.link() {
-            Some(url) => {
-                ui.hyperlink_to(notice.text(), url).on_hover_text(url);
-            }
-            None if matches!(notice, Notice::Failed(_)) => {
-                ui.colored_label(ui.visuals().warn_fg_color, notice.text());
-            }
-            None => {
-                ui.label(notice.text());
-            }
-        }
+        notice.show(ui);
         if close {
             self.update_notice = None;
         }
