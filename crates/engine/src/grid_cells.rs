@@ -5,13 +5,14 @@
 //! columns, and again only when the document's nodes or the columns change. Rows that leave
 //! the screen are dropped, so this holds a screenful, not the file.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use xml_atlas_xml::{NodeId, NodeKind};
 
 use crate::command::holds_only_text;
-use crate::grid::{CELL_CHARS, Cell, Column, Grid, child_cell, text};
-use crate::{Document, NodesVersion, truncate};
+use crate::grid::{Cell, Column, Grid, attribute_cell, child_cell, text};
+use crate::{Document, NodesVersion};
 
 /// A cell, and what a view asks of it in every frame it shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,9 +105,11 @@ fn row_cells(doc: &Document, columns: &[Column], row: NodeId) -> Vec<Shown> {
         }
     }
 
-    let mut attributes: HashMap<String, String> = HashMap::new();
+    // Raw: a cell decodes only the start it shows.
+    let mut attributes: HashMap<String, Cow<'_, [u8]>> = HashMap::new();
     if columns.iter().any(|c| matches!(c, Column::Attribute(_))) {
-        for (name, value) in idx.attributes(src, row) {
+        for (name, value) in idx.attribute_parts(src, row) {
+            let name = String::from_utf8_lossy(&name).into_owned();
             // The first of two with one name, as `Grid::cell` finds.
             attributes.entry(name).or_insert(value);
         }
@@ -119,7 +122,7 @@ fn row_cells(doc: &Document, columns: &[Column], row: NodeId) -> Vec<Shown> {
                 let value = attributes.get(name);
                 Shown {
                     node: value.map(|_| row),
-                    cell: value.map_or(Cell::Absent, |v| Cell::Value(truncate(v, CELL_CHARS))),
+                    cell: value.map_or(Cell::Absent, |raw| Cell::Value(attribute_cell(raw))),
                     editable: true,
                 }
             }
@@ -154,6 +157,7 @@ fn row_cells(doc: &Document, columns: &[Column], row: NodeId) -> Vec<Shown> {
 mod tests {
     use super::*;
     use crate::Edit;
+    use crate::grid::CELL_CHARS;
 
     fn doc(src: &str) -> Document {
         Document::from_bytes(src.as_bytes().to_vec())

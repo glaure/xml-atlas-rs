@@ -42,7 +42,8 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
   order. Right-click a header to hide columns.
 - Double-click a row, or press Enter, to open it. Backspace goes back to the parent.
 - Click a cell and press F2 to edit its value. The cell pane beside the grid shows the
-  clicked cell in full (View turns it off).
+  clicked cell in full, up to 100,000 characters; *Copy whole value* copies a longer one
+  (View turns the pane off).
 
 ## The diagram
 

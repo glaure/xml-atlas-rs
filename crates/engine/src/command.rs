@@ -399,6 +399,18 @@ pub(crate) fn as_parsed(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\r', "\n")
 }
 
+/// [`as_parsed`] of characters as they come, for a text that may be large.
+pub(crate) fn as_parsed_chars(chars: impl Iterator<Item = char>) -> impl Iterator<Item = char> {
+    let mut chars = chars.peekable();
+    std::iter::from_fn(move || match chars.next()? {
+        '\r' => {
+            chars.next_if_eq(&'\n');
+            Some('\n')
+        }
+        c => Some(c),
+    })
+}
+
 /// Text content escaped: `&`, `<` and `>` as entities, a line feed as `newline`, and a
 /// carriage return as a character reference so that it survives (a parser would turn a bare
 /// one into a line feed).

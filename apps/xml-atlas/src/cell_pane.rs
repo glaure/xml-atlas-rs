@@ -6,7 +6,7 @@
 //! (`crate::table`), and works each row out once.
 
 use egui::{RichText, Ui};
-use xml_atlas_engine::grid::{Column, Detail, Grid};
+use xml_atlas_engine::grid::{Column, DETAIL_CHARS, Detail, Grid};
 use xml_atlas_engine::grid_cells::Cells;
 use xml_atlas_engine::xml::{NodeId, NodeKind};
 use xml_atlas_engine::{Document, NodesVersion};
@@ -20,6 +20,9 @@ const LEAD: usize = 2;
 const NAME_WIDTH: f32 = 90.0;
 const COLUMN_WIDTH: f32 = 110.0;
 const COLUMN_MIN: f32 = 40.0;
+
+/// The button beside the notice that a value is cut (GRID-16).
+const COPY_WHOLE: &str = "Copy whole value";
 
 /// What the pane shows, and for which click.
 pub struct CellPane {
@@ -71,12 +74,19 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         return;
     };
     let mut go = None;
+    let mut copy = false;
     match &pane.detail {
         Detail::Absent => {
             ui.label(RichText::new("Nothing here: the row has no such value.").weak());
         }
-        Detail::Value { name, value } => {
+        Detail::Value { name, value, cut } => {
             ui.label(RichText::new(name).strong());
+            if *cut {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(cut_notice()).weak());
+                    copy = ui.button(COPY_WHOLE).clicked();
+                });
+            }
             egui::ScrollArea::vertical()
                 .id_salt("cell-pane-value")
                 .auto_shrink(false)
@@ -111,10 +121,22 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 .inner;
         }
     }
+    if copy
+        && let (Some(grid), Some(column)) = (&open.grid, &pane.key.column)
+        && let Some(whole) = grid.whole_value(&open.doc, pane.key.row, column)
+    {
+        ui.ctx().copy_text(whole);
+    }
     // A double-click goes to the element: it becomes the selection.
     if let Some(id) = go {
         open.select(id);
     }
+}
+
+/// What the pane says above a value it cuts.
+fn cut_notice() -> String {
+    let thousands = DETAIL_CHARS / 1000;
+    format!("Cut: the first {thousands},000 characters are shown.")
 }
 
 /// The row and column marked in the grid; `None` when nothing in it was clicked.
@@ -235,5 +257,131 @@ mod reparse_tests {
             panic!("the pane shows the element");
         };
         assert_eq!(shown.columns, open.grid.as_ref().unwrap().columns);
+    }
+}
+
+#[cfg(test)]
+mod value_tests {
+    use egui::{Event, PointerButton, Pos2, Rect, Shape, vec2};
+    use xml_atlas_engine::{Edit, command};
+
+    use super::*;
+
+    /// One frame of the pane: its texts and where each is, and what was copied.
+    fn frame(
+        ctx: &egui::Context,
+        open: &mut Open,
+        events: Vec<Event>,
+    ) -> (Vec<(String, Pos2)>, Vec<String>) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(700.0, 400.0))),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| show(ui, open));
+        out.textures_delta.clear();
+        let texts = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                Shape::Text(t) => Some((
+                    t.galley.text().to_owned(),
+                    t.visual_bounding_rect().center(),
+                )),
+                _ => None,
+            })
+            .collect();
+        let copied = out
+            .platform_output
+            .commands
+            .into_iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        (texts, copied)
+    }
+
+    fn clicked_cell(value: &str) -> Open {
+        let src = format!("\u{feff}<r>\r\n<o><Größe>{value}</Größe></o>\r\n</r>");
+        let mut open = Open::new(
+            Document::from_bytes(src.into_bytes()),
+            egui::Id::unique("pane-value"),
+        );
+        let root = command::resolve(&open.doc, "/r").unwrap();
+        open.select(root);
+        let row = open.grid.as_ref().unwrap().rows[0];
+        open.focus(row);
+        open.grid_cell = Some(0);
+        open
+    }
+
+    fn press_copy(ctx: &egui::Context, open: &mut Open) -> Vec<String> {
+        for _ in 0..3 {
+            frame(ctx, open, vec![]);
+        }
+        let (texts, _) = frame(ctx, open, vec![]);
+        let pos = texts
+            .iter()
+            .find(|(t, _)| t == COPY_WHOLE)
+            .expect("a button")
+            .1;
+        let button = |pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(ctx, open, vec![Event::PointerMoved(pos)]);
+        frame(ctx, open, vec![button(true)]);
+        let mut copied = frame(ctx, open, vec![button(false)]).1;
+        copied.extend(frame(ctx, open, vec![]).1);
+        copied
+    }
+
+    /// GRID-16: a value over the limit is cut, says so, and Copy copies all of it, decoded,
+    /// as it is after an edit.
+    #[test]
+    fn a_long_value_is_cut_and_copied_whole() {
+        let body = "Größe ".repeat(DETAIL_CHARS / 5);
+        let mut open = clicked_cell(&format!("{body}&amp;\r\nthe end"));
+        let ctx = egui::Context::default();
+        let (texts, copied) = frame(&ctx, &mut open, vec![]);
+        assert_eq!(cut_notice(), "Cut: the first 100,000 characters are shown.");
+        assert!(texts.iter().any(|(t, _)| *t == cut_notice()), "no notice");
+        assert!(copied.is_empty(), "nothing is copied without a click");
+        let longest = texts.iter().map(|(t, _)| t.chars().count()).max().unwrap();
+        assert!(longest <= DETAIL_CHARS, "{longest} characters laid out");
+        assert_eq!(press_copy(&ctx, &mut open), [format!("{body}&\nthe end")]);
+
+        let root = open.selected.unwrap();
+        let at = open
+            .doc
+            .src
+            .windows(7)
+            .position(|w| w == b"the end")
+            .unwrap();
+        open.type_edit(Edit::new("Type").replace(at..at + 7, "a new end"))
+            .unwrap();
+        open.select(root);
+        let row = open.grid.as_ref().unwrap().rows[0];
+        open.focus(row);
+        open.grid_cell = Some(0);
+        assert_eq!(press_copy(&ctx, &mut open), [format!("{body}&\na new end")]);
+    }
+
+    /// A value up to the limit is as before: whole, and without notice or button.
+    #[test]
+    fn a_value_up_to_the_limit_is_shown_whole() {
+        let value = "ü".repeat(DETAIL_CHARS);
+        let mut open = clicked_cell(&value);
+        let (texts, _) = frame(&egui::Context::default(), &mut open, vec![]);
+        assert!(texts.iter().any(|(t, _)| *t == value), "not whole");
+        assert!(
+            !texts
+                .iter()
+                .any(|(t, _)| *t == COPY_WHOLE || *t == cut_notice())
+        );
     }
 }

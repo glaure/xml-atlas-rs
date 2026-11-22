@@ -32,7 +32,8 @@ this file needs the most observation.
 - **GRID-9** `[built]` The grid stays responsive with hundreds of thousands of rows, with
   rows that have hundreds of thousands of children, and with thousands of columns. The cells
   of a row are worked out once when it comes on screen, with one walk over its children for
-  all columns, and again only when the document's nodes or the columns change. Only the rows
+  all columns, and again only when the document's nodes or the columns change. A value is
+  read as far as its cell shows it (but see TREE-7 on references). Only the rows
   and columns in sight get cells and hatching (GRID-13, D42); what is out of sight keeps its
   room, so the scroll bars are the same. The same in the cell pane (GRID-16).
 - **GRID-10** `[done]` Editing a cell changes the attribute or text in the document
@@ -74,8 +75,11 @@ this file needs the most observation.
   (XM-37). The grid does not change. A row, or a cell that stands for one child element
   (`<total>`), shows that element as the grid would: its path, its attributes and a table of
   its children. A cell that stands for several (`<note> ×2`) shows a table of just those. A
-  value cell shows its name and the whole value, not cut at 200 characters, with entities
-  decoded; it can be selected and copied, not edited. An absent cell says so. Before a click
+  value cell shows its name and the value, not cut at 200 characters, with entities decoded;
+  it can be selected and copied, not edited. Of a value over 100,000 characters the pane
+  shows the first 100,000, says so above them and offers Copy whole value, which copies all
+  of it, decoded the same way; only what is shown is read until then (but see TREE-7 on
+  references). An absent cell says so. Before a click
   the pane says to click. A double-click on a row in the pane selects that element. The
   pane's width can be dragged. View > Cell pane beside the grid turns it off, remembered with
   the other settings (WIN-3). An experiment: kept or removed once the owner has tried it.

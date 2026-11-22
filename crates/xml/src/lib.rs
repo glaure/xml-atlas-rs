@@ -861,6 +861,24 @@ impl Index {
         out
     }
 
+    /// The characters of [`Index::element_text`], read as far as they are taken.
+    pub fn element_text_chars<'a, 's>(
+        &'a self,
+        src: &'s [u8],
+        id: NodeId,
+    ) -> impl Iterator<Item = char> + use<'a, 's> {
+        let folded = self.node(id).folded != Folded::No;
+        let own = folded.then(|| self.text_chars(src, id));
+        let children = (!folded).then(|| {
+            self.children(id)
+                .filter(|&c| matches!(self.node(c).kind, NodeKind::Text | NodeKind::CData))
+                .flat_map(|c| self.text_chars(src, c))
+        });
+        own.into_iter()
+            .flatten()
+            .chain(children.into_iter().flatten())
+    }
+
     /// Where element `id` sits: its position among the element children of its parent, for
     /// each level from the top. Comments, text and whitespace do not count, so the position
     /// survives Format and Remove comments; [`Index::element_at_position`] finds the element

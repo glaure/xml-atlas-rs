@@ -7,14 +7,15 @@
 //! does so once for a row on screen and not in every frame. Sorting
 //! (GRID-14) and hiding empty columns (GRID-15) decode a whole column once, on request.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use xml_atlas_xml::{Decoded, Folded, NONE, NodeId, NodeKind, NodeSplice, unescape};
 
-use crate::command::{as_parsed, holds_only_text};
-use crate::{Document, truncate};
+use crate::command::{as_parsed, as_parsed_chars, holds_only_text};
+use crate::{Document, truncate, truncate_chars};
 
 /// Rows [`Grid::start`] examines for columns before it returns. Every row is examined in the
 /// end (GRID-3); these show at once.
@@ -48,6 +49,14 @@ pub const CELL_CHARS: usize = 200;
 /// A name or value in the attribute table is cut at this many characters (GRID-11): more
 /// than a line of a large screen holds.
 pub const ATTRIBUTE_CHARS: usize = 2000;
+
+/// A value in the cell pane is cut at this many characters (GRID-16). Laying out that many
+/// takes tens of milliseconds, once; 50 MiB took 12 seconds.
+pub const DETAIL_CHARS: usize = 100_000;
+
+/// A value of up to this many bytes is decoded at once, which is faster than character by
+/// character; a longer one only as far as a cell shows it.
+const DECODED_AT_ONCE: usize = 4096;
 
 /// One column of the grid, in the order it was first met (GRID-2).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -90,14 +99,19 @@ pub enum Detail {
     Element(Grid),
     /// Several child elements of the same name: a table of their own.
     Elements(Grid),
-    /// An attribute value or a text, whole: not cut at [`CELL_CHARS`].
-    Value { name: String, value: String },
+    /// An attribute value or a text: not cut at [`CELL_CHARS`] but at [`DETAIL_CHARS`], and
+    /// then `cut` says so. [`Grid::whole_value`] has all of it.
+    Value {
+        name: String,
+        value: String,
+        cut: bool,
+    },
     /// The row has no such attribute, child or text.
     Absent,
 }
 
 impl Detail {
-    /// The value, when it is one.
+    /// The value, as far as it is shown, when it is one.
     pub fn value(&self) -> Option<&str> {
         match self {
             Detail::Value { value, .. } => Some(value),
@@ -483,11 +497,8 @@ impl Grid {
         let idx = &doc.index;
         let src = &doc.src;
         match column {
-            Column::Attribute(attr) => idx
-                .attributes(src, row)
-                .into_iter()
-                .find(|(k, _)| k == attr)
-                .map_or(Cell::Absent, |(_, v)| Cell::Value(truncate(&v, CELL_CHARS))),
+            Column::Attribute(attr) => raw_attribute(doc, row, attr)
+                .map_or(Cell::Absent, |raw| Cell::Value(attribute_cell(&raw))),
             Column::Child(child) => {
                 let mut matching = idx.children(row).filter(|&c| {
                     idx.node(c).kind == NodeKind::Element && idx.name(src, c) == child.as_bytes()
@@ -523,54 +534,38 @@ impl Grid {
     /// `None` (GRID-16). Builds a grid for an element, so it is meant for a click, not for
     /// every frame.
     pub fn detail(&self, doc: &Document, row: NodeId, column: Option<&Column>) -> Detail {
-        let idx = &doc.index;
-        let src = &doc.src;
-        let whole = |id| as_parsed(&idx.element_text(src, id));
         let Some(column) = column else {
             return Detail::Element(Grid::build(doc, row));
         };
-        match column {
-            Column::Attribute(attr) => idx
-                .attributes(src, row)
-                .into_iter()
-                .find(|(k, _)| k == attr)
-                .map_or(Detail::Absent, |(k, v)| Detail::Value {
-                    name: format!("@{k}"),
-                    value: v,
-                }),
-            Column::Text if idx.has_text(row) => Detail::Value {
-                name: "text()".into(),
-                value: whole(row),
-            },
-            Column::Text => Detail::Absent,
-            Column::Child(child) => {
-                let matching: Vec<NodeId> = idx
-                    .children(row)
-                    .filter(|&c| {
-                        idx.node(c).kind == NodeKind::Element
-                            && idx.name(src, c) == child.as_bytes()
-                    })
-                    .collect();
-                match matching[..] {
-                    [] => Detail::Absent,
-                    [one] if !has_structure(doc, one) => Detail::Value {
-                        name: child.clone(),
-                        value: whole(one),
-                    },
-                    [one] => Detail::Element(Grid::build(doc, one)),
-                    _ => {
-                        let path = format!("{}/{child}", idx.path(src, row));
-                        Detail::Elements(Grid::with_rows(
-                            doc,
-                            row,
-                            path,
-                            Arc::default(),
-                            matching,
-                            None,
-                        ))
-                    }
-                }
+        let shown = |name: String, (value, cut)| Detail::Value { name, value, cut };
+        match stands_for(doc, row, column) {
+            StandsFor::Nothing => Detail::Absent,
+            StandsFor::Attribute { name, value } => shown(format!("@{name}"), value_start(&value)),
+            StandsFor::Text { name, element } => shown(name.to_owned(), text_start(doc, element)),
+            StandsFor::Element(one) => Detail::Element(Grid::build(doc, one)),
+            StandsFor::Elements { name, elements } => {
+                let path = format!("{}/{name}", doc.index.path(&doc.src, row));
+                Detail::Elements(Grid::with_rows(
+                    doc,
+                    row,
+                    path,
+                    Arc::default(),
+                    elements,
+                    None,
+                ))
             }
+        }
+    }
+
+    /// The whole value of a [`Detail::Value`], for copying it (GRID-16). Decodes all of it,
+    /// so it is meant for a click. `None` when the cell does not stand for a value.
+    pub fn whole_value(&self, doc: &Document, row: NodeId, column: &Column) -> Option<String> {
+        match stands_for(doc, row, column) {
+            StandsFor::Attribute { value, .. } => Some(unescape(&value).into_owned()),
+            StandsFor::Text { element, .. } => {
+                Some(as_parsed(&doc.index.element_text(&doc.src, element)))
+            }
+            _ => None,
         }
     }
 
@@ -628,6 +623,26 @@ impl Grid {
             },
         }
     }
+}
+
+/// What a cell stands for (GRID-16), before any of it is decoded.
+enum StandsFor<'a> {
+    Nothing,
+    /// An attribute, with its raw value.
+    Attribute {
+        name: &'a str,
+        value: Cow<'a, [u8]>,
+    },
+    /// The text of `element`.
+    Text {
+        name: &'a str,
+        element: NodeId,
+    },
+    Element(NodeId),
+    Elements {
+        name: &'a str,
+        elements: Vec<NodeId>,
+    },
 }
 
 /// What a row sorts by (GRID-14). The variants are in ascending order.
@@ -693,14 +708,85 @@ fn has_structure(doc: &Document, id: NodeId) -> bool {
     let idx = &doc.index;
     idx.children(id)
         .any(|c| idx.node(c).kind == NodeKind::Element)
-        || !idx.attributes(&doc.src, id).is_empty()
+        || idx.attribute_parts(&doc.src, id).next().is_some()
+}
+
+/// What the cell of `row` in `column` stands for.
+fn stands_for<'a>(doc: &'a Document, row: NodeId, column: &'a Column) -> StandsFor<'a> {
+    let idx = &doc.index;
+    match column {
+        Column::Attribute(name) => {
+            raw_attribute(doc, row, name).map_or(StandsFor::Nothing, |value| StandsFor::Attribute {
+                name,
+                value,
+            })
+        }
+        Column::Text if idx.has_text(row) => StandsFor::Text {
+            name: "text()",
+            element: row,
+        },
+        Column::Text => StandsFor::Nothing,
+        Column::Child(name) => {
+            let matching: Vec<NodeId> = idx
+                .children(row)
+                .filter(|&c| {
+                    idx.node(c).kind == NodeKind::Element
+                        && idx.name(&doc.src, c) == name.as_bytes()
+                })
+                .collect();
+            match matching[..] {
+                [] => StandsFor::Nothing,
+                [one] if !has_structure(doc, one) => StandsFor::Text { name, element: one },
+                [one] => StandsFor::Element(one),
+                _ => StandsFor::Elements {
+                    name,
+                    elements: matching,
+                },
+            }
+        }
+    }
+}
+
+/// The raw value of the first attribute of `id` called `name`.
+fn raw_attribute<'d>(doc: &'d Document, id: NodeId, name: &str) -> Option<Cow<'d, [u8]>> {
+    doc.index
+        .attribute_parts(&doc.src, id)
+        .find(|(key, _)| String::from_utf8_lossy(key) == name)
+        .map(|(_, value)| value)
+}
+
+/// The first `max` characters, and whether more follow.
+fn start_of(mut chars: impl Iterator<Item = char>, max: usize) -> (String, bool) {
+    let start = chars.by_ref().take(max).collect();
+    (start, chars.next().is_some())
+}
+
+/// A raw attribute value as the cell pane shows it.
+fn value_start(raw: &[u8]) -> (String, bool) {
+    // No more bytes than that are no more characters.
+    if raw.len() <= DETAIL_CHARS {
+        (unescape(raw).into_owned(), false)
+    } else {
+        start_of(Decoded::escaped(raw), DETAIL_CHARS)
+    }
+}
+
+/// The text of element `id` as the cell pane shows it.
+fn text_start(doc: &Document, id: NodeId) -> (String, bool) {
+    let idx = &doc.index;
+    if idx.node(id).span().len() <= DETAIL_CHARS {
+        (as_parsed(&idx.element_text(&doc.src, id)), false)
+    } else {
+        let chars = as_parsed_chars(idx.element_text_chars(&doc.src, id));
+        start_of(chars, DETAIL_CHARS)
+    }
 }
 
 /// The attribute table of `id` (GRID-11). Reads a value as far as the table shows it.
 fn own_attributes(doc: &Document, id: NodeId) -> Arc<Vec<(String, String)>> {
-    let cut = |mut chars: Decoded<'_>| {
-        let mut start: String = chars.by_ref().take(ATTRIBUTE_CHARS).collect();
-        if chars.next().is_some() {
+    let cut = |chars: Decoded<'_>| {
+        let (mut start, more) = start_of(chars, ATTRIBUTE_CHARS);
+        if more {
             start.push('…');
         }
         start
@@ -729,8 +815,23 @@ fn own_attributes(doc: &Document, id: NodeId) -> Arc<Vec<(String, String)>> {
 }
 
 /// The text and CDATA children of an element, decoded, joined and cut at [`CELL_CHARS`].
+/// Reads a long one as far as that.
 pub(crate) fn text(doc: &Document, id: NodeId) -> String {
-    truncate(&doc.index.element_text(&doc.src, id), CELL_CHARS)
+    let idx = &doc.index;
+    if idx.node(id).span().len() <= DECODED_AT_ONCE {
+        truncate(&idx.element_text(&doc.src, id), CELL_CHARS)
+    } else {
+        truncate_chars(idx.element_text_chars(&doc.src, id), CELL_CHARS)
+    }
+}
+
+/// A raw attribute value decoded and cut at [`CELL_CHARS`]. Reads a long one as far as that.
+pub(crate) fn attribute_cell(raw: &[u8]) -> String {
+    if raw.len() <= DECODED_AT_ONCE {
+        truncate(&unescape(raw), CELL_CHARS)
+    } else {
+        truncate_chars(Decoded::escaped(raw), CELL_CHARS)
+    }
 }
 
 /// Adds the columns of `rows` that `columns` lacks: their attributes, child element names and
@@ -1206,11 +1307,11 @@ mod tests {
         // A value cell: the whole value, decoded, with line ends as parsed.
         let memo = grid.detail(&d, row, Some(&attr("memo")));
         assert!(
-            matches!(&memo, Detail::Value { name, value } if name == "@memo" && *value == long)
+            matches!(&memo, Detail::Value { name, value, cut: false } if name == "@memo" && *value == long)
         );
         let customer = grid.detail(&d, row, Some(&child("customer")));
         assert!(
-            matches!(&customer, Detail::Value { name, value } if name == "customer" && value == "Ø & Co")
+            matches!(&customer, Detail::Value { name, value, cut: false } if name == "customer" && value == "Ø & Co")
         );
         assert!(matches!(
             grid.detail(&d, row, Some(&attr("status"))),
@@ -1437,5 +1538,263 @@ mod tests {
         a.sort_by_key(|c| format!("{c:?}"));
         b.sort_by_key(|c| format!("{c:?}"));
         assert_eq!(a, b);
+    }
+}
+
+#[cfg(test)]
+mod value_tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+    use crate::grid_cells::Cells;
+
+    /// A cell and the value behind it, worked out from all of the value, decoded.
+    fn from_the_whole(doc: &Document, row: NodeId, column: &Column) -> (Cell, Option<String>) {
+        let (idx, src) = (&doc.index, &doc.src[..]);
+        let value =
+            |whole: String, pane: String| (Cell::Value(truncate(&whole, CELL_CHARS)), Some(pane));
+        let text = |id| {
+            let whole = idx.element_text(src, id).into_owned();
+            let pane = as_parsed(&whole);
+            value(whole, pane)
+        };
+        match column {
+            Column::Attribute(name) => idx
+                .attributes(src, row)
+                .into_iter()
+                .find(|(key, _)| key == name)
+                .map_or((Cell::Absent, None), |(_, v)| value(v.clone(), v)),
+            Column::Text if idx.has_text(row) => text(row),
+            Column::Text => (Cell::Absent, None),
+            Column::Child(name) => {
+                let found: Vec<NodeId> = idx
+                    .children(row)
+                    .filter(|&c| {
+                        idx.node(c).kind == NodeKind::Element && idx.name(src, c) == name.as_bytes()
+                    })
+                    .collect();
+                let nested = |id| {
+                    idx.children(id)
+                        .any(|c| idx.node(c).kind == NodeKind::Element)
+                        || !idx.attributes(src, id).is_empty()
+                };
+                match found[..] {
+                    [] => (Cell::Absent, None),
+                    [one] if !nested(one) => text(one),
+                    [_] => (Cell::Element(name.clone()), None),
+                    _ => (
+                        Cell::Repeated {
+                            name: name.clone(),
+                            count: found.len(),
+                        },
+                        None,
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Every cell of every element of `doc` taken as a grid, its pane and what Copy copies.
+    fn check(doc: &Document, at: &str) -> usize {
+        let mut seen = 0;
+        for parent in 0..doc.index.len() as NodeId {
+            if doc.index.node(parent).kind != NodeKind::Element {
+                continue;
+            }
+            let grid = Grid::build(doc, parent);
+            let mut cells = Cells::default();
+            cells.begin(doc, &grid);
+            for &row in &grid.rows {
+                let kept = cells.row(doc, row).to_vec();
+                for (column, kept) in grid.columns.iter().zip(kept) {
+                    let (cell, whole) = from_the_whole(doc, row, column);
+                    let at = format!("{at}: row {row}, {column:?}");
+                    assert_eq!(kept.cell, cell, "{at}");
+                    assert_eq!(grid.cell(doc, row, column), cell, "{at}");
+                    assert_eq!(grid.whole_value(doc, row, column), whole, "{at}");
+                    match (grid.detail(doc, row, Some(column)), whole) {
+                        (Detail::Value { name, value, cut }, Some(whole)) => {
+                            let start: String = whole.chars().take(DETAIL_CHARS).collect();
+                            assert_eq!(value, start, "{at}");
+                            assert_eq!(cut, start.len() < whole.len(), "{at}");
+                            let title = match column {
+                                Column::Attribute(name) => format!("@{name}"),
+                                Column::Child(name) => name.clone(),
+                                Column::Text => "text()".to_owned(),
+                            };
+                            assert_eq!(name, title, "{at}");
+                        }
+                        (Detail::Absent, None) => assert_eq!(cell, Cell::Absent, "{at}"),
+                        (Detail::Element(_), None) => {
+                            assert!(matches!(cell, Cell::Element(_)), "{at}");
+                        }
+                        (Detail::Elements(_), None) => {
+                            assert!(matches!(cell, Cell::Repeated { .. }), "{at}");
+                        }
+                        (detail, _) => panic!("{at}: {detail:?}"),
+                    }
+                    seen += 1;
+                }
+            }
+        }
+        seen
+    }
+
+    /// GRID-4, GRID-9, GRID-16: reading the start gives what decoding the whole gave, on
+    /// documents of awkward pieces and while typing has broken them.
+    #[test]
+    fn values_are_what_decoding_the_whole_gives() {
+        let long = "Größe ".repeat(DECODED_AT_ONCE / 8 + 9);
+        let around = "ü".repeat(CELL_CHARS - 1);
+        let blank = format!("{around}x{}", " \r\n".repeat(DECODED_AT_ONCE / 3 + 1));
+        let late = format!("&amp;{long}&unknown;");
+        let refs = format!("&#13;&#10;{long}&lt;");
+        let pieces = [
+            "Zoë",
+            "&amp;",
+            "&bad;",
+            "&#13;&#10;",
+            "&#13;",
+            "\r\n",
+            "\r",
+            " ",
+            "<!--c-->",
+            "<![CDATA[ &amp;\r]]>",
+            "<![CDATA[]]>",
+            "<k>1</k>",
+            "<k/>",
+            "<größe a='1'/>",
+            "<e a=1 b='2' a='3'/>",
+            "<?p?>",
+            "<",
+            "\"",
+            &long,
+            &around,
+            &blank,
+            &late,
+            &refs,
+        ];
+        let mut seed = 20261122u64;
+        let mut below = |n: usize| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n
+        };
+        let mut seen = 0;
+        for round in 0..600 {
+            let mut src = if round % 2 == 0 { "\u{feff}" } else { "" }.to_owned();
+            src.push_str("<r>\r\n");
+            for _ in 0..1 + below(3) {
+                src.push_str(&match below(3) {
+                    0 => format!("<o v=\"{}\" größe='L'>", pieces[18 + below(5)]),
+                    1 => format!("<o v='{}'>", pieces[below(8)]),
+                    _ => "<o>".to_owned(),
+                });
+                for _ in 0..below(5) {
+                    let piece = pieces[below(pieces.len())];
+                    if below(2) == 0 {
+                        src.push_str(&format!("<t>{piece}</t>"));
+                    } else {
+                        src.push_str(piece);
+                    }
+                }
+                src.push_str("</o>");
+            }
+            src.push_str("</r>");
+            let mut doc = Document::from_bytes(src.into_bytes());
+            seen += check(&doc, &format!("round {round}"));
+            let at = crate::text::snap(&doc.src, below(doc.src.len()));
+            let typed = ["x", "<", "\"", "]]>", "\r", "&"][below(6)];
+            if doc
+                .apply_typed(crate::Edit::new("Type").replace(at..at, typed))
+                .is_ok()
+            {
+                seen += check(&doc, &format!("round {round}, typed"));
+            }
+        }
+        assert!(seen > 3_000, "{seen}");
+    }
+
+    /// GRID-16: up to the cut the pane shows the value as it is, beyond it the start; the cut
+    /// counts characters, after decoding and after CR LF became one line feed.
+    #[test]
+    fn the_pane_cuts_at_its_limit() {
+        let limit = DETAIL_CHARS;
+        for (value, cut) in [
+            ("ü".repeat(limit), false),
+            ("ü".repeat(limit + 1), true),
+            ("&amp;".repeat(limit), false),
+            ("&amp;".repeat(limit + 1), true),
+            ("\r\n".repeat(limit - 1) + "x", false),
+            ("\r\n".repeat(limit) + "x", true),
+            (format!("{}&amp;&unknown;", "x".repeat(limit - 5)), true),
+        ] {
+            for src in [
+                format!("\u{feff}<r>\r\n<o><t>{value}</t></o></r>"),
+                format!(
+                    "<r><o>{value}<!--in two-->{}</o></r>",
+                    if cut { "more" } else { "" }
+                ),
+            ] {
+                let doc = Document::from_bytes(src.into_bytes());
+                let root = doc.index.root_element().unwrap();
+                let grid = Grid::build(&doc, root);
+                let detail = grid.detail(&doc, grid.rows[0], Some(&grid.columns[0]));
+                let Detail::Value { cut: got, .. } = detail else {
+                    panic!("a value")
+                };
+                assert_eq!(got, cut, "{} bytes", value.len());
+                check(&doc, "at the limit");
+            }
+        }
+        for (value, cut) in [("ü".repeat(limit), false), ("ü".repeat(limit + 1), true)] {
+            let doc = Document::from_bytes(format!("<r><o v=\"{value}\"/></r>").into_bytes());
+            let root = doc.index.root_element().unwrap();
+            let grid = Grid::build(&doc, root);
+            let detail = grid.detail(&doc, grid.rows[0], Some(&grid.columns[0]));
+            assert!(matches!(detail, Detail::Value { cut: got, .. } if got == cut));
+            check(&doc, "attribute at the limit");
+        }
+    }
+
+    /// AGENTS.md, rule 2: a cell and the pane take a fraction of decoding the whole value.
+    /// References past what is shown make decoding the whole cost what it does in real
+    /// files. Each is the best of five, with a wide margin: the text's start is hundreds of
+    /// times faster, the attribute's some ten, as its end has to be found.
+    #[test]
+    fn a_huge_value_is_not_decoded_for_its_start() {
+        fn best(mut f: impl FnMut()) -> Duration {
+            (0..5)
+                .map(|_| {
+                    let t = Instant::now();
+                    f();
+                    t.elapsed()
+                })
+                .min()
+                .unwrap()
+        }
+        let start = "Größe ".repeat(DETAIL_CHARS / 5);
+        let big = format!("{start}{}", "&amp; ".repeat(1 << 20));
+        let whole = best(|| drop(unescape(std::hint::black_box(big.as_bytes()))));
+        for src in [
+            format!("<r><o v=\"{big}\"/></r>"),
+            format!("<r><o><t>{big}</t></o></r>"),
+        ] {
+            let doc = Document::from_bytes(src.into_bytes());
+            let grid = Grid::build(&doc, doc.index.root_element().unwrap());
+            let (row, column) = (grid.rows[0], &grid.columns[0]);
+            let kept = best(|| {
+                let mut cells = Cells::default();
+                cells.begin(&doc, &grid);
+                cells.row(&doc, row);
+            });
+            let cell = best(|| drop(grid.cell(&doc, row, column)));
+            // The pane's value is 100,000 characters, a tenth of a text of this size at most.
+            let pane = best(|| drop(grid.detail(&doc, row, Some(column))));
+            assert!(kept * 3 < whole, "kept cells {kept:?}, whole {whole:?}");
+            assert!(cell * 3 < whole, "cell {cell:?}, whole {whole:?}");
+            assert!(pane * 2 < whole, "pane {pane:?}, whole {whole:?}");
+        }
     }
 }
