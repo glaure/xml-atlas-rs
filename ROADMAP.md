@@ -197,6 +197,12 @@ latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
       D30)
 - [x] Download and install from that notice, through the system's installer (PKG-8, D43);
       still to try by hand: App Center, GNOME Software, Discover, Windows, macOS
+- [ ] Bug, to confirm on Windows: the MSI opened over a copy installed for all users probably
+      installs a second copy for the current user instead of replacing it (PKG-5, D43). Its
+      *Install* button installs per user (`ALLUSERS=2`, `MSIINSTALLPERUSER=1`), and Windows
+      Installer upgrades only within the same context. All users under *Advanced* may not
+      help: the MSI looks for older versions before that dialog. Until fixed, *Download and
+      install* gives such installs the link only (PKG-8)
 - [x] MCP server on files: `xml-atlas-cli mcp` (D27, step 1)
 - [x] MCP on the documents open in the window: `xml-atlas-cli mcp --window` (D28)
 - [ ] Web build (WebAssembly)
