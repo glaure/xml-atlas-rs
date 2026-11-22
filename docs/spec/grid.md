@@ -42,8 +42,11 @@ this file needs the most observation.
   right-click > Edit, edits it in place: Enter saves, Escape or a click elsewhere cancels.
   Editable are attribute cells (a hatched one adds the attribute), `text()` cells and child
   cells that show text, when the element holds only text or nothing; the editor starts with
-  the whole value, not the 200 characters the cell shows. Enter on a cell that stands for
-  child elements opens it; F2 on a cell that cannot be edited says why in the status bar.
+  the whole value, not the 200 characters the cell shows. Of a value over 100,000 characters
+  the editor does not open, as it would freeze and the start alone would lose the rest on
+  saving: F2, Enter and Edit say *Too long to edit here: edit it in the text* in the status
+  bar, and change nothing. Enter on a cell that stands for child elements opens it; F2 on a
+  cell that cannot be edited says why in the status bar.
   Saving an unchanged value, or nothing into a hatched cell, changes nothing. Each edit is
   one undo step, and the row and cell stay marked.
 - **GRID-11** `[done]` Above the child table, a table of the selected element's own

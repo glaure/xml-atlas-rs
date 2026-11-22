@@ -54,6 +54,11 @@ pub const ATTRIBUTE_CHARS: usize = 2000;
 /// takes tens of milliseconds, once; 50 MiB took 12 seconds.
 pub const DETAIL_CHARS: usize = 100_000;
 
+/// A cell whose value is longer than this many characters is not edited in place (GRID-10):
+/// laying out 50 MiB in the editor took 11 seconds, and an editor of only the start would
+/// lose the rest on saving.
+pub const EDIT_CHARS: usize = DETAIL_CHARS;
+
 /// A value of up to this many bytes is decoded at once, which is faster than character by
 /// character; a longer one only as far as a cell shows it.
 const DECODED_AT_ONCE: usize = 4096;
@@ -569,6 +574,19 @@ impl Grid {
         }
     }
 
+    /// Whether the cell of `row` in `column` could be edited, but its value is longer than
+    /// [`EDIT_CHARS`] (GRID-10). Reads no further than that; ask before
+    /// [`Grid::edit_target`], which decodes all of it.
+    pub fn too_long_to_edit(&self, doc: &Document, row: NodeId, column: &Column) -> bool {
+        match stands_for(doc, row, column) {
+            StandsFor::Attribute { value, .. } => value_start(&value).1,
+            StandsFor::Text { element, .. } => {
+                holds_only_text(doc, element) && text_start(doc, element).1
+            }
+            _ => false,
+        }
+    }
+
     /// What editing the cell of `row` in `column` would change, and its whole current value
     /// (not cut at [`CELL_CHARS`]). `None` when the cell cannot be edited: it stands for child
     /// elements (GRID-12), the child is missing, or the element holds more than text.
@@ -586,11 +604,9 @@ impl Grid {
         };
         match column {
             Column::Attribute(name) => {
-                let value = idx
-                    .attributes(src, row)
-                    .into_iter()
-                    .find(|(k, _)| k == name)
-                    .map(|(_, v)| v)
+                // Only this one: another attribute's value may be as large as the file.
+                let value = raw_attribute(doc, row, name)
+                    .map(|raw| unescape(&raw).into_owned())
                     .unwrap_or_default();
                 let target = CellTarget::Attribute {
                     element: row,
@@ -1181,6 +1197,51 @@ mod tests {
             Some((CellTarget::Text(a2), String::new()))
         );
         assert_eq!(target(a1, Column::Text), None);
+    }
+
+    /// GRID-10: too long is more than the limit in characters, as the editor would show them,
+    /// and only where there is something to edit. Beside a long value a short one is edited.
+    #[test]
+    fn too_long_to_edit_counts_the_characters_of_what_can_be_edited() {
+        let limit = EDIT_CHARS;
+        for (value, long) in [
+            ("ü".repeat(limit), false),
+            ("ü".repeat(limit + 1), true),
+            ("&amp;".repeat(limit), false),
+            ("&amp;".repeat(limit + 1), true),
+            (format!("{}x", "\r\n".repeat(limit - 1)), false),
+            (format!("{}x", "\r\n".repeat(limit)), true),
+        ] {
+            let src = format!(
+                "\u{feff}<r>\r\n<o><t>{value}</t><m>{value}<!--c--></m><n k=\"1\">{value}</n></o>\r\n<p>{value}</p>\r\n</r>"
+            );
+            let d = doc(&src);
+            let g = grid_of(&d, "r");
+            let (o, p) = (g.rows[0], g.rows[1]);
+            let too_long = |row, column: Column| g.too_long_to_edit(&d, row, &column);
+            let at = format!("{} bytes", value.len());
+            assert_eq!(too_long(o, Column::Child("t".into())), long, "child, {at}");
+            assert_eq!(too_long(p, Column::Text), long, "text(), {at}");
+            // Not editable whatever its length: that is the reason to give.
+            assert!(!too_long(o, Column::Child("m".into())), "comment, {at}");
+            assert!(!too_long(o, Column::Child("n".into())), "element, {at}");
+            assert!(!too_long(p, Column::Child("t".into())), "absent, {at}");
+        }
+        for (value, long) in [
+            ("ü".repeat(limit), false),
+            ("ü".repeat(limit + 1), true),
+            ("&#252;".repeat(limit), false),
+            ("&#252;".repeat(limit + 1), true),
+        ] {
+            let d = doc(&format!("<r><o v=\"{value}\" b=\"&lt;2\"/><p/></r>"));
+            let g = grid_of(&d, "r");
+            let (o, p) = (g.rows[0], g.rows[1]);
+            assert_eq!(g.too_long_to_edit(&d, o, &attr("v")), long);
+            assert!(!g.too_long_to_edit(&d, o, &attr("b")));
+            assert!(!g.too_long_to_edit(&d, p, &attr("v")), "it can be added");
+            let beside = g.edit_target(&d, o, &attr("b")).expect("editable");
+            assert_eq!(beside.1, "<2");
+        }
     }
 
     fn sorted(doc: &Document, grid: &mut Grid, by: SortBy, descending: bool) -> Vec<String> {
