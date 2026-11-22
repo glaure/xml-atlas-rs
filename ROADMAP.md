@@ -97,6 +97,9 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Memory-mapped open for files larger than RAM (D11)
 - [ ] Grid: move rows in the file, copy and paste elements, copy the grid for a spreadsheet,
       reorder columns (GRID-21 to GRID-24)
+- [ ] Grid: remember the column widths, also in the cell pane; they are lost on exit. Needs a
+      spec ID, and a decision on what a width is kept by (today the parent element, for the
+      session only)
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
