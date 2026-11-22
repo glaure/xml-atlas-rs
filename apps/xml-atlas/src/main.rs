@@ -18,6 +18,7 @@ mod grid;
 mod help;
 mod highlight;
 mod icons;
+mod installer;
 #[cfg(target_os = "macos")]
 mod macos_open;
 mod nav;

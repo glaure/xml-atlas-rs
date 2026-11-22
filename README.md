@@ -87,8 +87,9 @@ Version 1.3, for Windows, Linux and macOS. What it does:
   font of your choice for text, tree and grid; a toolbar; a built-in guide (F1). The sizes
   of the window and its panes are remembered.
 - A notice in the status bar when a newer version is released: once a day the program asks
-  GitHub for the latest release, sending nothing but its version. Never a download; turn it
-  off in File > Settings > Updates.
+  GitHub for the latest release, sending nothing but its version. *Download and install…*
+  there fetches the package, checks it and opens the system's installer; nothing is
+  downloaded without that click. Turn the check off in File > Settings > Updates.
 
 See [ROADMAP.md](ROADMAP.md) for what comes next: schema validation, signed packages.
 

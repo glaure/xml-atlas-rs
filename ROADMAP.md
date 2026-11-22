@@ -195,6 +195,8 @@ latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
 - [x] Settings window: File > Settings… (WIN-11, D31), before the update notice
 - [x] Notice when a newer version is released, on by default, with Help > Check now (PKG-7,
       D30)
+- [x] Download and install from that notice, through the system's installer (PKG-8, D43);
+      still to try by hand: App Center, GNOME Software, Discover, Windows, macOS
 - [x] MCP server on files: `xml-atlas-cli mcp` (D27, step 1)
 - [x] MCP on the documents open in the window: `xml-atlas-cli mcp --window` (D28)
 - [ ] Web build (WebAssembly)

@@ -23,6 +23,9 @@ skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
 # The update check (update.rs, PKG-7, D30): one blocking HTTPS request a day, pure Rust, with
 # the system's certificates. No gzip: the answer is small.
 ureq = { version = "3.5.2", default-features = false, features = ["rustls", "platform-verifier"] }
+# The SHA-256 of a downloaded update (installer.rs, PKG-8, D43); already in the build as rustls'
+# own cryptography.
+ring = { version = "0.17.14", default-features = false }
 # Reads the update check's answer; already in the tree through the MCP server.
 serde_json = "1.0.154"
 
