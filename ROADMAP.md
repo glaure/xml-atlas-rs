@@ -83,6 +83,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] References a rules file defines: go to target (F12), the ones that find nothing as
       problems, a preview with them resolved, and the CLI's `references` and `preview` (D32)
 - [x] The resolved preview as a tree, in a pane right of the preview text (REF-10, D33)
+- [x] References switched on and off as a whole, off by default (REF-12)
 - [x] Repeated elements expanded in the preview; rules switched off in the file (REF-11, D34)
 - [x] A diagram of the document's structure: one box per path, with counts, clicks both
       ways and collapsing (D36, step 1; issue #121)

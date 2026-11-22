@@ -28,7 +28,8 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
 
 - **REF-1** `[done]` A rules file, `xml-atlas-references.json`, next to the document or in a
   folder above it (the nearest wins), says what is a reference. Without one, nothing in this
-  file applies. It is read when the document opens; open it again after changing the rules.
+  file applies. It is read when the document opens with references on, or when they are
+  turned on (REF-12); after changing the rules, turn them off and on.
   A rules file that cannot be read is named in the preview pane with the reason. The rules
   stay outside XML Atlas, so a team keeps its conventions in its own repository.
 
@@ -80,7 +81,8 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   at the reference. Skipped references, those known only at run time and those whose `nearest`
   context has nothing around them (they resolve where they are imported) are not. After
   typing, the check waits for a pause (TEXT-22); after any other edit it runs at once.
-- **REF-5** `[built]` View > Preview with references resolved: a read-only pane beside the
+- **REF-5** `[built]` View > Preview with references resolved (under *Resolve references*,
+  REF-12): a read-only pane beside the
   text shows the selected element as it reads with its references resolved. An import is
   replaced by the elements it finds, re-indented to where it stands, or by the value; an
   attribute reference by its value. Imports inside imported elements are resolved too, where
@@ -138,9 +140,22 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   5.9 MiB file of the owner's: three elements of count 8 became copies 0 to 7, those of
   count 0 went, and no count attribute was left. The owner checked it in the window with
   their rules (2026-11-19).
+- **REF-12** `[built]` View > *Resolve references*, also in Settings > Views, switches
+  references on and off for every tab; off by default and remembered (WIN-3). Off, no rules
+  file is looked for, read or checked: no reference warnings (REF-4), no *Go to reference
+  target* in the tree's menu, F12 says where to turn them on, and neither preview pane shows.
+  The two preview switches stand indented under it, greyed out while it is off, and keep
+  their choice. Turned on, each tab looks for its rules and is checked at once. Turned off,
+  the sections chosen in the preview (REF-9) are forgotten. Settings saved before the switch
+  existed count as off, also with the preview on. An agent's tab follows the switch; the
+  CLI's `references` and `preview` do not, as they are asked for by name.
 
 ## Acceptance tests
 
+- With a fresh settings file open a document that has rules: no reference warnings, no
+  preview, F12 says references are off. Turn on View > Resolve references: the warnings
+  appear and F12 works; turn on the preview and its tree, then Resolve references off: both
+  panes and the warnings go. On again: both panes are back.
 - A `Unit` with `General/Var` and two `Sub` sections whose `Var` differ: choosing
   `Sub Version="2"` in the pane changes the preview's values to that section's and F12 goes
   there; deleting the first `Sub` keeps the choice on the same section.
@@ -168,6 +183,8 @@ Neither XML Marker nor the Qt XML Atlas knows about references.
 - Repeated elements expanded in the preview, on by default, from a `repeat` rule; not in the
   problems list; any rule switched off with `"enabled": false` (REF-11). (Owner, 2026-11-19,
   D34.)
+
+- A switch for references as a whole, off by default (REF-12). (Owner, 2026-11-22.)
 
 ## Questions
 

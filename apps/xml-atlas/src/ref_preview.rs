@@ -17,6 +17,7 @@ use xml_atlas_engine::xml::{NONE, NodeId};
 
 use crate::app::{Note, Open};
 use crate::highlight::{self, State, after_line_break, line_job};
+use crate::settings::Settings;
 use crate::theme;
 use crate::tree::{self, TreeState};
 
@@ -67,6 +68,33 @@ pub struct Cached {
     marked: Option<Range<usize>>,
     /// Line to show at the top of the text on the next frame.
     scroll_to: Option<usize>,
+}
+
+/// The switch for references (REF-12) and, under it, the preview's two panes, as View and
+/// Settings > Views show them.
+pub fn switches(ui: &mut Ui, settings: &mut Settings) {
+    ui.checkbox(&mut settings.references, "Resolve references")
+        .on_hover_text(format!(
+            "Use the rules in {}: go to a reference's target (F12), list those that find \
+             nothing as problems, and allow the preview (REF-12)",
+            references::RULES_FILE
+        ));
+    ui.indent("reference-switches", |ui| {
+        ui.add_enabled(
+            settings.references,
+            egui::Checkbox::new(
+                &mut settings.reference_preview,
+                "Preview with references resolved",
+            ),
+        )
+        .on_hover_text("A pane with the selected element as it reads resolved (REF-5)")
+        .on_disabled_hover_text("Turn on Resolve references first");
+        ui.add_enabled(
+            settings.references && settings.reference_preview,
+            egui::Checkbox::new(&mut settings.preview_tree, "Preview tree"),
+        )
+        .on_hover_text("The preview as a tree, right of it (REF-10)");
+    });
 }
 
 /// Draws the pane. `font` is the text view's.
@@ -324,6 +352,12 @@ fn mark(c: &mut Cached, row: Row) {
 /// F12, and Go to reference target in the tree (REF-3): selects the first element the
 /// selected reference finds, or says the value it stands for, or why it finds nothing.
 pub fn go_to_target(open: &mut Open) {
+    if !open.resolves_references() {
+        open.note = Some(Note::refused(
+            "References are off: turn on View > Resolve references",
+        ));
+        return;
+    }
     let Some(rules) = open.rules().cloned() else {
         open.note = Some(Note::refused(format!(
             "No reference rules for this file: put {} next to it or above it",
@@ -572,7 +606,58 @@ mod tests {
                    <Include src=\"Shared:Fehlt\"/></Use>\r\n</Doc>\r\n";
         std::fs::write(&file, src).unwrap();
         let doc = Document::open(&file).unwrap();
-        (Open::new(doc, egui::Id::unique(name)), dir)
+        (resolving(doc, name), dir)
+    }
+
+    /// A click on Resolve references turns references on; until then a click on the preview's
+    /// own switch under it does nothing (REF-12).
+    #[test]
+    fn the_preview_switch_waits_for_resolve_references() {
+        let ctx = egui::Context::default();
+        let mut settings = Settings::default();
+        let click = |settings: &mut Settings, label: &str| {
+            let mut at = None;
+            let mut frame = |events| {
+                let input = egui::RawInput {
+                    events,
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| switches(ui, settings));
+                out.textures_delta.clear();
+                for s in &out.shapes {
+                    if let egui::Shape::Text(t) = &s.shape
+                        && t.galley.text() == label
+                    {
+                        at = Some(t.pos + t.galley.rect.center().to_vec2());
+                    }
+                }
+                at
+            };
+            frame(Vec::new());
+            let pos = frame(Vec::new()).expect("the switch is drawn");
+            for pressed in [true, false] {
+                let button = egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                };
+                frame(vec![egui::Event::PointerMoved(pos), button]);
+            }
+        };
+        click(&mut settings, "Preview with references resolved");
+        assert!(!settings.reference_preview);
+        click(&mut settings, "Resolve references");
+        assert!(settings.references && !settings.shows_preview());
+        click(&mut settings, "Preview with references resolved");
+        assert!(settings.shows_preview());
+    }
+
+    /// A tab with references on (REF-12).
+    fn resolving(doc: Document, name: &str) -> Open {
+        let mut open = Open::new(doc, egui::Id::unique(name));
+        open.set_references(true);
+        open
     }
 
     /// Draws the preview pane, and the tree pane when `tree`, for two frames.
@@ -665,7 +750,7 @@ mod tests {
         let src = "\u{feff}<Doc>\r\n  <Größe Count=\"3\" Start=\"1\" N=\"[Index]\"><W/></Größe>\r\n\
                    </Doc>\r\n";
         std::fs::write(&file, src).unwrap();
-        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("repeat"));
+        let mut open = resolving(Document::open(&file).unwrap(), "repeat");
         let root = command::resolve(&open.doc, "/Doc").unwrap();
         open.select(root);
         frames(&mut open, true);
@@ -798,7 +883,7 @@ mod tests {
                    <Sub V=\"1\"><Var><Größe>a</Größe></Var></Sub>\r\n\
                    <Sub V=\"2\"><Var><Größe>b</Größe></Var></Sub>\r\n</Unit>\r\n</Doc>\r\n";
         std::fs::write(&file, src).unwrap();
-        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("sections"));
+        let mut open = resolving(Document::open(&file).unwrap(), "sections");
         let include = |o: &Open| command::resolve(&o.doc, "/Doc/Unit/General/Box/Include").unwrap();
         let f12 = |o: &mut Open| {
             let at = include(o);
@@ -880,7 +965,7 @@ mod tests {
         ));
         let file = dir.join("doc.xml");
         std::fs::write(&file, src).unwrap();
-        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("wide"));
+        let mut open = resolving(Document::open(&file).unwrap(), "wide");
         let path = format!("/Doc/Unit/{}/General/Box", levels.join("/"));
         let at = command::resolve(&open.doc, &path).unwrap();
         open.select(at);
@@ -924,7 +1009,7 @@ mod tests {
         src.push_str("</Doc>\r\n");
         let file = dir.join("doc.xml");
         std::fs::write(&file, src).unwrap();
-        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("tall"));
+        let mut open = resolving(Document::open(&file).unwrap(), "tall");
         let root = command::resolve(&open.doc, "/Doc").unwrap();
         open.select(root);
 

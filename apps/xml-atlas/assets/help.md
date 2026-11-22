@@ -66,6 +66,15 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 - View > Font… chooses the font, style and size of the text, the tree and the grid. Only
   monospaced fonts are listed.
 
+## References
+
+- For files with references of their own, described in `xml-atlas-references.json` next to
+  the file or in a folder above it. Off until you turn on View > Resolve references.
+- Then F12 goes to what the selected reference finds, and references that find nothing are
+  listed as problems.
+- View > Preview with references resolved shows the selected element resolved; Preview tree
+  shows that as a tree. The file is never changed.
+
 ## Find and Replace
 
 - Ctrl+F finds, Ctrl+H finds and replaces. Enter or F3 goes to the next match, Shift+Enter or
@@ -116,7 +125,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 - Ctrl+Shift+D diagram; after a click on a box, F3 goes to its next element
 - Alt+Up and Alt+Down drill up and down; Alt+Shift+Up and Alt+Shift+Down move an element
 - F2 rename (tree) or edit a cell (grid); Del delete; Ctrl+D duplicate
-- Alt+Z word wrap; F1 this help
+- F12 go to reference target; Alt+Z word wrap; F1 this help
 
 On macOS, Cmd takes the place of Ctrl.
 

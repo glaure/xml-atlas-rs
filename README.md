@@ -125,10 +125,10 @@ cargo run --release -p xml-atlas-cli -- format file.xml -o out.xml
 
 A file can point from one part to another with conventions of its own, such as
 `<Include src="Shared:Parts/*"/>`. Put `xml-atlas-references.json` next to it, or in a folder
-above it, to say what is a reference (`docs/spec/references.md`). Then F12 goes to what the
-selected reference finds, the ones that find nothing are listed as problems, and View >
-Preview with references resolved shows the selected element with them resolved. The file is
-never changed.
+above it, to say what is a reference (`docs/spec/references.md`), and turn on View > Resolve
+references (off by default). Then F12 goes to what the selected reference finds, the ones
+that find nothing are listed as problems, and View > Preview with references resolved shows
+the selected element with them resolved. The file is never changed.
 
 ```sh
 cargo run --release -p xml-atlas-cli -- references file.xml          # check them all

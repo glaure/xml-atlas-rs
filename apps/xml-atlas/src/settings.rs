@@ -60,6 +60,8 @@ pub struct Settings {
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
     pub toolbar: bool,
+    /// References are resolved at all (REF-12); off, no rules file is even looked for.
+    pub references: bool,
     /// The pane with the selected element's references resolved (REF-5).
     pub reference_preview: bool,
     /// The preview as a tree, right of it (REF-10).
@@ -92,6 +94,7 @@ impl Default for Settings {
             diagram: false,
             word_wrap: false,
             toolbar: true,
+            references: false,
             reference_preview: false,
             preview_tree: false,
             text_font: Default::default(),
@@ -139,6 +142,16 @@ impl Settings {
         xml_atlas_engine::save_atomic(path, self.to_text().as_bytes())
     }
 
+    /// Whether the reference preview is shown (REF-5): chosen, and references are on (REF-12).
+    pub fn shows_preview(&self) -> bool {
+        self.references && self.reference_preview
+    }
+
+    /// Whether the preview's tree is shown (REF-10): chosen, beside a preview that is shown.
+    pub fn shows_preview_tree(&self) -> bool {
+        self.shows_preview() && self.preview_tree
+    }
+
     /// Puts `path` first in the recent files, removing it further down and dropping the oldest
     /// beyond [`RECENT_FILES`]. Paths are made absolute, so the same file is listed once.
     pub fn add_recent(&mut self, path: &Path) {
@@ -184,6 +197,7 @@ impl Settings {
              diagram = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
+             references = {}\n\
              reference_preview = {}\n\
              preview_tree = {}\n\
              agents = {}\n\
@@ -217,6 +231,7 @@ impl Settings {
             self.diagram,
             self.word_wrap,
             self.toolbar,
+            self.references,
             self.reference_preview,
             self.preview_tree,
             self.agents,
@@ -321,6 +336,7 @@ impl Settings {
                 ("view", "diagram") => set(&mut s.diagram, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
+                ("view", "references") => set(&mut s.references, boolean(value)),
                 ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
                 ("view", "preview_tree") => set(&mut s.preview_tree, boolean(value)),
                 ("view", "agents") => set(&mut s.agents, boolean(value)),
@@ -459,6 +475,7 @@ mod tests {
             diagram: true,
             word_wrap: true,
             toolbar: false,
+            references: true,
             reference_preview: true,
             preview_tree: true,
             agents: true,
@@ -510,6 +527,18 @@ mod tests {
         assert_eq!(Settings::from_text(""), d);
         // As in XML Marker: the text above the grid (WIN-1).
         assert_eq!(d.layout, Layout::TextAbove);
+    }
+
+    /// References are off by default (REF-12), also for settings saved before the switch
+    /// with the preview on; the panes' own choices are kept for when it is turned on.
+    #[test]
+    fn references_are_off_until_turned_on() {
+        assert!(!Settings::default().references);
+        let mut s = Settings::from_text("[view]\nreference_preview = true\npreview_tree = true\n");
+        assert!(!s.references);
+        assert!(!s.shows_preview() && !s.shows_preview_tree());
+        s.references = true;
+        assert!(s.shows_preview() && s.shows_preview_tree());
     }
 
     #[test]
