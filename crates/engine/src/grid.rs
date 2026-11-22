@@ -2,8 +2,9 @@
 //!
 //! [`Grid::build`] finds the rows and the columns once, when the selection changes; a view
 //! uses [`Grid::start`] and [`Grid::scan`] to find the columns of a long list over several
-//! frames instead (GRID-3). Cells are decoded on demand by [`Grid::cell`], so a view pays only
-//! for the rows it shows. Sorting
+//! frames instead (GRID-3). Cells are decoded on demand: by [`Grid::cell`] for one command,
+//! which walks the row's children, and for a view by [`crate::grid_cells::Cells`], which
+//! does so once for a row on screen and not in every frame. Sorting
 //! (GRID-14) and hiding empty columns (GRID-15) decode a whole column once, on request.
 
 use std::cmp::Ordering;
@@ -486,20 +487,8 @@ impl Grid {
                 let mut matching = idx.children(row).filter(|&c| {
                     idx.node(c).kind == NodeKind::Element && idx.name(src, c) == child.as_bytes()
                 });
-                let Some(first) = matching.next() else {
-                    return Cell::Absent;
-                };
-                let more = matching.count();
-                if more > 0 {
-                    Cell::Repeated {
-                        name: child.clone(),
-                        count: more + 1,
-                    }
-                } else if has_structure(doc, first) {
-                    Cell::Element(child.clone())
-                } else {
-                    Cell::Value(text(doc, first))
-                }
+                let first = matching.next();
+                child_cell(doc, child, first, 1 + matching.count())
             }
             Column::Text => {
                 if idx.has_text(row) {
@@ -676,6 +665,23 @@ fn name(doc: &Document, id: NodeId) -> String {
     String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned()
 }
 
+/// The cell for the `count` children called `name`, the first of them `first` (GRID-12).
+pub(crate) fn child_cell(doc: &Document, name: &str, first: Option<NodeId>, count: usize) -> Cell {
+    let Some(first) = first else {
+        return Cell::Absent;
+    };
+    if count > 1 {
+        Cell::Repeated {
+            name: name.to_owned(),
+            count,
+        }
+    } else if has_structure(doc, first) {
+        Cell::Element(name.to_owned())
+    } else {
+        Cell::Value(text(doc, first))
+    }
+}
+
 /// Whether an element has attributes or child elements, so that its text alone would hide
 /// something.
 fn has_structure(doc: &Document, id: NodeId) -> bool {
@@ -686,7 +692,7 @@ fn has_structure(doc: &Document, id: NodeId) -> bool {
 }
 
 /// The text and CDATA children of an element, decoded, joined and cut at [`CELL_CHARS`].
-fn text(doc: &Document, id: NodeId) -> String {
+pub(crate) fn text(doc: &Document, id: NodeId) -> String {
     truncate(&doc.index.element_text(&doc.src, id), CELL_CHARS)
 }
 
