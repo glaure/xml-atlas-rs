@@ -97,6 +97,7 @@ impl Section {
                 settings.grid = d.grid;
                 settings.cell_pane = d.cell_pane;
                 settings.diagram = d.diagram;
+                settings.references = d.references;
                 settings.reference_preview = d.reference_preview;
                 settings.preview_tree = d.preview_tree;
                 settings.word_wrap = d.word_wrap;
@@ -251,11 +252,7 @@ fn section(ui: &mut Ui, section: Section, s: &mut Settings, checking: bool) -> O
                             ),
                         );
                         ui.checkbox(&mut s.diagram, "Diagram, in the grid's place");
-                        ui.checkbox(&mut s.reference_preview, "Preview with references resolved");
-                        ui.add_enabled(
-                            s.reference_preview,
-                            egui::Checkbox::new(&mut s.preview_tree, "Preview tree"),
-                        );
+                        crate::ref_preview::switches(ui, s);
                         ui.checkbox(&mut s.word_wrap, "Word wrap");
                     });
                     ui.end_row();
@@ -359,6 +356,7 @@ mod tests {
             diagram: true,
             word_wrap: true,
             toolbar: false,
+            references: true,
             reference_preview: true,
             preview_tree: true,
             text_font: crate::fonts::TextFont {

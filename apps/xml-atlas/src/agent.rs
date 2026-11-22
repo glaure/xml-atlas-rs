@@ -19,6 +19,8 @@ pub struct WindowDocs<'a> {
     pub next_id: &'a mut u64,
     /// View > Attributes in the tree, for a tab an agent opens.
     pub tree_attributes: bool,
+    /// View > Resolve references (REF-12), for the same.
+    pub references: bool,
 }
 
 impl WindowDocs<'_> {
@@ -42,7 +44,13 @@ impl Documents for WindowDocs<'_> {
             return Ok(self.docs.get(i).map_or(0, |o| o.number));
         }
         let doc = Document::open(path)?;
-        Ok(add_tab(self.docs, self.next_id, self.tree_attributes, doc))
+        Ok(add_tab(
+            self.docs,
+            self.next_id,
+            self.tree_attributes,
+            self.references,
+            doc,
+        ))
     }
 
     /// Refused for a tab with unsaved changes: only the user may discard them (D28).
@@ -98,12 +106,14 @@ pub fn add_tab(
     docs: &mut Tabs<Open>,
     next_id: &mut u64,
     tree_attributes: bool,
+    references: bool,
     doc: Document,
 ) -> u64 {
     *next_id += 1;
     let mut open = Open::new(doc, egui::Id::unique(("document", *next_id)));
     open.number = *next_id;
     open.tree.set_attributes(tree_attributes);
+    open.set_references(references);
     if let Some(root) = open.doc.index.root_element() {
         open.select(root);
     }
@@ -131,11 +141,12 @@ mod tests {
         std::fs::write(&path, "\u{feff}<r>\r\n  <a n=\"1\"/>\r\n  <b/>\r\n</r>\r\n").unwrap();
         let mut docs = Tabs::default();
         let mut next_id = 0;
-        add_tab(&mut docs, &mut next_id, true, Document::untitled());
+        add_tab(&mut docs, &mut next_id, true, false, Document::untitled());
         let mut w = WindowDocs {
             docs: &mut docs,
             next_id: &mut next_id,
             tree_attributes: true,
+            references: true,
         };
 
         let doc = call(&mut w, "open", json!({"path": path})).unwrap()["document"].clone();
@@ -144,6 +155,8 @@ mod tests {
         let again = call(&mut w, "open", json!({"path": path})).unwrap();
         assert_eq!(again["document"], 2);
         assert_eq!(w.docs.iter().count(), 2);
+        // The agent's tab follows View > Resolve references (REF-12).
+        assert!(w.docs.active().unwrap().resolves_references());
 
         w.docs.select(0);
         call(

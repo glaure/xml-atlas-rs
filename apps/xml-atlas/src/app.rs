@@ -142,8 +142,10 @@ pub struct Open {
     /// Warnings and errors, in document order (OPEN-13), with the references that find
     /// nothing (REF-4).
     pub problems: Vec<Problem>,
-    /// The reference rules for this file (REF-1), read when it opened, or why they could
-    /// not be read.
+    /// References are resolved in this tab (REF-12), as the setting says.
+    resolve_references: bool,
+    /// The reference rules for this file (REF-1), read when it opened or when references
+    /// were turned on, or why they could not be read; `None` while they are off.
     pub references: Option<Result<(PathBuf, Arc<Rules>), String>>,
     /// References that find nothing, as of the last check.
     reference_problems: Vec<Problem>,
@@ -500,6 +502,7 @@ impl App {
             &mut self.docs,
             &mut self.next_id,
             self.settings.tree_attributes,
+            self.settings.references,
             doc,
         );
     }
@@ -539,6 +542,7 @@ impl App {
                 docs: &mut self.docs,
                 next_id: &mut self.next_id,
                 tree_attributes: self.settings.tree_attributes,
+                references: self.settings.references,
             };
             let result = xml_atlas_mcp::call(&mut docs, &request.tool, &request.arguments);
             let changes = xml_atlas_mcp::tools()
@@ -1431,19 +1435,7 @@ impl App {
                     ),
                 );
                 ui.checkbox(&mut self.settings.toolbar, "Toolbar");
-                ui.checkbox(
-                    &mut self.settings.reference_preview,
-                    "Preview with references resolved",
-                )
-                .on_hover_text(
-                    "A pane with the selected element as it reads with its references \
-                     resolved, from the rules in xml-atlas-references.json (REF-5)",
-                );
-                ui.add_enabled(
-                    self.settings.reference_preview,
-                    egui::Checkbox::new(&mut self.settings.preview_tree, "Preview tree"),
-                )
-                .on_hover_text("The preview as a tree, right of it (REF-10)");
+                crate::ref_preview::switches(ui, &mut self.settings);
                 if ui.button("Font…").clicked() {
                     ui.close();
                     self.font_dialog =
@@ -1972,6 +1964,10 @@ impl eframe::App for App {
         }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         self.update_title(&ctx);
+        // After the menu and Settings, where it is switched, and before the views.
+        for open in self.docs.iter_mut() {
+            open.set_references(self.settings.references);
+        }
 
         let Some(open) = self.docs.active_mut() else {
             egui::CentralPanel::default().show(ui, |ui| {
@@ -2000,8 +1996,8 @@ impl eframe::App for App {
         let layout = self.settings.layout;
         let format = self.settings.format;
         let cell_pane = self.settings.cell_pane;
-        let reference_preview = self.settings.reference_preview;
-        let preview_tree = reference_preview && self.settings.preview_tree;
+        let reference_preview = self.settings.shows_preview();
+        let preview_tree = self.settings.shows_preview_tree();
         let show_diagram = self.settings.diagram;
         let show_grid = self.settings.grid && !show_diagram;
         let wrap = open.wraps(self.settings.word_wrap);
@@ -2136,6 +2132,7 @@ impl Open {
             grid: None,
             scroll_text_to: None,
             problems: Vec::new(),
+            resolve_references: false,
             references: None,
             reference_problems: Vec::new(),
             references_due: None,
@@ -2166,9 +2163,34 @@ impl Open {
             wrap: minified.then_some(true),
             minified_notice: minified,
         };
-        open.references = open.doc.path.as_deref().and_then(load_rules);
-        open.check_references();
+        open.update_problems();
         open
+    }
+
+    /// Whether references are resolved in this tab (REF-12).
+    pub fn resolves_references(&self) -> bool {
+        self.resolve_references
+    }
+
+    /// Turns references on or off (REF-12); nothing when they already are. On, the rules
+    /// file is looked for and read, and the references are checked. Off, what came from it
+    /// goes: the problems, the preview and the sections chosen in it.
+    pub fn set_references(&mut self, on: bool) {
+        if self.resolve_references == on {
+            return;
+        }
+        self.resolve_references = on;
+        self.references = if on {
+            self.doc.path.as_deref().and_then(load_rules)
+        } else {
+            None
+        };
+        self.reference_preview = None;
+        self.reference_sections = None;
+        if !on {
+            self.reference_choices.clear();
+        }
+        self.check_references();
     }
 
     /// The rules, when there are any and they could be read.
@@ -2897,6 +2919,68 @@ mod tests {
         assert_eq!(name(vec![0, 1, 1]), "c");
         assert_eq!(name(vec![0, 0, 0]), "a");
         assert_eq!(name(vec![0, 5]), "r");
+    }
+
+    /// REF-12: a file opens without its rules. Turned on, its references are checked and F12
+    /// works; turned off, all that goes again, and typing does not bring it back.
+    #[test]
+    fn references_resolve_only_while_switched_on() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-ref-12-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(references::RULES_FILE),
+            r#"{"includes": [{"element": "Include", "attribute": "src"}],
+                "contexts": {"Shared": {"path": "/Doc/Shared"}}}"#,
+        )
+        .unwrap();
+        let src = "\u{feff}<Doc>\r\n<Shared><Größe/></Shared>\r\n\
+                   <Include src=\"Shared:Größe\"/>\r\n<Include src=\"Shared:Fehlt\"/>\r\n</Doc>";
+        let file = dir.join("größe.xml");
+        std::fs::write(&file, src).unwrap();
+        let mut open = Open::new(Document::open(&file).unwrap(), egui::Id::unique("ref-12"));
+        let include = |open: &Open| {
+            (0..open.doc.index.len() as NodeId)
+                .find(|&id| {
+                    open.doc.index.node(id).kind == NodeKind::Element
+                        && open.doc.index.name(&open.doc.src, id) == b"Include"
+                })
+                .unwrap()
+        };
+
+        assert!(open.references.is_none() && open.problems.is_empty());
+        let site = include(&open);
+        open.select(site);
+        crate::ref_preview::go_to_target(&mut open);
+        let note = open.note.take().unwrap();
+        assert!(note.refused && note.text.contains("References are off"));
+        assert_eq!(open.selected, Some(site));
+
+        open.set_references(true);
+        assert!(open.rules().is_some());
+        assert_eq!(open.problems.len(), 1);
+        crate::ref_preview::go_to_target(&mut open);
+        let target = open.selected.unwrap();
+        assert_eq!(
+            open.doc.index.path(&open.doc.src, target),
+            "/Doc/Shared/Größe"
+        );
+
+        open.set_references(false);
+        assert!(open.references.is_none() && open.problems.is_empty());
+        assert!(open.reference_preview.is_none());
+        let at = src.find("</Doc>").unwrap();
+        open.type_edit(Edit::new("Type").replace(at..at, " "))
+            .unwrap();
+        assert!(open.references_due.is_none() && open.problems.is_empty());
+        open.settle();
+        assert!(open.problems.is_empty());
+
+        // On again reads the rules again, as they are now (REF-1).
+        std::fs::write(dir.join(references::RULES_FILE), r#"{"includes": []}"#).unwrap();
+        open.set_references(true);
+        assert!(open.rules().is_some_and(|r| r.is_empty()));
+        assert!(open.problems.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// OPEN-5: a file already open is found again under another spelling of its path.
