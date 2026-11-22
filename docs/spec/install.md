@@ -54,14 +54,16 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   once a day it asks GitHub for the latest release and, when it is newer, says so in the
   status bar with a link to the releases page. It never downloads or installs anything by
   itself, sends nothing but that request, and can be turned off in the settings (WIN-3).
-  Without a network it stays silent. In a Linux package or the Flatpak the notice says to
-  update with the package manager. On by default; turned off in Settings > Updates
-  (WIN-11); Help > *Check for updates now* asks at once and also says when it is up to date.
+  Without a network it stays silent. The link is there for the `.deb` and `.rpm` too, as
+  there is no apt or dnf repository to update them from; in the Flatpak the notice says to
+  update with the software centre or `flatpak update` instead. On by default; turned off in
+  Settings > Updates (WIN-11); Help > *Check for updates now* asks at once and also says
+  when it is up to date.
   How it is built: `docs/decisions.md`, D30 (owner, 2026-11-18). Built 2026-11-19
   (`apps/xml-atlas/src/update.rs`): tried on Windows 11 against GitHub, through a company
   network; a copy calling itself 1.0.0 showed "XML Atlas 1.1.0 is available" once, and a
-  second start within the day made no request. Not yet tried: Linux, macOS, a package's
-  notice.
+  second start within the day made no request. The installed 1.2.0 `.deb` showed 1.3.0 on
+  Ubuntu 26.04 (owner, 2026-11-22), without a link then. Not yet tried: macOS, an `.rpm`.
 
 ### Windows
 

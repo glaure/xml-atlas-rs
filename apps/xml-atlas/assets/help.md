@@ -166,9 +166,9 @@ each theme; click one to use it.
 ## Updates
 
 Once a day XML Atlas asks GitHub for its latest release. When it is newer, the status bar
-says so once, with a link to the release; a `.deb`, `.rpm` or Flatpak is updated with the
-package manager instead. The request carries the program's version and nothing else, and
-nothing is downloaded or installed. Without a network nothing is shown. Help > Check for
+says so once, with a link to the download page; a Flatpak is updated with the software
+centre or `flatpak update` instead. The request carries the program's version and nothing
+else, and nothing is downloaded or installed. Without a network nothing is shown. Help > Check for
 updates now asks at once and also says when you have the latest version. Turn the daily
 check off in File > Settings > Updates.
 

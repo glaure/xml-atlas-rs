@@ -7,7 +7,6 @@
 //! identifier, a `User-Agent` with the program's version only. Errors go to the log, except
 //! after *Check for updates now*, which says what went wrong.
 
-use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
@@ -36,13 +35,12 @@ pub struct Release {
     pub url: String,
 }
 
-/// How the program was installed: it decides what a notice asks the user to do.
+/// Where the program's updates come from: it decides what a notice asks the user to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Install {
-    /// The MSI, the zip or the DMG: the notice links to the release.
+    /// The MSI, the zip, the DMG, a `.deb` or an `.rpm`: all come from the releases page, as
+    /// there is no apt or dnf repository, so the notice links there.
     Download,
-    /// A `.deb` or `.rpm`: update with the package manager.
-    Package,
     /// The Flatpak: update with the software centre or `flatpak update`.
     Flatpak,
 }
@@ -94,18 +92,14 @@ impl std::fmt::Display for Version {
 }
 
 impl Install {
-    /// How this program was installed: the Flatpak sets `FLATPAK_ID`; the packages put it into
-    /// `/usr/bin`.
+    /// The Flatpak sets `FLATPAK_ID`; everything else is downloaded.
     pub fn detect() -> Self {
-        let exe = std::env::current_exe().unwrap_or_default();
-        Self::of(std::env::var_os("FLATPAK_ID").is_some(), &exe)
+        Self::of(std::env::var_os("FLATPAK_ID").is_some())
     }
 
-    fn of(flatpak: bool, exe: &Path) -> Self {
+    fn of(flatpak: bool) -> Self {
         if flatpak {
             Install::Flatpak
-        } else if cfg!(target_os = "linux") && exe.starts_with("/usr/bin") {
-            Install::Package
         } else {
             Install::Download
         }
@@ -116,9 +110,8 @@ impl Notice {
     /// The status bar's words.
     pub fn text(&self) -> String {
         match self {
-            Notice::Newer(r, Install::Download) => format!("XML Atlas {} is available", r.version),
-            Notice::Newer(r, Install::Package) => format!(
-                "XML Atlas {} is available: update it with your package manager",
+            Notice::Newer(r, Install::Download) => format!(
+                "XML Atlas {} is available: open the download page",
                 r.version
             ),
             Notice::Newer(r, Install::Flatpak) => format!(
@@ -131,11 +124,22 @@ impl Notice {
         }
     }
 
-    /// The release page to link to: only for a download, as a package is updated elsewhere.
+    /// The release page to link to; the Flatpak is updated elsewhere.
     pub fn link(&self) -> Option<&str> {
         match self {
             Notice::Newer(r, Install::Download) => Some(&r.url),
             _ => None,
+        }
+    }
+
+    /// The notice in the status bar, a link where there is a page to open.
+    pub fn show(&self, ui: &mut egui::Ui) -> egui::Response {
+        match self.link() {
+            Some(url) => ui.hyperlink_to(self.text(), url).on_hover_text(url),
+            None if matches!(self, Notice::Failed(_)) => {
+                ui.colored_label(ui.visuals().warn_fg_color, self.text())
+            }
+            None => ui.label(self.text()),
         }
     }
 }
@@ -373,31 +377,64 @@ mod tests {
     }
 
     #[test]
-    fn packages_are_updated_by_their_manager() {
-        let r = release(Version(1, 2, 0));
-        assert_eq!(
-            Install::of(true, Path::new("/app/bin/xml-atlas")),
-            Install::Flatpak
-        );
-        let packaged = Install::of(false, Path::new("/usr/bin/xml-atlas"));
-        let downloaded = Install::of(false, Path::new("/opt/xml-atlas/xml-atlas"));
-        assert_eq!(downloaded, Install::Download);
-        if cfg!(target_os = "linux") {
-            assert_eq!(packaged, Install::Package);
-        } else {
-            assert_eq!(packaged, Install::Download);
-        }
-        let n = Notice::Newer(r.clone(), Install::Download);
-        assert_eq!(n.text(), "XML Atlas 1.2.0 is available");
-        assert_eq!(n.link(), Some(r.url.as_str()));
-        let n = Notice::Newer(r.clone(), Install::Package);
-        assert!(n.text().contains("package manager"));
+    fn the_flatpak_is_updated_by_flatpak() {
+        assert_eq!(Install::of(true), Install::Flatpak);
+        let n = Notice::Newer(release(Version(1, 2, 0)), Install::Flatpak);
+        assert!(n.text().contains("flatpak update"));
         assert_eq!(n.link(), None);
-        assert!(
-            Notice::Newer(r, Install::Flatpak)
-                .text()
-                .contains("flatpak update")
-        );
+    }
+
+    /// The pages that a click on `notice` in a status bar `width` wide opens, and where it is.
+    fn click(notice: &Notice, width: f32) -> (Vec<String>, egui::Rect) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 60.0));
+        let frame = |events| {
+            let input = egui::RawInput {
+                events,
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut rect = egui::Rect::NOTHING;
+            let mut out = ctx.run_ui(input, |ui| {
+                let layout = egui::Layout::right_to_left(egui::Align::Center);
+                ui.with_layout(layout, |ui| rect = notice.show(ui).rect);
+            });
+            out.textures_delta.clear();
+            (out.platform_output.commands, rect)
+        };
+        let (_, rect) = frame(Vec::new());
+        let pos = rect.center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(vec![egui::Event::PointerMoved(pos), button(true)]);
+        let (commands, _) = frame(vec![button(false)]);
+        let pages = commands
+            .into_iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::OpenUrl(open) => Some(open.url),
+                _ => None,
+            })
+            .collect();
+        (pages, rect)
+    }
+
+    /// There is no apt or dnf repository, so a package too needs the way to the download.
+    #[test]
+    fn a_click_on_the_notice_opens_the_release() {
+        let r = release(Version(1, 3, 0));
+        let notice = Notice::Newer(r.clone(), Install::of(false));
+        assert!(notice.text().contains("download page"));
+        let (pages, rect) = click(&notice, 480.0);
+        assert_eq!(pages, [r.url]);
+        assert!(rect.left() >= 0.0 && rect.right() <= 480.0, "{rect:?}");
+        // Nothing to open: up to date, and no answer.
+        for notice in [Notice::UpToDate, Notice::Failed("offline".into())] {
+            assert!(click(&notice, 480.0).0.is_empty());
+        }
     }
 
     #[test]

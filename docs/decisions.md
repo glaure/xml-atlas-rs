@@ -1170,6 +1170,11 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   0.40 s; the same memory). So the cost is the check's own thread, the TLS handshake and the
   certificate check, which the benchmark counts because it waits for the process to go idle;
   it comes once a day.
+- **Changed (owner, 2026-11-22): the packages get the link too.** The installed 1.2.0 `.deb`
+  said "update it with your package manager", and apt knew of no 1.3.0: there is no apt or dnf
+  repository, so every `.deb` and `.rpm` is a download. The notice now reads "XML Atlas 1.3.0
+  is available: open the download page" for all of them and opens the release. Only the
+  Flatpak names its own way to update, and running from `/usr/bin` no longer matters.
 
 ## D31: A Settings window
 
