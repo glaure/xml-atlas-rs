@@ -96,7 +96,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 &[format!("{} rows", grid.rows.len())],
             );
             if matches!(&pane.detail, Detail::Element(_)) {
-                crate::grid::attributes(ui, grid);
+                crate::attribute_table::show(ui, grid);
             }
             let cells = &mut pane.cells;
             go = ui

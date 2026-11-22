@@ -9,9 +9,9 @@
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use xml_atlas_xml::{Folded, NONE, NodeId, NodeKind, NodeSplice};
+use xml_atlas_xml::{Decoded, Folded, NONE, NodeId, NodeKind, NodeSplice, unescape};
 
 use crate::command::{as_parsed, holds_only_text};
 use crate::{Document, truncate};
@@ -44,6 +44,10 @@ const SEEN_LIST: usize = 16;
 
 /// Cell text is cut at this many characters (GRID-4).
 pub const CELL_CHARS: usize = 200;
+
+/// A name or value in the attribute table is cut at this many characters (GRID-11): more
+/// than a line of a large screen holds.
+pub const ATTRIBUTE_CHARS: usize = 2000;
 
 /// One column of the grid, in the order it was first met (GRID-2).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -136,8 +140,9 @@ pub struct Grid {
     /// Path of `parent`, e.g. `/orders/order[2]`. Built once: [`xml_atlas_xml::Index::path`]
     /// walks siblings and is too slow to repeat every frame.
     pub path: String,
-    /// Attributes of `parent` itself, decoded (GRID-11).
-    pub attributes: Vec<(String, String)>,
+    /// Attributes of `parent` itself, decoded and cut at [`ATTRIBUTE_CHARS`] (GRID-11).
+    /// Replaced as a whole when they change, so a view can keep what it measured of them.
+    pub attributes: Arc<Vec<(String, String)>>,
     /// Child elements of `parent` in document order (GRID-1); `parent` itself when it has
     /// none (GRID-5).
     /// In the order shown: document order unless sorted (GRID-14).
@@ -177,7 +182,7 @@ impl Grid {
             Some(parent + 1)
         };
         let path = idx.path(&doc.src, parent);
-        let attributes = idx.attributes(&doc.src, parent);
+        let attributes = own_attributes(doc, parent);
         Self::with_rows(doc, parent, path, attributes, rows, scan)
     }
 
@@ -260,7 +265,7 @@ impl Grid {
         doc: &Document,
         parent: NodeId,
         path: String,
-        attributes: Vec<(String, String)>,
+        attributes: Arc<Vec<(String, String)>>,
         rows: Vec<NodeId>,
         scan: Option<NodeId>,
     ) -> Self {
@@ -350,7 +355,7 @@ impl Grid {
         // again from the first new node.
         self.scan = self.scan.map(|s| ns.map(s).unwrap_or(ns.at));
         self.parent = parent;
-        self.attributes = idx.attributes(&doc.src, parent);
+        self.attributes = own_attributes(doc, parent);
         let touched = ns.parent == parent || !changed.is_empty();
         if touched && self.rows.len() <= FOLLOW_RESCAN_ROWS {
             self.columns.clear();
@@ -559,7 +564,7 @@ impl Grid {
                             doc,
                             row,
                             path,
-                            Vec::new(),
+                            Arc::default(),
                             matching,
                             None,
                         ))
@@ -689,6 +694,38 @@ fn has_structure(doc: &Document, id: NodeId) -> bool {
     idx.children(id)
         .any(|c| idx.node(c).kind == NodeKind::Element)
         || !idx.attributes(&doc.src, id).is_empty()
+}
+
+/// The attribute table of `id` (GRID-11). Reads a value as far as the table shows it.
+fn own_attributes(doc: &Document, id: NodeId) -> Arc<Vec<(String, String)>> {
+    let cut = |mut chars: Decoded<'_>| {
+        let mut start: String = chars.by_ref().take(ATTRIBUTE_CHARS).collect();
+        if chars.next().is_some() {
+            start.push('…');
+        }
+        start
+    };
+    // No more bytes than that are no more characters: most are decoded at once, which is
+    // faster than one character at a time.
+    let short = |raw: &[u8]| raw.len() <= ATTRIBUTE_CHARS;
+    Arc::new(
+        doc.index
+            .attribute_parts(&doc.src, id)
+            .map(|(name, value)| {
+                let name = if short(&name) {
+                    String::from_utf8_lossy(&name).into_owned()
+                } else {
+                    cut(Decoded::as_written(&name))
+                };
+                let value = if short(&value) {
+                    unescape(&value).into_owned()
+                } else {
+                    cut(Decoded::escaped(&value))
+                };
+                (name, value)
+            })
+            .collect(),
+    )
 }
 
 /// The text and CDATA children of an element, decoded, joined and cut at [`CELL_CHARS`].
@@ -893,13 +930,55 @@ mod tests {
         let d = doc(r#"<shop name="Zentrale" city="Gr&#xE4;z"><a/></shop>"#);
         let g = grid_of(&d, "shop");
         assert_eq!(
-            g.attributes,
+            *g.attributes,
             [
                 ("name".to_string(), "Zentrale".to_string()),
                 ("city".to_string(), "Gräz".to_string())
             ]
         );
-        assert_eq!(grid_of(&d, "a").attributes, []);
+        assert_eq!(*grid_of(&d, "a").attributes, []);
+    }
+
+    /// GRID-11: a huge value costs the table no more than it shows, when the grid is built
+    /// and when it follows typing; up to the cut it is the value as decoded.
+    #[test]
+    fn attribute_table_keeps_the_start_of_a_value() {
+        let cut = |s: &str| match s.char_indices().nth(ATTRIBUTE_CHARS) {
+            Some((i, _)) => format!("{}…", &s[..i]),
+            None => s.to_owned(),
+        };
+        let full = "ü".repeat(ATTRIBUTE_CHARS);
+        let huge = "Größe &amp; ".repeat(50_000);
+        let late = format!("&lt;{}&unknown;", "x".repeat(ATTRIBUTE_CHARS + 7));
+        let src = format!(
+            "\u{feff}<r a=\"{huge}\" b=\"{full}\" c=\"{full}!\" d='{late}' e=\" lead\r\nline \" \
+             f=\"\" {full}x=\"1\">\r\n<o/></r>"
+        );
+        let mut d = Document::from_bytes(src.into_bytes());
+        let root = d.index.root_element().unwrap();
+        let mut g = Grid::start(&d, root);
+        let check = |d: &Document, g: &Grid| {
+            let whole = d.index.attributes(&d.src, root);
+            assert_eq!(whole.len(), 7);
+            assert_eq!(g.attributes.len(), 7);
+            for ((name, value), (n, v)) in g.attributes.iter().zip(&whole) {
+                assert_eq!(*name, cut(n));
+                assert_eq!(*value, cut(v));
+            }
+            assert_eq!(g.attributes[0].1.chars().count(), ATTRIBUTE_CHARS + 1);
+            assert_eq!(g.attributes[1].1, full, "nothing is cut at the limit");
+        };
+        check(&d, &g);
+
+        let before = Arc::clone(&g.attributes);
+        // Between the children: the grid follows. In the start tag it is built again.
+        let at = d.src.len() - "</r>".len();
+        d.apply_typed(crate::Edit::new("Type").replace(at..at, " "))
+            .unwrap();
+        let ns = d.node_splice().expect("a local change");
+        assert!(g.follow(&d, &ns));
+        check(&d, &g);
+        assert!(!Arc::ptr_eq(&before, &g.attributes), "replaced as a whole");
     }
 
     /// GRID-5: an element without child elements is its own single row.
@@ -1147,7 +1226,7 @@ mod tests {
             panic!("an element")
         };
         assert_eq!(
-            total.attributes,
+            *total.attributes,
             [("currency".to_string(), "EUR".to_string())]
         );
         assert_eq!(cells(&d, &total, &Column::Text), [value("12.50")]);

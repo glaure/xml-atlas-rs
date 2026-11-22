@@ -46,7 +46,11 @@ this file needs the most observation.
   Saving an unchanged value, or nothing into a hatched cell, changes nothing. Each edit is
   one undo step, and the row and cell stay marked.
 - **GRID-11** `[done]` Above the child table, a table of the selected element's own
-  attributes: name and value (XM-30). It folds away, and scrolls beyond six attributes.
+  attributes: name and value (XM-30). It folds away, and scrolls beyond six attributes. Only
+  the rows in sight get cells, and the columns are as wide as the widest of all rows. A name
+  or value is cut at 2,000 characters, with an ellipsis, also in its hover text and when
+  copied from the table; only that much of it is read (but see TREE-7 on references). The
+  same in the cell pane (GRID-16).
 - **GRID-12** `[done]` A child element that has attributes or children of its own gets a
   column too. Its cell shows its name as `<name>`. When a row has several children of the same
   name, the cell shows the name and how many: `<note> ×2` (XM-34).
