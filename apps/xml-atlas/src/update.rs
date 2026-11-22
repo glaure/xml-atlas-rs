@@ -2,9 +2,10 @@
 //! D30).
 //!
 //! At most once a day, a thread of its own asks GitHub for the latest published release and
-//! sends the answer back through a channel; the status bar shows it on the next frame. Nothing
-//! is downloaded or installed, and nothing is sent but that request: no cookie, no token, no
-//! identifier, a `User-Agent` with the program's version only. Errors go to the log, except
+//! sends the answer back through a channel; the status bar shows it on the next frame. The
+//! check downloads and installs nothing (a click can: `installer.rs`), and nothing is sent but
+//! that request: no cookie, no token, no identifier, a `User-Agent` with the program's version
+//! only. Errors go to the log, except
 //! after *Check for updates now*, which says what went wrong.
 
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -33,6 +34,17 @@ pub struct Release {
     pub version: Version,
     /// The release's page.
     pub url: String,
+    /// Its files that GitHub lists with a SHA-256 (PKG-8).
+    pub files: Vec<ReleaseFile>,
+}
+
+/// A file of a release.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReleaseFile {
+    pub name: String,
+    pub size: u64,
+    /// In lower-case hexadecimal.
+    pub sha256: String,
 }
 
 /// Where the program's updates come from: it decides what a notice asks the user to do.
@@ -252,23 +264,46 @@ pub fn read_release(answer: &[u8]) -> Result<Release, String> {
         .filter(|u| u.starts_with(RELEASES) && !u.contains(char::is_whitespace))
         .unwrap_or(RELEASES)
         .to_string();
-    Ok(Release { version, url })
+    let files = v["assets"]
+        .as_array()
+        .map(|assets| assets.iter().filter_map(release_file).collect())
+        .unwrap_or_default();
+    Ok(Release {
+        version,
+        url,
+        files,
+    })
 }
 
-/// The request itself. Certificates are checked against the system's store, so a proxy that
-/// inspects TLS with the company's own certificate works as in the browser.
-fn fetch() -> Result<Release, String> {
+/// A file as GitHub describes it, if it has a SHA-256 to check it with.
+fn release_file(asset: &serde_json::Value) -> Option<ReleaseFile> {
+    let sha256 = asset["digest"].as_str()?.strip_prefix("sha256:")?;
+    let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    (sha256.len() == 64 && sha256.bytes().all(hex)).then_some(())?;
+    Some(ReleaseFile {
+        name: asset["name"].as_str()?.to_owned(),
+        size: asset["size"].as_u64()?,
+        sha256: sha256.to_owned(),
+    })
+}
+
+/// What every request of the program has: the version as its only name, and certificates
+/// checked against the system's store, so a proxy that inspects TLS with the company's own
+/// certificate works as in the browser.
+pub fn agent() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     use ureq::tls::{RootCerts, TlsConfig};
-    let agent = ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
+    ureq::Agent::config_builder()
         .user_agent(format!("xml-atlas/{CURRENT}"))
         .tls_config(
             TlsConfig::builder()
                 .root_certs(RootCerts::PlatformVerifier)
                 .build(),
         )
-        .build()
-        .new_agent();
+}
+
+/// The check's request itself.
+fn fetch() -> Result<Release, String> {
+    let agent = agent().timeout_global(Some(TIMEOUT)).build().new_agent();
     let mut response = agent
         .get(LATEST)
         .header("Accept", "application/vnd.github+json")
@@ -293,6 +328,7 @@ mod tests {
         Release {
             version: v,
             url: format!("{RELEASES}/tag/v{v}"),
+            files: Vec::new(),
         }
     }
 
@@ -325,8 +361,29 @@ mod tests {
             Ok(Release {
                 version: Version(1, 1, 0),
                 url: "https://github.com/glaure/xml-atlas-rs/releases/tag/v1.1.0".into(),
+                files: vec![ReleaseFile {
+                    name: "SHA256SUMS".into(),
+                    size: 479,
+                    sha256: "c3151251952f958b930822f3ba72b9b78f07fb6c53fc3659766202f73c5ca129"
+                        .into(),
+                }],
             })
         );
+        // A file is taken only with a SHA-256 to check it with.
+        for digest in [
+            "null".to_owned(),
+            "\"sha256:abc\"".to_owned(),
+            format!("\"sha512:{}\"", "a".repeat(64)),
+            format!("\"sha256:{}\"", "g".repeat(64)),
+        ] {
+            let answer = format!(
+                r#"{{"tag_name":"v2.0.0","assets":[{{"name":"a","size":1,"digest":{digest}}}]}}"#
+            );
+            assert!(
+                read_release(answer.as_bytes()).unwrap().files.is_empty(),
+                "{digest}"
+            );
+        }
         // A tag that is not a version is no release; a foreign link is not followed.
         assert!(read_release(br#"{"tag_name":"nightly"}"#).is_err());
         assert!(read_release(b"<html>").is_err());

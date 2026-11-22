@@ -53,7 +53,8 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
 - **PKG-7** `[built]` The program can tell the user that a newer version exists: at most
   once a day it asks GitHub for the latest release and, when it is newer, says so in the
   status bar with a link to the releases page. It never downloads or installs anything by
-  itself, sends nothing but that request, and can be turned off in the settings (WIN-3).
+  itself (a click can, PKG-8), sends nothing but that request, and can be turned off in the
+  settings (WIN-3).
   Without a network it stays silent. The link is there for the `.deb` and `.rpm` too, as
   there is no apt or dnf repository to update them from; in the Flatpak the notice says to
   update with the software centre or `flatpak update` instead. On by default; turned off in
@@ -64,6 +65,27 @@ Version 1.0 has packages for Windows and Linux; the macOS package follows after 
   network; a copy calling itself 1.0.0 showed "XML Atlas 1.1.0 is available" once, and a
   second start within the day made no request. The installed 1.2.0 `.deb` showed 1.3.0 on
   Ubuntu 26.04 (owner, 2026-11-22), without a link then. Not yet tried: macOS, an `.rpm`.
+- **PKG-8** `[built]` *Download and install…* in the notice of PKG-7 hands the newer version
+  to the system's installer (`docs/decisions.md`, D43). Only a click starts it, and the
+  program never asks for administrator rights.
+  - It is there for an installed `.deb` or `.rpm`, the MSI installed for the current user and
+    the macOS app. The zip, an MSI for all users, a build of one's own and the Flatpak do not
+    have it.
+  - The file is the release's of that kind, over HTTPS only. It is written only if its size
+    and SHA-256 are those GitHub lists; a release without a SHA-256 has the link only. It
+    goes to the downloads folder and overwrites nothing there.
+  - On Linux it is opened only if the default application for the package is a known
+    installer, never an archive manager; otherwise the download page opens. The notice then
+    says to restart XML Atlas.
+  - On Windows and macOS the file is marked as downloaded, so SmartScreen and Gatekeeper
+    look at it. *Close and install…* asks about unsaved changes, closes the program and
+    opens the file; Cancel at any of those questions installs nothing, then or later.
+  - Cancel stops a download, and a failure says so next to the link to the page.
+
+  Built 2026-11-22. Tried in containers: installed as a `.deb` calling itself 1.2.9, the code
+  found 1.3.0, downloaded and checked it (installer lookup and opener stood in for), and
+  PackageKit upgraded to it (Ubuntu 26.04); PackageKit also upgraded the `.rpm` from 1.2.0
+  (Fedora 43). Not yet verified: the installers' own windows, Windows, macOS.
 
 ### Windows
 

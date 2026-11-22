@@ -15,6 +15,7 @@ use xml_atlas_engine::{
 };
 
 use crate::disk_watch::DiskWatch;
+use crate::installer::{self, Installer};
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::sizes::Split;
 use crate::tabs::Tabs;
@@ -83,6 +84,8 @@ pub struct App {
     updates: update::Checker,
     /// What the last update check found, in the status bar until it is closed.
     update_notice: Option<Notice>,
+    /// The newer version on its way to the system's installer (PKG-8, D43).
+    installer: Installer,
     /// Agents' calls, while View > Allow AI agents (MCP) is on (D28).
     agent: Option<xml_atlas_mcp::bridge::Listener>,
     message: Option<String>,
@@ -361,6 +364,7 @@ impl App {
             ),
             updates: Default::default(),
             update_notice: None,
+            installer: Default::default(),
             agent: None,
             message: None,
             notice: None,
@@ -846,6 +850,7 @@ impl App {
 
     /// Quitting stopped: a later quit asks about every modified document again.
     fn cancel_quit(&mut self) {
+        self.installer.quit_cancelled();
         for open in self.docs.iter_mut() {
             open.discard = false;
         }
@@ -1673,6 +1678,9 @@ impl App {
     /// The update check (PKG-7, D30): takes its answer when it has come, and starts the daily
     /// check when it is due. Called every frame; it costs a look at the clock.
     fn check_for_updates(&mut self, ctx: &egui::Context) {
+        if let Some(page) = self.installer.poll() {
+            ctx.open_url(egui::OpenUrl::new_tab(page));
+        }
         if let Some((asked, answer)) = self.updates.poll() {
             let current =
                 update::Version::parse(update::CURRENT).unwrap_or(update::Version(0, 0, 0));
@@ -1688,6 +1696,10 @@ impl App {
                 self.settings.update_shown = Some(r.version);
             }
             if notice.is_some() {
+                self.installer.offer(match &notice {
+                    Some(Notice::Newer(r, update::Install::Download)) => Some(r),
+                    _ => None,
+                });
                 self.update_notice = notice;
             }
         }
@@ -1802,30 +1814,44 @@ impl App {
     /// The status bar: the file and the last command on the left, the update notice (PKG-7)
     /// on the right.
     fn status_bar(&mut self, ui: &mut Ui) {
-        if self.update_notice.is_none() {
+        if self.update_notice.is_none() && !self.installer.is_active() {
             self.status_text(ui);
             return;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             self.update_notice(ui);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // It has what the notice leaves, and is cut off there.
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 self.status_text(ui);
             });
         });
     }
 
-    /// The update notice, right to left: its close button, then its text.
+    /// The update notice, right to left: its close button, the installer's, then its text.
     fn update_notice(&mut self, ui: &mut Ui) {
-        let Some(notice) = &self.update_notice else {
-            return;
-        };
         let close = ui
             .small_button("×")
             .on_hover_text("Close this notice")
             .clicked();
-        notice.show(ui);
+        let request = self.installer.show(ui, self.update_notice.as_ref());
         if close {
             self.update_notice = None;
+            self.installer.dismiss();
+        } else if let Some(request) = request {
+            self.install_request(ui.ctx(), request);
+        }
+    }
+
+    /// A click on the installer's part of the notice (PKG-8).
+    fn install_request(&mut self, ctx: &egui::Context, request: installer::Request) {
+        match request {
+            installer::Request::Start => self.installer.start(ctx),
+            installer::Request::Cancel => self.installer.cancel(),
+            installer::Request::CloseAndInstall => {
+                self.installer.close_and_install();
+                self.request(ctx, Action::Quit);
+            }
         }
     }
 
@@ -1902,6 +1928,8 @@ impl eframe::App for App {
         self.window
             .finish(&mut self.settings.window, std::time::Instant::now());
         self.save_settings();
+        // Last: it replaces this program (PKG-8).
+        self.installer.on_exit(self.quitting);
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -3137,8 +3165,10 @@ mod tests {
             .unwrap();
         app.rules_files.edit(&rules);
         app.rules_files.set_editor_text("{ }");
+        app.installer = Installer::ready_for_test();
 
-        app.request(&ctx, Action::Quit);
+        app.install_request(&ctx, installer::Request::CloseAndInstall);
+        assert!(app.installer.will_install());
         assert!(app.confirm.take().is_some(), "asks about the document");
         // Don't save: on to the rules editor, which asks.
         app.docs.active_mut().unwrap().discard = true;
@@ -3164,11 +3194,68 @@ mod tests {
             let mut out = ctx.run_ui(input, |_| app.rules_editor(&ctx));
             out.textures_delta.clear();
         }
+        assert!(
+            !app.installer.will_install(),
+            "a later quit installs nothing (PKG-8)"
+        );
         app.rules_files.set_editor_text("{}");
         assert!(!app.rules_files.has_unsaved());
         app.request(&ctx, Action::Quit);
         assert!(!app.quitting, "quit and lost the document's changes");
         assert!(app.confirm.is_some(), "asks about the document again");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// PKG-7, PKG-8: the status text gives way to the notice and its button, never under them.
+    #[test]
+    fn the_status_text_stays_clear_of_the_update_notice() {
+        let offered = Installer::offered_for_test;
+        let ready = Installer::ready_for_test;
+        for installer in [Installer::default, offered, ready] {
+            for width in [700.0, 900.0, 1280.0] {
+                let ctx = egui::Context::default();
+                let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+                let mut app = App::new(&cc, Vec::new(), None);
+                let mut doc = Document::untitled();
+                let name = "Bestellungen-Größe-und-Lieferungen-2026.xml";
+                doc.path = Some(std::env::temp_dir().join(name));
+                app.add_document(doc);
+                let release = update::Release {
+                    version: update::Version(1, 4, 0),
+                    url: update::RELEASES.into(),
+                    files: Vec::new(),
+                };
+                app.update_notice = Some(Notice::Newer(release, update::Install::Download));
+                app.installer = installer();
+                let mut texts = Vec::new();
+                // A panel has its size from the second frame on.
+                for _ in 0..3 {
+                    let input = egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 300.0),
+                        )),
+                        ..Default::default()
+                    };
+                    let mut out = ctx.run_ui(input, |ui| {
+                        egui::Panel::bottom("status").show(ui, |ui| app.status_bar(ui));
+                    });
+                    out.textures_delta.clear();
+                    texts = out
+                        .shapes
+                        .into_iter()
+                        .filter_map(|s| match s.shape {
+                            egui::Shape::Text(t) => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                            _ => None,
+                        })
+                        .collect();
+                }
+                texts.sort_by(|a, b| a.left().total_cmp(&b.left()));
+                assert!(texts.len() >= 3, "{texts:?}");
+                for pair in texts.windows(2) {
+                    assert!(pair[0].right() <= pair[1].left(), "{width}: {pair:?}");
+                }
+            }
+        }
     }
 }

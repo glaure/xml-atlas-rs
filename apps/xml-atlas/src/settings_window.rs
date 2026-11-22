@@ -23,8 +23,8 @@ const FORMAT_NOTE: &str = "Edit > Format options… changes the same settings. A
 /// Under the Updates section: what the check sends, and what it does not do.
 const UPDATES_NOTE: &str = "XML Atlas asks GitHub for the latest release and tells you in the \
                             status bar when it is newer. It sends nothing but that request, \
-                            with the program's version, and never downloads or installs \
-                            anything.";
+                            with the program's version, and downloads nothing unless you \
+                            click Download and install in that notice.";
 /// Width of the list of sections on the left.
 const SECTIONS_WIDTH: f32 = 120.0;
 /// Height kept free around a section for the window's title, margins and the program's own

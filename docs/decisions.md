@@ -1874,6 +1874,35 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   reach the columns in sight, as they already reached only the rows in sight.
 - **Revisit when:** `egui_extras` virtualizes columns itself.
 
+## D43: Download and install from the update notice (PKG-8)
+
+- **Problem:** there is no apt or dnf repository and no updater, so every update is a visit
+  to the releases page, a choice among five files and an install by hand.
+- **Decided (owner, 2026-11-22):** a click in the notice downloads the right file and hands
+  it to the system's installer. This replaces D30's "downloading or installing the update:
+  PKG-7 rules it out" for that click only; the check still does neither.
+- **Not chosen:** installing ourselves with `pkexec apt`, `dnf` or `msiexec` (a root process
+  started on a downloaded file, code per distribution); an apt and dnf repository (a signing
+  key and hosting, Linux only; still possible later).
+- **How:** `apps/xml-atlas/src/installer.rs`.
+  - The SHA-256 is the `digest` in GitHub's answer, computed with `ring`, which rustls
+    already builds. It finds a damaged download, not a taken-over GitHub account: the files
+    are unsigned until PKG-13 and PKG-21.
+  - The package is held in memory (at most 100 MiB, today up to 22) until it is checked, so
+    no unchecked file is ever on disk and none is left by a cancel or a crash.
+  - The installer is found before downloading, from a list of known ones: File Roller and
+    Ark register for `.deb` and `.rpm` too.
+  - A download of our own has no mark of the web or quarantine, so SmartScreen and
+    Gatekeeper would pass it unseen. The mark is written, and the MSI is opened through
+    Explorer rather than `msiexec`, which does not look at the mark.
+- **An MSI for all users gets the link only.** The MSI starts for the current user
+  (`ALLUSERS=2`, `MSIINSTALLPERUSER=1`) and looks for older versions before any dialog, and
+  Windows Installer upgrades within the same context only: opened, it would leave the copy
+  for all users beside a new one. `ALLUSERS=1` needs `msiexec`, so no SmartScreen. The same
+  applies to opening the MSI by hand, to be confirmed on Windows.
+- **App Center:** builds before October 2026 greyed out *Install* for a newer local `.deb`
+  (ubuntu/app-center#2190); later ones compare the versions.
+
 ## Open questions
 
 None.

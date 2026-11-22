@@ -168,9 +168,19 @@ each theme; click one to use it.
 Once a day XML Atlas asks GitHub for its latest release. When it is newer, the status bar
 says so once, with a link to the download page; a Flatpak is updated with the software
 centre or `flatpak update` instead. The request carries the program's version and nothing
-else, and nothing is downloaded or installed. Without a network nothing is shown. Help > Check for
+else, and nothing is downloaded or installed unless you click. Without a network nothing is
+shown. Help > Check for
 updates now asks at once and also says when you have the latest version. Turn the daily
 check off in File > Settings > Updates.
+
+Where XML Atlas was installed from the `.deb`, the `.rpm`, the MSI for the current user or
+the DMG, the notice also has Download and install…. It saves that package in your downloads
+folder, once its SHA-256 is the one GitHub lists, and opens it with the system's installer,
+which asks for any permission it needs. On Linux, restart XML Atlas when the installer has
+finished. On Windows and macOS, click Close and install… first: XML Atlas asks about unsaved
+changes, closes and opens the installer (on macOS, drag the app onto Applications). The zip
+and an MSI installed for all users have the link only. Where no installer opens the package,
+the download page opens instead.
 
 The layout, theme, view options, text font, format options and recent files are remembered in
 `xml-atlas/settings.toml` in the system's configuration folder. So are the sizes of the
