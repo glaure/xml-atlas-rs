@@ -13,11 +13,11 @@ use xml_atlas_engine::rules_text::{RulesText, TextError};
 use crate::app::Open;
 
 /// The check waits for this pause in typing, and after an edit of the document.
-const PAUSE: Duration = Duration::from_millis(350);
+pub(crate) const PAUSE: Duration = Duration::from_millis(350);
 const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
 /// Above this, a document's matches are counted only when asked: 100 MiB takes about 70 ms,
 /// a hitch at each pause in typing.
-const COUNT_AT_MOST: usize = 16 * 1024 * 1024;
+pub(crate) const COUNT_AT_MOST: usize = 16 * 1024 * 1024;
 /// Height of the check below the text.
 const CHECK_HEIGHT: f32 = 120.0;
 

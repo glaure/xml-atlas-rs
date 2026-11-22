@@ -77,6 +77,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 - Edit (in that list) or Edit rules (in the preview) opens a rules file with a check below
   it: mistakes with their line, and how often each rule matches in the document shown.
   Insert adds a template at the cursor; Ctrl+S in the text saves the rules, not the document.
+  The preview's header shows the check's result; click it to edit.
 - An example: `{"includes": [{"element": "Include", "attribute": "src"}], "contexts":
   {"Shared": {"path": "/Doc/Shared"}}}` makes `<Include src="Shared:Parts"/>` stand for the
   `Parts` inside `/Doc/Shared`. `includes` names the elements that are references and the

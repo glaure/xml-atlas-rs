@@ -61,6 +61,8 @@ pub struct Entry {
     pub use_for: String,
     /// The rules, or why they cannot be used.
     pub rules: Result<Arc<Rules>, String>,
+    /// The file's text, for the check (REF-14); `None` when it is no text that can be read.
+    pub text: Option<Arc<str>>,
 }
 
 /// The folder as it was read, in the list's order.
@@ -128,8 +130,10 @@ impl RulesFolder {
             .filter(|l| names.contains(&l.name))
             .map(|l| {
                 let path = self.files.join(&l.name);
+                let (rules, text) = read_rules(&path);
                 Entry {
-                    rules: read_rules(&path),
+                    rules,
+                    text,
                     path,
                     name: l.name,
                     on: l.on,
@@ -416,10 +420,16 @@ fn ordered(mut list: Vec<Listed>, names: &[String]) -> Vec<Listed> {
     list
 }
 
-fn read_rules(path: &Path) -> Result<Arc<Rules>, String> {
-    let bytes = read_small(path).map_err(|e| e.to_string())?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| "not UTF-8 text".to_owned())?;
-    Rules::parse(text).map(Arc::new).map_err(|e| e.to_string())
+fn read_rules(path: &Path) -> (Result<Arc<Rules>, String>, Option<Arc<str>>) {
+    let bytes = match read_small(path) {
+        Ok(bytes) => bytes,
+        Err(e) => return (Err(e.to_string()), None),
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return (Err("not UTF-8 text".to_owned()), None);
+    };
+    let rules = Rules::parse(text).map(Arc::new).map_err(|e| e.to_string());
+    (rules, Some(text.into()))
 }
 
 fn read_small(path: &Path) -> Result<Vec<u8>, FolderError> {

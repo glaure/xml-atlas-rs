@@ -184,9 +184,17 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   alone. Saved rules are taken by every tab at once. A file changed on disk is followed
   while there are no changes; with changes it says so and offers Overwrite or loading it.
   Closing, editing another file and quitting ask about unsaved changes.
+- **REF-16** `[built]` The preview's header shows the result of the check (REF-14) beside the
+  file's name: *check OK*, or how many errors and warnings, coloured as such; the pointer on
+  it lists the first findings, a click edits the rules. Checked while the preview shows: at
+  once when the file changes, also when the rules mean the same, and after a pause in editing
+  the document. In a document over 16 MiB matches are not counted: it then reads *OK, not
+  counted* instead of *check OK*, and the list says so.
 
 ## Acceptance tests
 
+- With the preview shown, misspell `enabled` in the rules and save: the header says
+  1 warning, and the pointer on it names the line. A click on it opens the editor.
 - Edit a rules file: type `include` for `includes`: the check names the line and the key
   meant. Mend it and press Ctrl+S: the preview follows, the document is not saved. Type,
   then quit: it asks first.
