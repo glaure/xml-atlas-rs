@@ -1199,7 +1199,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   of View into Settings only: *Allow AI agents*, which opens a port and is set once, not
   switched while working, and the light style, which is set once.
 - **Not in Settings:** the recent files (File > Open Recent has *Clear list*), the window's
-  size and the panes' sizes (egui keeps them), the find options (the find bar shows them
+  size and the panes' sizes (egui keeps them; it does not: see D38), the find options (the find bar shows them
   where they act).
 - **Not chosen:**
   - A menu of its own (*Settings* or *Tools > Options*): one more menu for one entry; the
@@ -1684,7 +1684,10 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   1. 1 first, as a fix of its own? Proposed: yes.
   2. Which of 2 to 8? Proposed: 2, 3, 5 and 6 next; 4, 7 and 8 later.
 - **Decided (owner, 2026-11-22):** as proposed. 1 first, as a fix of its own; then 2, 3, 5
-  and 6; 4, 7 and 8 later. Not built yet.
+  and 6; 4, 7 and 8 later.
+- **Built, item 1 (2026-11-22, #146):** `apps/xml-atlas/src/sizes.rs`, WIN-3: the window's
+  size and maximized state and each pane's share, with View > Reset layout. Tested headless;
+  maximize at the start not yet seen on Wayland, X11 or Windows. Items 2 to 8 are not built.
 
 ## D39: Help with editing the rules file
 
@@ -1733,7 +1736,11 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   1. The four steps, in this order? Proposed: yes; 1 and 2 already remove the silent cases.
   2. A window, as proposed, or a pane in the preview's place? Proposed: a window.
 - **Decided (owner, 2026-11-22):** as proposed. The four steps in this order, the editor
-  as a window. Not built yet.
+  as a window.
+- **Built, steps 1 to 3 (2026-11-22, #148):** `crates/engine/src/references/check.rs` and
+  `apps/xml-atlas/src/rules_editor.rs`, REF-14 and REF-15, but for one part of step 2: the
+  preview's header names the file and not yet the check's result, which is in the editor.
+  Step 4 is not built.
 
 ## D40: The rules file under another name
 
@@ -1785,7 +1792,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
      yes, as Open Recent already stores the target.
 - **Decided (owner, 2026-11-22):** as proposed. The `format` line is required
   for a file named after its document; the search starts from a symbolic link's target.
-  Not built yet.
+  Not built: superseded by D41.
 
 ## D41: Rules files in the app's configuration folder
 
@@ -1830,6 +1837,8 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - The old search as an option, or only to offer an import: a second mechanism to keep.
 - **Cost accepted:** a team that shares its rules through git imports them on each machine,
   and again when they change.
+- **Built (2026-11-22):** step 1 in #147 (`crates/engine/src/rules_folder.rs`, REF-13), step 2
+  in #148 (D39). #145, a fix of the search that is removed, was closed unmerged.
 
 ## Open questions
 

@@ -107,17 +107,22 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Themes: style next to mode, theme files the user can change and share, a native look
       with the system's accent colour (D29, WIN-9, WIN-10)
 
-Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`), not built yet:
+Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`):
 
-- [ ] Bug: window and pane sizes are lost on exit (D38)
+- [x] Bug: window and pane sizes were lost on exit; now remembered, with Reset layout
+      (D38, WIN-3; #146)
 - [ ] Menus: aligned keys, Navigate and Tools menus, a shorter View (D37)
 - [ ] Layout: the preview's position, Text/Tree/Both in its header, folding problems, close
       buttons on panes (D38)
 - [ ] Layout, later: the cell pane's position, maximize a pane and F6, pictures of the
       layouts in Settings (D38)
-- [ ] References: rules files in the configuration folder, listed in Settings, each switched
-      on and off, with a pattern for its documents; no search beside the document (D41)
-- [ ] References: a check of the rules files and an editor for them (D39, D41)
+- [x] References: rules files in the configuration folder, listed in Settings, each switched
+      on and off, with a pattern for its documents; no search beside the document (D41,
+      REF-13; #147)
+- [x] References: a check of the rules files and an editor for them (D39, D41, REF-14, REF-15;
+      #148)
+- [ ] References: the check's result in the preview's header, which so far names only the
+      file (D39, the rest of step 2)
 - [ ] References, later: rules from the selection and a JSON Schema (D39, step 4)
 
 From XML Marker's 2.x change log (observe it, write the rules in `docs/spec/` first; each
