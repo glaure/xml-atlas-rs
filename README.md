@@ -51,7 +51,7 @@ Things to try:
 
 ## Status
 
-Version 1.2, for Windows, Linux and macOS. What it does:
+Version 1.3, for Windows, Linux and macOS. What it does:
 
 - Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
   about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
@@ -80,11 +80,12 @@ Version 1.2, for Windows, Linux and macOS. What it does:
 - References your team defines in rules files you manage in File > Settings: go to a
   reference's target (F12), the ones that find nothing in the problems list, and a preview
   of the selected element with them resolved, as text and as a tree, with repeated elements
-  expanded.
+  expanded. Off until you turn them on.
 - AI agents such as Claude Code can read and edit files, or the documents open in the window,
   through `xml-atlas-cli mcp` (MCP).
-- File > Settings… with every setting; a softer light theme; a font of your choice for text,
-  tree and grid; a toolbar; a built-in guide (F1).
+- File > Settings… with every setting; a softer light theme, and an example of each theme; a
+  font of your choice for text, tree and grid; a toolbar; a built-in guide (F1). The sizes
+  of the window and its panes are remembered.
 - A notice in the status bar when a newer version is released: once a day the program asks
   GitHub for the latest release, sending nothing but its version. Never a download; turn it
   off in File > Settings > Updates.
