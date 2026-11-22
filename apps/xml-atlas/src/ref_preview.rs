@@ -74,11 +74,10 @@ pub struct Cached {
 /// Settings > Views show them.
 pub fn switches(ui: &mut Ui, settings: &mut Settings) {
     ui.checkbox(&mut settings.references, "Resolve references")
-        .on_hover_text(format!(
-            "Use the rules in {}: go to a reference's target (F12), list those that find \
-             nothing as problems, and allow the preview (REF-12)",
-            references::RULES_FILE
-        ));
+        .on_hover_text(
+            "Use the rules files of Settings > References: go to a reference's target (F12), \
+             list those that find nothing as problems, and allow the preview (REF-12)",
+        );
     ui.indent("reference-switches", |ui| {
         ui.add_enabled(
             settings.references,
@@ -102,11 +101,10 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     let rules = match &open.references {
         None => {
             ui.label(RichText::new("No reference rules for this file").strong());
-            ui.label(format!(
-                "Put {} next to the file or in a folder above it, then open the file again. \
-                 The file says which elements and attributes are references (REF-1).",
-                references::RULES_FILE
-            ));
+            ui.label(
+                "In File > Settings > References, switch a rules file on and fill in Use for \
+                 (REF-13). Rules say which elements and attributes are references.",
+            );
             return;
         }
         Some(Err(e)) => {
@@ -114,7 +112,12 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
             ui.label(e.as_str());
             return;
         }
-        Some(Ok((_, rules))) => std::sync::Arc::clone(rules),
+        Some(Ok((file, rules))) => {
+            let name = file.file_name().unwrap_or_default().to_string_lossy();
+            ui.add(Label::new(RichText::new(format!("Rules: {name}")).weak()).truncate())
+                .on_hover_text(file.display().to_string());
+            std::sync::Arc::clone(rules)
+        }
     };
     let Some(element) = open.selected else {
         ui.label("Select an element to see it with its references resolved.");
@@ -359,10 +362,9 @@ pub fn go_to_target(open: &mut Open) {
         return;
     }
     let Some(rules) = open.rules().cloned() else {
-        open.note = Some(Note::refused(format!(
-            "No reference rules for this file: put {} next to it or above it",
-            references::RULES_FILE
-        )));
+        open.note = Some(Note::refused(
+            "No reference rules for this file: see File > Settings > References",
+        ));
         return;
     };
     let Some(site) = open.selected else {
@@ -587,6 +589,7 @@ fn tabs(line: &str) -> String {
 mod tests {
     use super::*;
 
+    use xml_atlas_engine::rules_folder::Library;
     use xml_atlas_engine::{Document, Edit, command};
 
     const RULES: &str = r#"{
@@ -595,18 +598,18 @@ mod tests {
         "contexts": {"Shared": {"path": "/Doc/Shared"}}
     }"#;
 
-    /// A rules file next to a document with a byte order mark, CRLF and non-ASCII names.
+    /// Rules for a document with a byte order mark, CRLF and non-ASCII names.
     fn opened(name: &str) -> (Open, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("xml-atlas-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(references::RULES_FILE), RULES).unwrap();
+        let library = library(RULES);
         let file = dir.join("doc.xml");
         let src = "\u{feff}<Doc>\r\n  <Shared><Größe N=\"5\"><Wert/></Größe></Shared>\r\n  \
                    <Use M=\"[Shared:Größe/@N]\"><Include src=\"Shared:Größe\"/>\
                    <Include src=\"Shared:Fehlt\"/></Use>\r\n</Doc>\r\n";
         std::fs::write(&file, src).unwrap();
         let doc = Document::open(&file).unwrap();
-        (resolving(doc, name), dir)
+        (resolving(doc, name, &library), dir)
     }
 
     /// A click on Resolve references turns references on; until then a click on the preview's
@@ -654,10 +657,26 @@ mod tests {
     }
 
     /// A tab with references on (REF-12).
-    fn resolving(doc: Document, name: &str) -> Open {
+    fn resolving(doc: Document, name: &str, library: &std::sync::Arc<Library>) -> Open {
         let mut open = Open::new(doc, egui::Id::unique(name));
-        open.set_references(true);
+        open.set_references(Some(library));
         open
+    }
+
+    /// A library with one file of `rules`, on, for every document.
+    fn library(rules: &str) -> std::sync::Arc<Library> {
+        std::sync::Arc::new(Library {
+            entries: vec![xml_atlas_engine::rules_folder::Entry {
+                name: "rules.json".into(),
+                path: "rules.json".into(),
+                on: true,
+                use_for: "*".into(),
+                rules: Rules::parse(rules)
+                    .map(std::sync::Arc::new)
+                    .map_err(|e| e.to_string()),
+            }],
+            error: None,
+        })
     }
 
     /// Draws the preview pane, and the tree pane when `tree`, for two frames.
@@ -741,16 +760,13 @@ mod tests {
     fn repeats_expand_in_the_pane_and_its_tree() {
         let dir = std::env::temp_dir().join(format!("xml-atlas-repeat-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(references::RULES_FILE),
-            r#"{"repeat": {"count": "Count", "start": "Start", "index": ["[Index]"]}}"#,
-        )
-        .unwrap();
+        let library =
+            library(r#"{"repeat": {"count": "Count", "start": "Start", "index": ["[Index]"]}}"#);
         let file = dir.join("doc.xml");
         let src = "\u{feff}<Doc>\r\n  <Größe Count=\"3\" Start=\"1\" N=\"[Index]\"><W/></Größe>\r\n\
                    </Doc>\r\n";
         std::fs::write(&file, src).unwrap();
-        let mut open = resolving(Document::open(&file).unwrap(), "repeat");
+        let mut open = resolving(Document::open(&file).unwrap(), "repeat", &library);
         let root = command::resolve(&open.doc, "/Doc").unwrap();
         open.select(root);
         frames(&mut open, true);
@@ -876,14 +892,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let rules = r#"{"includes": [{"element": "Include", "attribute": "src"}],
                         "contexts": {"Var": {"nearest": "Var", "up_to": "Unit"}}}"#;
-        std::fs::write(dir.join(references::RULES_FILE), rules).unwrap();
+        let library = library(rules);
         let file = dir.join("doc.xml");
         let src = "\u{feff}<Doc>\r\n<Note/>\r\n<Unit>\r\n\
                    <General><Var/><Box><Include src=\"Var:Größe\"/></Box></General>\r\n\
                    <Sub V=\"1\"><Var><Größe>a</Größe></Var></Sub>\r\n\
                    <Sub V=\"2\"><Var><Größe>b</Größe></Var></Sub>\r\n</Unit>\r\n</Doc>\r\n";
         std::fs::write(&file, src).unwrap();
-        let mut open = resolving(Document::open(&file).unwrap(), "sections");
+        let mut open = resolving(Document::open(&file).unwrap(), "sections", &library);
         let include = |o: &Open| command::resolve(&o.doc, "/Doc/Unit/General/Box/Include").unwrap();
         let f12 = |o: &mut Open| {
             let at = include(o);
@@ -949,7 +965,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let rules = r#"{"includes": [{"element": "Include", "attribute": "src"}],
                         "contexts": {"Var": {"nearest": "Var", "up_to": "Unit"}}}"#;
-        std::fs::write(dir.join(references::RULES_FILE), rules).unwrap();
+        let library = library(rules);
         let long = "Größe-".repeat(40);
         let levels: Vec<String> = (0..12).map(|i| format!("Äußere-Ebene-{i}")).collect();
         let mut src = format!("\u{feff}<Doc>\r\n<Unit Name=\"{long}\">\r\n");
@@ -965,7 +981,7 @@ mod tests {
         ));
         let file = dir.join("doc.xml");
         std::fs::write(&file, src).unwrap();
-        let mut open = resolving(Document::open(&file).unwrap(), "wide");
+        let mut open = resolving(Document::open(&file).unwrap(), "wide", &library);
         let path = format!("/Doc/Unit/{}/General/Box", levels.join("/"));
         let at = command::resolve(&open.doc, &path).unwrap();
         open.select(at);
@@ -1001,7 +1017,7 @@ mod tests {
     fn the_preview_fills_its_height() {
         let dir = std::env::temp_dir().join(format!("xml-atlas-tall-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(references::RULES_FILE), RULES).unwrap();
+        let library = library(RULES);
         let mut src = String::from("\u{feff}<Doc>\r\n");
         for i in 0..200 {
             src.push_str(&format!("  <Größe N=\"{i}\"/>\r\n"));
@@ -1009,7 +1025,7 @@ mod tests {
         src.push_str("</Doc>\r\n");
         let file = dir.join("doc.xml");
         std::fs::write(&file, src).unwrap();
-        let mut open = resolving(Document::open(&file).unwrap(), "tall");
+        let mut open = resolving(Document::open(&file).unwrap(), "tall", &library);
         let root = command::resolve(&open.doc, "/Doc").unwrap();
         open.select(root);
 

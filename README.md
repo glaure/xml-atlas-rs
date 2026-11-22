@@ -77,7 +77,7 @@ Version 1.2, for Windows, Linux and macOS. What it does:
   names with how many there are, their attributes and whether they hold text; a click goes
   to the elements. A *Levels* control collapses it to a depth, and Find's match and XPath's
   results mark their boxes; *Export as SVG…* saves it as an image. Also `xml-atlas-cli structure`.
-- References your team defines in a rules file (`xml-atlas-references.json`): go to a
+- References your team defines in rules files you manage in File > Settings: go to a
   reference's target (F12), the ones that find nothing in the problems list, and a preview
   of the selected element with them resolved, as text and as a tree, with repeated elements
   expanded.
@@ -124,9 +124,11 @@ cargo run --release -p xml-atlas-cli -- format file.xml -o out.xml
 ## References
 
 A file can point from one part to another with conventions of its own, such as
-`<Include src="Shared:Parts/*"/>`. Put `xml-atlas-references.json` next to it, or in a folder
-above it, to say what is a reference (`docs/spec/references.md`), and turn on View > Resolve
-references (off by default). Then F12 goes to what the selected reference finds, the ones
+`<Include src="Shared:Parts/*"/>`. A rules file says what is a reference
+(`docs/spec/references.md`). In File > Settings > References import one or make a new one,
+switch it on, fill in *Use for* with the documents it is for (`catalog*.xml`), and turn on
+Resolve references (off by default). Rules files are kept in the configuration folder; one
+lying beside an XML file is not used (until 1.2 it was: import it once). Then F12 goes to what the selected reference finds, the ones
 that find nothing are listed as problems, and View > Preview with references resolved shows
 the selected element with them resolved. The file is never changed.
 

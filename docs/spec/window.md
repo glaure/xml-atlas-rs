@@ -95,7 +95,7 @@ How the views are laid out, and how the window looks.
 - **WIN-11** `[built]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
   font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
-  the grid, the cell pane, references (REF-12) with their preview (REF-5) and its tree (REF-10), word wrap for the tabs not switched with Alt+Z), *Format* (as Edit > Format
+  the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Edit > Format
   options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
   change applies and is saved at once, without OK and Cancel; each section has *Reset to
   defaults*. A test checks that every setting but the recent files and the find options is

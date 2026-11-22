@@ -22,6 +22,7 @@ mod macos_open;
 mod nav;
 mod problems_panel;
 mod ref_preview;
+mod rules_files;
 mod scroll;
 mod settings;
 mod settings_window;

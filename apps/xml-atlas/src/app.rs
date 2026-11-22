@@ -23,6 +23,7 @@ use crate::{problems_panel, tree};
 use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
 use xml_atlas_engine::references::{self, Rules};
+use xml_atlas_engine::rules_folder::Library;
 
 /// Time a frame spends looking at a long grid's rows for columns (GRID-3).
 const GRID_SCAN_TIME: Duration = Duration::from_millis(6);
@@ -66,6 +67,8 @@ pub struct App {
     font_dialog: Option<crate::fonts::FontDialog>,
     /// File > Settings… (WIN-11).
     settings_window: crate::settings_window::SettingsWindow,
+    /// The rules files in the configuration folder (REF-13).
+    rules_files: crate::rules_files::RulesFiles,
     /// The update check under way (PKG-7, D30).
     updates: update::Checker,
     /// What the last update check found, in the status bar until it is closed.
@@ -144,8 +147,10 @@ pub struct Open {
     pub problems: Vec<Problem>,
     /// References are resolved in this tab (REF-12), as the setting says.
     resolve_references: bool,
-    /// The reference rules for this file (REF-1), read when it opened or when references
-    /// were turned on, or why they could not be read; `None` while they are off.
+    /// The rules files and the path the rules below were taken for, to see a change.
+    references_from: Option<(Arc<Library>, Option<PathBuf>)>,
+    /// The reference rules for this file (REF-13), or why they could not be read; `None`
+    /// while references are off or no file is for it.
     pub references: Option<Result<(PathBuf, Arc<Rules>), String>>,
     /// References that find nothing, as of the last check.
     reference_problems: Vec<Problem>,
@@ -331,6 +336,9 @@ impl App {
             help: Default::default(),
             font_dialog: None,
             settings_window: Default::default(),
+            rules_files: crate::rules_files::RulesFiles::new(
+                crate::settings::path().as_deref().and_then(Path::parent),
+            ),
             updates: Default::default(),
             update_notice: None,
             agent: None,
@@ -426,11 +434,13 @@ impl App {
             .docs
             .iter()
             .filter_map(|o| o.doc.path.clone())
+            .chain(self.rules_files.watched().iter().cloned())
             .collect();
         let new_list = self.disk_watch.watch(paths);
         if !(self.disk_watch.take_changed() || new_list) {
             return;
         }
+        self.rules_files.refresh();
         for open in self.docs.iter_mut() {
             if !self.loading.iter().any(|l| l.reload == Some(open.id)) {
                 open.disk = open.doc.disk_change();
@@ -498,13 +508,21 @@ impl App {
 
     /// Shows `doc` in a new tab.
     fn add_document(&mut self, doc: Document) {
+        let rules = self.rules_in_use();
         crate::agent::add_tab(
             &mut self.docs,
             &mut self.next_id,
             self.settings.tree_attributes,
-            self.settings.references,
+            rules.as_ref(),
             doc,
         );
+    }
+
+    /// The rules files while references are on (REF-12).
+    fn rules_in_use(&self) -> Option<Arc<Library>> {
+        self.settings
+            .references
+            .then(|| self.rules_files.library().cloned().unwrap_or_default())
     }
 
     /// Lets agents in while View > Allow AI agents (MCP) is on, and runs their calls on the
@@ -542,7 +560,10 @@ impl App {
                 docs: &mut self.docs,
                 next_id: &mut self.next_id,
                 tree_attributes: self.settings.tree_attributes,
-                references: self.settings.references,
+                references: self
+                    .settings
+                    .references
+                    .then(|| self.rules_files.library().cloned().unwrap_or_default()),
             };
             let result = xml_atlas_mcp::call(&mut docs, &request.tool, &request.arguments);
             let changes = xml_atlas_mcp::tools()
@@ -1549,9 +1570,13 @@ impl App {
             return;
         }
         let before = self.settings.clone();
-        let request = self
-            .settings_window
-            .show(ctx, &mut self.settings, self.updates.running());
+        let rules = crate::settings_window::RulesList {
+            files: &mut self.rules_files,
+            document: self.docs.active().and_then(|o| o.doc.path.as_deref()),
+        };
+        let request =
+            self.settings_window
+                .show(ctx, &mut self.settings, rules, self.updates.running());
         if self.settings.tree_attributes != before.tree_attributes {
             // A view setting: for every tab, as View > Attributes in the tree does.
             for open in self.docs.iter_mut() {
@@ -1965,8 +1990,14 @@ impl eframe::App for App {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         self.update_title(&ctx);
         // After the menu and Settings, where it is switched, and before the views.
+        let needed = self.settings.references || self.settings_window.shows_references();
+        self.rules_files.update(&ctx, needed);
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.rules_files.flush();
+        }
+        let library = self.rules_in_use();
         for open in self.docs.iter_mut() {
-            open.set_references(self.settings.references);
+            open.set_references(library.as_ref());
         }
 
         let Some(open) = self.docs.active_mut() else {
@@ -2133,6 +2164,7 @@ impl Open {
             scroll_text_to: None,
             problems: Vec::new(),
             resolve_references: false,
+            references_from: None,
             references: None,
             reference_problems: Vec::new(),
             references_due: None,
@@ -2172,24 +2204,42 @@ impl Open {
         self.resolve_references
     }
 
-    /// Turns references on or off (REF-12); nothing when they already are. On, the rules
-    /// file is looked for and read, and the references are checked. Off, what came from it
+    /// Takes the rules for this tab from `library`; `None` while references are off
+    /// (REF-12). Cheap when neither it nor the path changed. Off, what came from the rules
     /// goes: the problems, the preview and the sections chosen in it.
-    pub fn set_references(&mut self, on: bool) {
-        if self.resolve_references == on {
+    pub fn set_references(&mut self, library: Option<&Arc<Library>>) {
+        let same = match (library, &self.references_from) {
+            (None, None) => true,
+            (Some(new), Some((from, path))) => Arc::ptr_eq(new, from) && *path == self.doc.path,
+            _ => false,
+        };
+        if same {
             return;
         }
-        self.resolve_references = on;
-        self.references = if on {
-            self.doc.path.as_deref().and_then(load_rules)
-        } else {
-            None
+        self.references_from = library.map(|l| (Arc::clone(l), self.doc.path.clone()));
+        let rules = library
+            .and_then(|l| l.for_document(self.doc.path.as_deref()))
+            .map(|entry| match &entry.rules {
+                Ok(rules) => Ok((entry.path.clone(), Arc::clone(rules))),
+                Err(e) => Err(format!("{}: {e}", entry.path.display())),
+            });
+        let on = library.is_some();
+        if on == self.resolve_references && rules == self.references {
+            return;
+        }
+        let file = |rules: &Option<Result<(PathBuf, Arc<Rules>), String>>| match rules {
+            Some(Ok((file, _))) => Some(file.clone()),
+            _ => None,
         };
+        // Sections chosen under one file's rules mean nothing under another's.
+        if !on || file(&rules) != file(&self.references) {
+            self.reference_choices.clear();
+            self.expand_repeats = None;
+        }
+        self.resolve_references = on;
+        self.references = rules;
         self.reference_preview = None;
         self.reference_sections = None;
-        if !on {
-            self.reference_choices.clear();
-        }
         self.check_references();
     }
 
@@ -2677,22 +2727,6 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// What happened to the file, after its name.
-/// The reference rules for a document at `path` (REF-1): the rules file next to it or above
-/// it, if there is one.
-fn load_rules(path: &Path) -> Option<Result<(PathBuf, Arc<Rules>), String>> {
-    let file = Rules::find(&std::path::absolute(path).ok()?)?;
-    Some(match Rules::read(&file) {
-        Ok(rules) => {
-            log::info!("reference rules from {}", file.display());
-            Ok((file, Arc::new(rules)))
-        }
-        Err(e) => {
-            log::warn!("reference rules in {}: {e}", file.display());
-            Err(format!("{}: {e}", file.display()))
-        }
-    })
-}
-
 fn disk_text(change: DiskChange) -> &'static str {
     match change {
         DiskChange::Changed => "changed on disk",
@@ -2921,18 +2955,31 @@ mod tests {
         assert_eq!(name(vec![0, 5]), "r");
     }
 
+    /// A library with one file, on, for `use_for`.
+    fn library_of(rules: &str, use_for: &str) -> Arc<Library> {
+        Arc::new(Library {
+            entries: vec![xml_atlas_engine::rules_folder::Entry {
+                name: "rules.json".into(),
+                path: "rules.json".into(),
+                on: true,
+                use_for: use_for.into(),
+                rules: Rules::parse(rules).map(Arc::new).map_err(|e| e.to_string()),
+            }],
+            error: None,
+        })
+    }
+
     /// REF-12: a file opens without its rules. Turned on, its references are checked and F12
     /// works; turned off, all that goes again, and typing does not bring it back.
     #[test]
     fn references_resolve_only_while_switched_on() {
         let dir = std::env::temp_dir().join(format!("xml-atlas-ref-12-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(references::RULES_FILE),
+        let library = library_of(
             r#"{"includes": [{"element": "Include", "attribute": "src"}],
                 "contexts": {"Shared": {"path": "/Doc/Shared"}}}"#,
-        )
-        .unwrap();
+            "größe.xml",
+        );
         let src = "\u{feff}<Doc>\r\n<Shared><Größe/></Shared>\r\n\
                    <Include src=\"Shared:Größe\"/>\r\n<Include src=\"Shared:Fehlt\"/>\r\n</Doc>";
         let file = dir.join("größe.xml");
@@ -2955,7 +3002,7 @@ mod tests {
         assert!(note.refused && note.text.contains("References are off"));
         assert_eq!(open.selected, Some(site));
 
-        open.set_references(true);
+        open.set_references(Some(&library));
         assert!(open.rules().is_some());
         assert_eq!(open.problems.len(), 1);
         crate::ref_preview::go_to_target(&mut open);
@@ -2965,7 +3012,7 @@ mod tests {
             "/Doc/Shared/Größe"
         );
 
-        open.set_references(false);
+        open.set_references(None);
         assert!(open.references.is_none() && open.problems.is_empty());
         assert!(open.reference_preview.is_none());
         let at = src.find("</Doc>").unwrap();
@@ -2975,11 +3022,27 @@ mod tests {
         open.settle();
         assert!(open.problems.is_empty());
 
-        // On again reads the rules again, as they are now (REF-1).
-        std::fs::write(dir.join(references::RULES_FILE), r#"{"includes": []}"#).unwrap();
-        open.set_references(true);
+        // Changed rules are taken at once; for another document's, none are (REF-13).
+        open.set_references(Some(&library));
+        assert_eq!(open.problems.len(), 1);
+        let changed = library_of(r#"{"includes": []}"#, "größe.xml");
+        open.set_references(Some(&changed));
         assert!(open.rules().is_some_and(|r| r.is_empty()));
         assert!(open.problems.is_empty());
+        open.set_references(Some(&library));
+        assert_eq!(open.problems.len(), 1);
+        open.set_references(Some(&library_of("{}", "other.xml")));
+        assert!(open.references.is_none() && open.problems.is_empty());
+        assert!(open.resolves_references());
+        // A rules file beside the document is no longer used (D41).
+        std::fs::write(dir.join("xml-atlas-references.json"), "{}").unwrap();
+        open.set_references(Some(&Arc::default()));
+        assert!(open.references.is_none());
+        // Saved under another name, the rules follow it.
+        open.set_references(Some(&library));
+        open.doc.path = Some(dir.join("other.xml"));
+        open.set_references(Some(&library));
+        assert!(open.references.is_none() && open.problems.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
