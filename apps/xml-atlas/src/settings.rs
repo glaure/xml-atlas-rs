@@ -79,6 +79,10 @@ pub struct Settings {
     pub find: FindOptions,
     /// Recently opened files, newest first, at most [`RECENT_FILES`] (OPEN-12).
     pub recent: Vec<PathBuf>,
+    /// The window's size, and whether it was maximized (WIN-3).
+    pub window: crate::sizes::Window,
+    /// The panes' shares (WIN-3).
+    pub panes: crate::sizes::Panes,
 }
 
 impl Default for Settings {
@@ -104,6 +108,8 @@ impl Default for Settings {
             update_shown: None,
             find: FindOptions::default(),
             recent: Vec::new(),
+            window: Default::default(),
+            panes: Default::default(),
         }
     }
 }
@@ -219,7 +225,12 @@ impl Settings {
              whole_word = {}\n\
              \n\
              [recent]\n\
-             files = [\n{}]\n",
+             files = [\n{}]\n\
+             \n\
+             [window]\n\
+             {}\n\
+             [panes]\n\
+             {}",
             f.indent_size,
             f.tabs,
             f.max_attributes,
@@ -258,6 +269,8 @@ impl Settings {
                 .filter_map(|p| p.to_str())
                 .map(|p| format!("    {},\n", quote(p)))
                 .collect::<String>(),
+            self.window.to_text(),
+            self.panes.to_text(),
         )
     }
 
@@ -385,6 +398,8 @@ impl Settings {
                 ),
                 ("find", "match_case") => set(&mut s.find.match_case, boolean(value)),
                 ("find", "whole_word") => set(&mut s.find.whole_word, boolean(value)),
+                ("window", _) => s.window.read(key, value),
+                ("panes", _) => s.panes.read(key, value),
                 _ => false,
             };
             if !ok {
@@ -499,6 +514,17 @@ mod tests {
                 PathBuf::from("/home/me/Größe \"quoted\".xml"),
                 PathBuf::from(r"C:\Users\me\orders [2].xml"),
             ],
+            window: crate::sizes::Window {
+                width: 1437,
+                height: 911,
+                maximized: true,
+            },
+            panes: {
+                let mut panes = crate::sizes::Panes::default();
+                assert!(panes.read("tree", "0.3125"));
+                assert!(panes.read("xpath-results", "0.0712"));
+                panes
+            },
         };
         assert_eq!(Settings::from_text(&s.to_text()), s);
         assert_eq!(

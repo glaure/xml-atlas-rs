@@ -102,6 +102,7 @@ impl Section {
                 settings.toolbar = d.toolbar;
             }
             Section::Views => {
+                settings.panes = d.panes;
                 settings.layout = d.layout;
                 settings.tree_attributes = d.tree_attributes;
                 settings.grid = d.grid;
@@ -362,7 +363,7 @@ mod tests {
 
     use super::*;
 
-    /// Every setting but the recent files, the find options and what the update check
+    /// Every setting but the window's size, the recent files, the find options and what the update check
     /// remembers is in a section, and every
     /// section resets something, so resetting all sections gives the defaults. Naming every field without `..` makes a new
     /// setting fail to compile here until it is given a section.
@@ -403,6 +404,15 @@ mod tests {
                 whole_word: true,
             },
             recent: vec![PathBuf::from("/home/me/Größe.xml")],
+            window: crate::sizes::Window {
+                maximized: true,
+                ..Default::default()
+            },
+            panes: {
+                let mut panes = crate::sizes::Panes::default();
+                assert!(panes.read("tree", "0.3"));
+                panes
+            },
         };
         let mut reset = changed.clone();
         for section in Section::ALL {
@@ -411,6 +421,7 @@ mod tests {
             assert_ne!(before, reset, "{section:?} resets nothing");
         }
         let expected = Settings {
+            window: changed.window,
             update_last: changed.update_last,
             update_shown: changed.update_shown,
             find: changed.find,

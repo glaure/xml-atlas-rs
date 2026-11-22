@@ -24,6 +24,16 @@ How the views are laid out, and how the window looks.
   whenever a setting changes, and not before; it is readable TOML. A missing file gives the
   defaults; a line that cannot be read is skipped, with a warning in the log, and the others
   still count.
+
+  Also remembered (D38): the window's size and whether it was maximized (on macOS the size
+  only; never its position, which Wayland does not tell), and each pane's share of the room
+  it has, per layout for the grid and the diagram. A share changes only when its border is
+  dragged, so neither what a pane holds nor a smaller window changes it, and a pane keeps its
+  share when the window changes its size. The tree is 320 points wide until it is dragged.
+  The problems and XPath results are never higher than their rows need. View > *Reset layout*,
+  and Settings > Views > *Reset to defaults*, give the panes their first sizes again and
+  leave the window as it is. A change of the window is written a second after it stops, or
+  at exit.
 - **WIN-2** `[done]` Light and dark theme. View > Theme chooses *Follow system* (the default),
   *Light* or *Dark*; the choice is remembered (WIN-3) and takes effect at once. Text colours
   (TEXT-2), tree icons (TREE-11), highlights, grid hatching and problem markers follow it.
@@ -116,6 +126,9 @@ How the views are laid out, and how the window looks.
 
 - Choose Text above grid, turn off View > Attributes in the tree, choose Tabs in Edit > Format
   options, quit, start again: all three are as chosen.
+- Drag the tree's, the grid's and the preview's borders, resize the window, quit, start again:
+  all four are as left. Maximize, quit, start again: maximized, and un-maximizing gives the
+  size from before. View > Reset layout: the panes' first sizes, the window unchanged.
 - Open a file with problems, choose View > Layout > Text above grid: text on top, the
   problems list under it, the grid at the bottom; the selection is unchanged. Choose Grid above
   text: back as before.

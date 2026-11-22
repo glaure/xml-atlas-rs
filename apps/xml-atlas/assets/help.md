@@ -164,4 +164,5 @@ updates now asks at once and also says when you have the latest version. Turn th
 check off in File > Settings > Updates.
 
 The layout, theme, view options, text font, format options and recent files are remembered in
-`xml-atlas/settings.toml` in the system's configuration folder.
+`xml-atlas/settings.toml` in the system's configuration folder. So are the sizes of the
+window and of the panes; View > Reset layout gives the panes their first sizes again.
