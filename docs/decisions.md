@@ -1229,7 +1229,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   result, not XML Atlas resolving the file the way that program does.
 - **Decided (owner, 2026-11-18):**
   - Generic rules in a file the user keeps, `xml-atlas-references.json` next to the document
-    or in a folder above it: which elements and attributes are references, where each named
+    or in a folder above it (superseded by D41: in the app's configuration folder): which elements and attributes are references, where each named
     context is, which contexts exist only at run time (REF-1). XML Atlas holds no team's
     names or rules; the repository is public, and the conventions belong to their owners.
   - Go to target (F12), references that find nothing in the problems list, and the preview
@@ -1578,11 +1578,274 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - The PNG of the whole diagram stays unbuilt, as decided; a browser or an image program
     makes one from the SVG. Checked once by rendering a sample with Inkscape.
 
+## D37: The menus, next to XML Marker 2.2's
+
+- **Problem:** the owner asks how the menus compare with XML Marker 2's and how they could be
+  easier to use. XML Marker's are known from what was observed (XM-61; XM-2 and XM-3 for
+  1.1), ours from the code.
+- **Compared:**
+
+  | Menu | XML Marker 2.2 | XML Atlas | What follows |
+  |---|---|---|---|
+  | File | New in four kinds, Open, Save, Save As, with Encoding, Exit | New, Open, Open Recent, Save, Save As, Save as UTF-8, Close, Settings, Quit | Ours is complete for XML. *Save as UTF-8* comes and goes with the file; Quit has no key |
+  | Edit | Undo, Redo, clipboard, Delete, Select All, Find, Replace | The same without Delete, and XPath, Format, Compact, Format options | Three jobs in one menu: editing, querying, reformatting |
+  | View | 6 entries, all about what is shown | 16 entries and 2 headings, in no order by pane | The hardest menu to scan |
+  | Options | Font, Indent, consolidation, wheel, Tabs, Parse as, Encoding | None; File > Settings (D31) | Ours is better: one window |
+  | Navigate | Drill Up and Down, Locate in tree, Indent, Reparse, four bookmark commands | None | Drill Up and Down are on the toolbar and keys only |
+  | Help | Documentation, What's new, updates, About | Help, updates, About | Enough |
+
+- **What is hard to find or wrong today:**
+  1. In no menu of the menu bar: Drill Up and Down, Find next and previous, the next and
+     previous tab, Go to reference target, and Rename, Duplicate, Delete and Move of an
+     element (right-click or keys only).
+  2. Keys are typed into the labels with spaces, so they do not line up, and on macOS they
+     say Ctrl where Cmd is meant.
+  3. Grid and Diagram are two checkboxes for one place: with Diagram on, Grid is greyed out
+     in View but not in Settings. The cell pane's checkbox differs in the same way.
+  4. *Word wrap* in View may change one tab (TEXT-23), in Settings every tab, under one name.
+- **Proposed:** six menus. `>` is a submenu, `|` a separator.
+
+  ```text
+  File      New  Open  Open Recent>  | Save  Save As  Save as UTF-8 | Close | Settings | Quit
+  Edit      Undo  Redo | Cut  Copy  Paste  Select All
+            | Find  Find next  Find previous  Find in element  Replace
+            | Element> (Rename  Duplicate  Delete  Move up  Move down)
+  View      Layout> | Grid  Diagram  Cell pane | Attributes in the tree  Collapse the tree
+            | Word wrap | Toolbar  Font  Theme>
+  Navigate  Drill Up  Drill Down | Go to reference target | Next tab  Previous tab
+            (later: Go to line, bookmarks)
+  Tools     XPath | Format  Compact  Format options
+            | References> (Resolve references  Preview  Preview tree  Rules files)
+  Help      XML Atlas Help | Check for updates now | About
+  ```
+
+  - An entry that does not apply is greyed out, with the reason on hover; it does not vanish.
+  - Keys are set with `Button::shortcut_text` from the same constants that handle them, so
+    they align and read Cmd on macOS.
+  - Grid and Diagram exclude each other, in View and Settings alike; both off is no pane.
+  - Two new keys: Ctrl+Q for Quit and Ctrl+I for Format (Indent in XM-3); both are free.
+  - The toolbar and all existing keys stay.
+- **Not taken from XML Marker:** an Options menu (D31); Indent under Navigate, where nobody
+  looks for a command that changes the file; Locate in tree (WIN-5); Reparse (XM-72).
+- **Order of work:** (1) aligned keys and the disagreements 3 and 4, with no entry moved;
+  (2) Navigate and Edit > Element; (3) Tools and the shorter View; help and README with each.
+- **Questions for the owner:**
+  1. The six menus? Proposed: yes.
+  2. References whole under Tools, instead of in View as now? Proposed: yes.
+  3. Ctrl+Q and Ctrl+I? Proposed: yes.
+- **Decided (owner, 2026-11-22):** as proposed. The six menus, References whole under
+  Tools, Ctrl+Q and Ctrl+I, in the order of work above. Not built yet.
+
+## D38: The layout options, next to XML Marker 2.2's
+
+- **Problem:** the same comparison for the layout. What is known of XML Marker's: the four
+  panes of 1.1 (XM-1) and 2.2's View menu and Stat panel (XM-61, XM-63). Whether 2.2 can
+  move or remember panes was not observed.
+- **Compared:**
+
+  | | XML Marker | XML Atlas |
+  |---|---|---|
+  | Tree | Top left | Left, full height |
+  | Clicked cell | Bottom left, under the tree, can be hidden | Right of the grid, taking 35 % of its width |
+  | Text and grid | Text above grid | The same, or grid above text |
+  | Errors | A tab beside the tree, with the count | A pane under the text; cannot be closed |
+  | Diagram, preview | None | Diagram in the grid's place; preview and its tree right of the text |
+  | Switches | Toolbar, status bar, line numbers, browser, Stat | Layout, grid, diagram, cell pane, preview, its tree, toolbar |
+
+- **Measured** (the app's own layout run headless, default sizes, one problem listed when
+  references are on), the text view in points:
+
+  | Window | Plain | With preview | With preview and its tree |
+  |---|---|---|---|
+  | 1280 × 820 | 918 × 369 | 493 × 311 | 389 × 311 |
+  | 1920 × 1080 | 1558 × 512 | 845 × 464 | 671 × 454 |
+
+  With both reference panes the text keeps 42 % of its width.
+- **A defect:** window and pane sizes are lost on exit. D31 says egui keeps them, but
+  `eframe` is built without its `persistence` feature, so nothing does.
+- **Proposed, most useful first:**
+  1. **Remember sizes:** the window's size and maximized state, and each pane's share, in
+     `settings.toml`, with *Reset layout*. Not through eframe's feature: it stores all of
+     egui's memory, scroll areas included, and adds a second settings file.
+  2. **Preview position:** *right* (as now) or *in the grid's place*, where it has the full
+     width and the text keeps its own.
+  3. **Text, Tree or Both** in the preview's header, instead of a second switch in a menu.
+     Tree alone is not possible today.
+  4. **Cell pane position:** beside the grid (as now) or under the tree, as in XML Marker.
+  5. **Problems fold** to their header with the counts, remembered, so warnings do not cost
+     text lines all the time.
+  6. **Every optional pane has a close button,** which switches the same setting as View.
+  7. **Maximize a pane** by a double-click on its header and back; F6 and Shift+F6 move the
+     keyboard between tree, text and grid.
+  8. **Pictures in Settings > Views** for the layouts, drawn as the themes' are (WIN-12).
+- **Not chosen:** free docking (a new dependency, and many states to test, for a need these
+  options cover); hiding the status bar (one line, and it carries the errors).
+- **Questions for the owner:**
+  1. 1 first, as a fix of its own? Proposed: yes.
+  2. Which of 2 to 8? Proposed: 2, 3, 5 and 6 next; 4, 7 and 8 later.
+- **Decided (owner, 2026-11-22):** as proposed. 1 first, as a fix of its own; then 2, 3, 5
+  and 6; 4, 7 and 8 later. Not built yet.
+
+## D39: Help with editing the rules file
+
+- **Changed by D41 (owner, 2026-11-22):** the check and the editor stand. They work on the
+  files in the configuration folder and are opened from Settings > References, not from
+  *References > Edit rules*.
+- **Problem:** the rules file (REF-1) is written by hand from the spec, and its mistakes are
+  silent. Tried with `xml-atlas-cli references`:
+
+  | Mistake | What happens today |
+  |---|---|
+  | `include` for `includes` | No error, 0 references |
+  | An element name misspelt | No error, 0 references |
+  | Some other JSON file | Accepted as rules, 0 references |
+  | A key given twice | The last wins, no warning |
+  | `enabeld` for `enabled` | Ignored, the rule stays on |
+  | A byte order mark | "expected value at line 1 column 1" |
+  | A trailing comma | An error with line and column: good |
+
+- **Proposed:** help around the text of the file, in four steps, each a pull request.
+  1. **A check in the engine** (`references::check`): syntax errors with line and column,
+     unknown keys with the nearest known one, keys given twice, and per rule how many places
+     in the document it matches, with those that match nothing marked. A byte order mark is
+     accepted. `xml-atlas-cli references --check` prints the same (rule 4 of AGENTS.md).
+  2. **Which rules are in use:** the preview's header names the file and the check's result.
+     A change of the file on disk is read again (the watch of OPEN-14).
+  3. **References > Edit rules:** a window with the file's text, the check beside it as one
+     types, and Save (atomic; byte order mark and line endings kept; asks when the file
+     changed on disk). Without a file it offers to create an empty one; the help gets an
+     explained example, as JSON has no comments. *Insert* adds a template of each kind of
+     rule at the cursor.
+  4. **Rules from the selection:** on an element, *Make this an include* (asks for the
+     attribute) and *Make this a context* (by path, or nearest up to a chosen ancestor). It
+     inserts text and shows it before saving. A JSON Schema in the repository gives other
+     editors completion.
+- **Not chosen:**
+  - A form that reads and writes the JSON: it would lose the user's layout and key order
+    (rule 7 of AGENTS.md).
+  - The file as a normal tab: tabs, tree and grid are for XML; a JSON document kind is a
+    roadmap item of its own.
+  - YAML or TOML for the sake of comments: a second format for one file.
+- **Tests:** each mistake above gives its message, in a file with a byte order mark, CRLF
+  and non-ASCII names; saving an unchanged file leaves its bytes; opening a document costs
+  nothing more while references are off.
+- **Questions for the owner:**
+  1. The four steps, in this order? Proposed: yes; 1 and 2 already remove the silent cases.
+  2. A window, as proposed, or a pane in the preview's place? Proposed: a window.
+- **Decided (owner, 2026-11-22):** as proposed. The four steps in this order, the editor
+  as a window. Not built yet.
+
+## D40: The rules file under another name
+
+- **Superseded by D41 (owner, 2026-11-22), before it was built:** there is no search beside
+  or above the document any more, so no name to look for and no `format` line. The defect
+  below goes with the search.
+- **Problem:** the owner wants rules named after their document, `catalog.json` for
+  `catalog.xml`, instead of `xml-atlas-references.json`.
+- **A defect to fix first:** the search walks the path as given. Opened as
+  `../other/doc.xml` from a folder with rules, a document gets that folder's rules although
+  they are neither beside nor above it (tried with the CLI). On Linux and macOS
+  `std::path::absolute` keeps `..`. The search must start from the resolved path.
+- **Proposed:** the first that exists wins.
+  1. A file chosen for this document with *References > Rules file > Choose*, remembered
+     for this user until *Use the automatic one*. Any name, any folder.
+  2. In the document's folder, then each folder above, the nearest folder winning:
+     1. `<name>.json`, the document's name with `.json` for its last extension, **only if**
+        it contains `"format": "xml-atlas-references"`;
+     2. `xml-atlas-references.json`, as today, which needs no such line.
+
+  ```json
+  {
+    "format": "xml-atlas-references",
+    "includes": [{"element": "Include", "attribute": "src"}]
+  }
+  ```
+
+  - The line is needed because any JSON object passes as rules today: without it an
+    unrelated `catalog.json` would silently replace the real rules.
+  - A document of the same name in a subfolder finds the same file, as it does today.
+  - Colleagues and the CLI need no setting. The engine does the search for both; `--rules`
+    still names a file outright.
+- **How the user changes the name:** *References > Rules file > Name after this document*
+  shows old and new name, adds the `format` line and renames after a confirmation; it never
+  replaces an existing file. By hand: add the line and rename. A 1.2 program ignores the
+  line, but does not look for the new name.
+- **Until it is built:** `ln -s catalog.json xml-atlas-references.json` in that folder works
+  with 1.2 (tried), and `xml-atlas-cli references FILE --rules catalog.json` takes any name.
+- **Order of work:** (1) the defect, with a test that fails without the fix; (2) the named
+  file, in the engine, the CLI and the window; (3) Choose and Name after this document.
+- **Not chosen:**
+  - Any `<name>.json` without the line: see above.
+  - A setting for the file's name: every colleague and the CLI would have to set it too.
+  - `<name>.references.json`: needs no line, but is not the name asked for.
+  - A processing instruction in the XML that names the rules: it changes the document.
+- **Questions for the owner:**
+  1. The required `format` line? Proposed: yes.
+  2. For a document opened through a symbolic link, search from the link's target? Proposed:
+     yes, as Open Recent already stores the target.
+- **Decided (owner, 2026-11-22):** as proposed. The `format` line is required
+  for a file named after its document; the search starts from a symbolic link's target.
+  Not built yet.
+
+## D41: Rules files in the app's configuration folder
+
+- **Problem:** the owner, later on 2026-11-22: finding rules beside or above the document is
+  too implicit, and it means deploying JSON files into other repositories. They want the
+  files in the app's configuration folder, a list of them in Settings, each switched on and
+  off, and each editable there.
+- **Measured** (the owner's rules on about 1,160 XML files of one source tree): of the five
+  files with the document's name, four resolve and one, of another structure, gets only
+  false warnings. A general `attribute_references` rule reports `[A1:B9]` and `[12:30]` in
+  an unrelated document as broken references. So "every active file applies to every
+  document" is not enough, and neither is the document's name alone.
+- **Decided (owner, 2026-11-22):**
+  1. **The folder:** `references/` beside `settings.toml` in the configuration folder, one
+     JSON file per set of rules, in the format of REF-1.
+  2. **The list:** Settings > References shows every file with a checkbox, *Use for*, its
+     error if it has one, and *Edit*; and New, Import (a copy), Duplicate, Rename, Delete
+     and Open folder.
+  3. **Which file applies:** one that is switched on and whose *Use for* matches the
+     document. An empty *Use for* matches nothing, `*` every document. Of several, the upper
+     one wins, and the preview's header names the file in use. Files are never combined.
+  4. **The search beside and above the document is removed,** without a fallback. The CLI
+     uses the same list, or the file given with `--rules`. The release notes say to import
+     the file once.
+  5. **Editing:** the check and the editor window of D39.
+- **How:**
+  - *Use for* holds patterns separated by `;`. `*` stands for any characters, folders
+    included, `?` for one. A pattern without `/` is compared with the file's name, one with
+    `/` with the end of its resolved path from a folder's start: `catalog*.xml`,
+    `*/XML/*catalog.xml`.
+  - The switches, patterns and order are kept in `references.json` beside the folder, not
+    in `settings.toml`, which an older XML Atlas rewrites without the keys it does not know,
+    and not in the rules files, whose bytes are the user's.
+  - The engine does the folder, the matching and the check; the window and the CLI call it.
+  - A file that is new in the folder is off until the user switches it on. With references
+    off (REF-12) the window reads none of this until Settings > References is shown.
+- **Order of work, a pull request each:** (1) the folder, the list, the matching, import,
+  and the end of the search; (2) the check and the editor.
+- **Not chosen:**
+  - Every active file for every document: see above.
+  - A choice per document: each copy and checkout would need its own.
+  - The old search as an option, or only to offer an import: a second mechanism to keep.
+- **Cost accepted:** a team that shares its rules through git imports them on each machine,
+  and again when they change.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D41 (owner, 2026-11-22), replacing D40: rules files in the configuration folder, each
+switched on and off, with a *Use for* pattern; the search beside and above the document is
+removed; the folder and list first, then the editor.
+
+About D37 to D40 (owner, 2026-11-22), all as proposed: six menus with References under Tools,
+Ctrl+Q and Ctrl+I; remembered sizes first, then the preview's position, Text/Tree/Both,
+folding problems and close buttons; a check of the rules file before its editor window; a
+rules file named after its document needs a `format` line, and the search starts from a
+link's target.
 
 About D36, the structure diagram (owner, 2026-11-20): one box per path with counts, not one
 per element; in place of the grid, the text staying in view; name, count, attributes and text in a box; SVG export
