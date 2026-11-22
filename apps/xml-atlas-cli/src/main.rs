@@ -10,6 +10,7 @@ use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use xml_atlas_engine::command::{self, CommandError};
 use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
+use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::references::{self, Resolution, Rules};
 use xml_atlas_engine::rules_folder::RulesFolder;
 use xml_atlas_engine::structure::{MAX_PATHS, PathId, Structure};
@@ -115,6 +116,9 @@ enum Command {
         /// Print at most this many references that find nothing; all are counted.
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// Check the rules file itself, against FILE (REF-14); fails when it has an error.
+        #[arg(long)]
+        check: bool,
     },
     /// Print an element with its references resolved (REF-5), as XML Atlas previews it.
     Preview {
@@ -276,7 +280,15 @@ fn main() -> anyhow::Result<()> {
             };
             edit(target, |d, id| command::move_element(d, id, direction))
         }
-        Command::References { file, rules, limit } => check_references(&file, rules, limit),
+        Command::References {
+            file,
+            rules,
+            check: true,
+            ..
+        } => check_rules(&file, rules),
+        Command::References {
+            file, rules, limit, ..
+        } => check_references(&file, rules, limit),
         Command::Preview {
             file,
             path,
@@ -519,12 +531,18 @@ fn structure(file: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The rules for `file`: from `rules`, or the file Settings > References uses for it
-/// (REF-13). View > Resolve references does not count here (REF-12).
+/// The rules for `file`, with their file.
 fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, Rules)> {
+    let path = rules_path(file, rules)?;
+    let rules = Rules::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    Ok((path, rules))
+}
+
+/// The rules file for `file`: `rules`, or the one Settings > References uses for it
+/// (REF-13). View > Resolve references does not count here (REF-12).
+fn rules_path(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     if let Some(path) = rules {
-        let rules = Rules::read(&path).with_context(|| format!("reading {}", path.display()))?;
-        return Ok((path, rules));
+        return Ok(path);
     }
     let settings =
         xml_atlas_mcp::bridge::settings_file().context("there is no configuration folder")?;
@@ -541,10 +559,35 @@ fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, R
             file.display()
         )
     })?;
-    match &entry.rules {
-        Ok(rules) => Ok((entry.path.clone(), Rules::clone(rules))),
-        Err(e) => anyhow::bail!("reading {}: {e}", entry.path.display()),
+    Ok(entry.path.clone())
+}
+
+/// `references --check` (REF-14), the same check as the rules editor's.
+fn check_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<()> {
+    let path = rules_path(file, rules)?;
+    let doc = Document::open(file).with_context(|| format!("opening {}", file.display()))?;
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let report = references::check::check(&text, Some(&doc));
+    for f in &report.findings {
+        let kind = match f.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        };
+        let (line, column) = (f.line, f.column);
+        println!("{}:{line}:{column}: {kind}: {}", path.display(), f.message);
     }
+    for c in &report.counts {
+        println!("{:>8}  {}", c.places, c.rule);
+    }
+    let errors = report.errors();
+    let warnings = report.findings.len() - errors;
+    println!(
+        "{errors} error(s), {warnings} warning(s) in {}",
+        path.display()
+    );
+    anyhow::ensure!(errors == 0, "the rules have errors");
+    Ok(())
 }
 
 /// References (REF-4), the same check as the GUI's problems list.

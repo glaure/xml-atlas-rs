@@ -74,6 +74,13 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
   on and say in Use for which documents it is for: `catalog*.xml` by name, `*/XML/*catalog.xml`
   by path, `*` for every document. Of several for one document the upper one is used.
 - A rules file lying beside an XML file is not used: import it.
+- Edit (in that list) or Edit rules (in the preview) opens a rules file with a check below
+  it: mistakes with their line, and how often each rule matches in the document shown.
+  Insert adds a template at the cursor; Ctrl+S in the text saves the rules, not the document.
+- An example: `{"includes": [{"element": "Include", "attribute": "src"}], "contexts":
+  {"Shared": {"path": "/Doc/Shared"}}}` makes `<Include src="Shared:Parts"/>` stand for the
+  `Parts` inside `/Doc/Shared`. `includes` names the elements that are references and the
+  attribute that says where to; `contexts` gives the names before the colon a place.
 - Then F12 goes to what the selected reference finds, and references that find nothing are
   listed as problems.
 - View > Preview with references resolved shows the selected element resolved; Preview tree

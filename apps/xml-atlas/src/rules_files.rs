@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 use egui::{RichText, Ui};
 use xml_atlas_engine::rules_folder::{Entry, FolderError, Library, RulesFolder, applies, resolved};
 
+use crate::app::Open;
+use crate::rules_editor::RulesEditor;
+
 /// Typing in Use for is written after this pause, or when the field is left.
 const PAUSE: Duration = Duration::from_millis(700);
 /// Width of a Use for field.
@@ -41,6 +44,7 @@ pub struct RulesFiles {
     error: Option<String>,
     /// The shown document's path, and where it really is.
     shown: Option<(PathBuf, PathBuf)>,
+    editor: RulesEditor,
 }
 
 /// A Use for being typed.
@@ -59,6 +63,7 @@ enum Asked {
 /// A command of the list.
 enum Command {
     On(String, bool),
+    Edit(String),
     Move(String, bool),
     New,
     Import,
@@ -102,6 +107,7 @@ impl RulesFiles {
         if self.library.is_some() {
             self.reload();
         }
+        self.editor.refresh();
     }
 
     pub fn library(&self) -> Option<&Arc<Library>> {
@@ -110,6 +116,37 @@ impl RulesFiles {
 
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
+    }
+
+    /// Whether the editor needs the folder watched.
+    pub fn is_editing(&self) -> bool {
+        self.editor.is_open()
+    }
+
+    /// Whether the editor has changes that are not saved.
+    pub fn has_unsaved(&self) -> bool {
+        self.editor.is_modified()
+    }
+
+    pub fn may_quit(&mut self) -> bool {
+        self.editor.may_quit()
+    }
+
+    pub fn take_quit(&mut self) -> bool {
+        self.editor.take_quit()
+    }
+
+    /// Opens a file in the editor.
+    pub fn edit(&mut self, path: &Path) {
+        self.editor.edit(path);
+        self.error = self.editor.take_open_error();
+    }
+
+    /// Draws the editor; a saved file is taken by the tabs at once.
+    pub fn show_editor(&mut self, ctx: &egui::Context, document: Option<&Open>) {
+        if self.editor.show(ctx, document) {
+            self.refresh();
+        }
     }
 
     /// Writes what is typed and not yet written, when the window closes.
@@ -252,6 +289,7 @@ impl RulesFiles {
                     *command = Some(what);
                 }
             };
+            button(ui, true, "Edit…", Command::Edit(name.clone()));
             button(ui, !first, "Up", Command::Move(name.clone(), true));
             button(ui, !last, "Down", Command::Move(name.clone(), false));
             button(ui, true, "Duplicate", Command::Duplicate(name.clone()));
@@ -327,7 +365,14 @@ impl RulesFiles {
         let done: Result<(), FolderError> = match command {
             Command::On(name, on) => folder.set_on(&name, on),
             Command::Move(name, up) => folder.move_by(&name, up),
-            Command::New => folder.create().map(|_| ()),
+            Command::New => folder.create().map(|name| {
+                self.editor.edit(&folder.path().join(name));
+            }),
+            Command::Edit(name) => {
+                let path = folder.path().join(name);
+                self.edit(&path);
+                return;
+            }
             Command::Import => {
                 let picked = rfd::FileDialog::new()
                     .add_filter("Rules", &["json"])
@@ -339,8 +384,13 @@ impl RulesFiles {
                 }
             }
             Command::Duplicate(name) => folder.duplicate(&name).map(|_| ()),
-            Command::Rename(name, to) => folder.rename(&name, &to).map(|_| ()),
-            Command::Delete(name) => folder.delete(&name),
+            Command::Rename(name, to) => folder.rename(&name, &to).map(|new| {
+                let path = folder.path();
+                self.editor.renamed(&path.join(name), path.join(new));
+            }),
+            Command::Delete(name) => folder.delete(&name).map(|()| {
+                self.editor.deleted(&folder.path().join(name));
+            }),
             Command::OpenFolder => folder.create_folder().and_then(|path| {
                 show_folder(path).map_err(|error| FolderError::Io {
                     path: path.to_owned(),

@@ -168,9 +168,28 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   not step in. The preview's first line names the file in use. A change in the folder is
   taken within about a second. The switches, patterns and order are in `references.json`
   beside the folder; when that cannot be read, no file is on and it is not written over.
+- **REF-14** `[built]` The check of a rules file (D39): what cannot be read, with line and
+  column; unknown keys, with the nearest known one; a key given twice; a second include for
+  one element; rules that name no references; and, against a document, how many places each
+  rule matches, with a warning for each that matches none. A byte order mark is accepted,
+  here and wherever rules are read. `xml-atlas-cli references FILE --check [--rules PATH]`
+  prints it and fails when there is an error.
+- **REF-15** `[built]` The rules editor (D39, D41): *Edit…* in the list, *Edit rules…* in the
+  preview, and New open a window with the file's text, the check of REF-14 against the
+  document shown below it after each pause (a click on a finding goes there), Save (Ctrl+S
+  while the text has the keys; then the document is not saved), Revert, Close, and *Insert*
+  with a template of each kind of rule at the cursor. In a document over 16 MiB matches are
+  counted only when asked, as that would hold up each pause in typing. One file at a time. Saving is atomic,
+  keeps the byte order mark and the line endings, and leaves an unchanged file's bytes
+  alone. Saved rules are taken by every tab at once. A file changed on disk is followed
+  while there are no changes; with changes it says so and offers Overwrite or loading it.
+  Closing, editing another file and quitting ask about unsaved changes.
 
 ## Acceptance tests
 
+- Edit a rules file: type `include` for `includes`: the check names the line and the key
+  meant. Mend it and press Ctrl+S: the preview follows, the document is not saved. Type,
+  then quit: it asks first.
 - Import a rules file in Settings > References: it is off. Switch it on and click *+ shown*:
   the preview names it and resolves. Switch it off: preview and warnings go, in every tab.
   A document beside which an `xml-atlas-references.json` lies gets no rules from it.
