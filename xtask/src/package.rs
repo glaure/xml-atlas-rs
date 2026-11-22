@@ -358,6 +358,12 @@ pub(crate) fn third_party_licenses(meta: &Value) -> anyhow::Result<String> {
             out.push_str(&format!("{c}\n"));
         }
     }
+    out.push_str(&format!(
+        "\n{}\nCode adapted from egui (egui_extras' table, in XML Atlas' table)\n{}\n\n{}\n",
+        "=".repeat(78),
+        "-".repeat(78),
+        include_str!("../../licenses/egui-MIT.txt").trim()
+    ));
     Ok(out)
 }
 

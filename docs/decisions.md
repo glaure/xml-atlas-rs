@@ -91,6 +91,7 @@ Marker, on Windows, Linux and macOS, natively and without wine.
   from the index (TEXT-3).
   Lines are cut at 4,000 bytes for display.
 - **Risk:** minified files that are one huge line. They need wrapping or horizontal paging.
+- **Since D42:** the grid is virtualized sideways too, by a table of our own.
 
 ## D6: Licence MIT OR Apache-2.0
 
@@ -1840,6 +1841,33 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   and again when they change.
 - **Built (2026-11-22):** step 1 in #147 (`crates/engine/src/rules_folder.rs`, REF-13), step 2
   in #148 (D39). #145, a fix of the search that is removed, was closed unmerged.
+
+## D42: A table of our own, virtualized sideways
+
+- **Problem:** `egui_extras`' table makes a `Ui` for every column of every row on screen,
+  those out of sight included: about 1 µs a cell, so 13 rows of 136 columns took 2 ms a frame
+  where those in sight take 0.3 ms. That breaks rule 2 of AGENTS.md.
+- **Decided (owner, 2026-11-22):** virtualize the grid's columns.
+- **How:** `apps/xml-atlas/src/table.rs`, for the grid and the cell pane, in place of
+  `egui_extras`, which nothing else used. Its layout, resizing and hover rules and its ids
+  are adapted from that crate, so the views look and act as before; egui's MIT notice is in
+  `licenses/egui-MIT.txt` and in the packages' third-party licenses.
+  - Cells get their ids from row and column, so they stay when columns scroll.
+  - Drawn besides those in sight: the first column, which sizes itself by its contents, the
+    edited column, the one being scrolled to, one with an open menu, and a dragged border.
+  - Drawn one frame longer: what was in sight, as egui finds hover and clicks by the last
+    frame's rectangles.
+  - A frame still adds up the widths of all columns, once: arithmetic, no widgets.
+  - One difference: the cell pane's first frame measures only its first column, where
+    `egui_extras` squeezed every column for that frame. So a pane scrolled sideways keeps its
+    place when what it shows changes, where before it could jump back.
+- **Not chosen:**
+  - Spacer columns in `egui_extras`' table: its ids come from the position among the columns
+    given, so menus, editors and clicks would move to other cells while scrolling.
+  - A patched copy of `egui_extras`: a fork to carry through each egui update.
+- **Cost accepted:** egui updates no longer bring the table's fixes; Tab and screen readers
+  reach the columns in sight, as they already reached only the rows in sight.
+- **Revisit when:** `egui_extras` virtualizes columns itself.
 
 ## Open questions
 

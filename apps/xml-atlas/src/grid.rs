@@ -1,14 +1,21 @@
-//! The grid view: draws an engine [`Grid`] (`docs/spec/grid.md`). Cells are decoded only for
-//! visible rows, and once while a row stays on screen: what a frame needs of a cell comes
+//! The grid view: draws an engine [`Grid`] (`docs/spec/grid.md`). Only the rows and columns
+//! in sight get cells (`crate::table`, D42). Cells are decoded only for visible rows, and once while a row stays on screen: what a frame needs of a cell comes
 //! from `grid_cells::Cells`, never from a walk over the document.
 
 use egui::{Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
-use egui_extras::{Column as TableColumn, TableBuilder};
 use xml_atlas_engine::command;
 use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
 use xml_atlas_engine::xml::NodeId;
 
 use crate::app::{Note, Open, Pane, Shift};
+use crate::table;
+
+/// The table's columns before the grid's own: the row number and the element's name.
+const LEAD: usize = 2;
+/// The first widths of the name and of the grid's own columns, and the least of both.
+const NAME_WIDTH: f32 = 110.0;
+const COLUMN_WIDTH: f32 = 140.0;
+const COLUMN_MIN: f32 = 40.0;
 
 /// Rows of the attribute table shown before it scrolls.
 const ATTRIBUTE_ROWS: f32 = 6.0;
@@ -290,62 +297,71 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
         * ui.fonts_mut(|f| f.glyph_width(&egui::TextStyle::Body.resolve(ui.style()), '0'))
         + 16.0;
     grid_cells.begin(doc, grid);
-    let mut builder = TableBuilder::new(ui);
-    if let Some(row) = scroll {
-        builder = builder.scroll_to_row(row, None);
-    }
-    builder
-        .id_salt(("grid", grid.parent))
-        .striped(true)
-        .resizable(true)
-        .auto_shrink(false)
-        .sense(egui::Sense::click())
+    let mut columns = vec![
         // Wide enough for the largest row number, so it never wraps.
-        .column(TableColumn::initial(number_width).at_least(number_width))
-        .column(TableColumn::initial(110.0).at_least(40.0).clip(true))
-        .columns(
-            TableColumn::initial(140.0).at_least(40.0).clip(true),
-            shown.len(),
-        )
-        .header(row_h + 2.0, |mut h| {
-            let headers = [Header::Number, Header::Name]
-                .into_iter()
-                .chain(shown.iter().map(|&i| Header::Column(&grid.columns[i])));
-            for header in headers {
-                let (_, resp) = h.col(|ui| {
+        table::Column::new(number_width, number_width),
+        table::Column::new(NAME_WIDTH, COLUMN_MIN),
+    ];
+    columns.resize(
+        LEAD + shown.len(),
+        table::Column::new(COLUMN_WIDTH, COLUMN_MIN),
+    );
+    // Drawn also out of sight: the edited cell's editor lives on, and the marked cell has to
+    // be drawn to be scrolled to.
+    let place = |ci: usize| shown.iter().position(|&i| i == ci).map(|at| LEAD + at);
+    let edited = grid_edit.as_ref().and_then(|e| place(e.column));
+    let revealed = grid_cell.filter(|_| reveal).and_then(place);
+    let body = table::Table::new(ui, ("grid", grid.parent), columns)
+        .scroll_to_row(scroll)
+        .keep_column(edited)
+        .keep_column(revealed)
+        .header(row_h + 2.0, |row| {
+            while let Some(column) = row.next_column() {
+                let header = match column {
+                    0 => Header::Number,
+                    1 => Header::Name,
+                    _ => Header::Column(&grid.columns[shown[column - LEAD]]),
+                };
+                let resp = row.col(|ui| {
                     ui.strong(header_text(grid, &header));
                 });
                 if let Some(a) = header_action(grid, &header, &resp) {
                     action = Some(a);
                 }
             }
-        })
-        .body(|body| {
-            body.rows(row_h, grid.rows.len(), |mut row| {
+        });
+    body.rows(row_h, grid.rows.len(), |row| {
                 let i = row.index();
                 let id = grid.rows[i];
                 // Marked when the row, or a child shown in one of its cells, is the focus.
                 let marked = focus.is_some_and(|f| f == id || doc.index.node(f).parent == id);
                 row.set_selected(marked);
-                row.col(|ui| {
-                    ui.label(RichText::new(grid.number(i).to_string()).weak());
-                    if reveal && marked && grid_cell.is_none() {
-                        reveal_rect = Some(ui.max_rect());
-                    }
-                });
-                row.col(|ui| {
-                    let name = String::from_utf8_lossy(doc.index.name(&doc.src, id));
-                    // Typing broke this element's text: its last good state (TEXT-10).
-                    if doc.stale() == Some(id) {
-                        ui.label(RichText::new(name).color(ui.visuals().error_fg_color))
-                            .on_hover_text("The text of this element is being edited and is not well-formed; this row shows it as it last was.");
-                    } else {
-                        ui.label(name);
-                    }
-                });
                 let mut cell_action = None;
                 let cells = grid_cells.row(doc, id);
-                for &ci in &shown {
+                while let Some(column) = row.next_column() {
+                    if column == 0 {
+                        row.col(|ui| {
+                            ui.label(RichText::new(grid.number(i).to_string()).weak());
+                            if reveal && marked && grid_cell.is_none() {
+                                reveal_rect = Some(ui.max_rect());
+                            }
+                        });
+                        continue;
+                    }
+                    if column == 1 {
+                        row.col(|ui| {
+                            let name = String::from_utf8_lossy(doc.index.name(&doc.src, id));
+                            // Typing broke this element's text: its last good state (TEXT-10).
+                            if doc.stale() == Some(id) {
+                                ui.label(RichText::new(name).color(ui.visuals().error_fg_color))
+                                    .on_hover_text("The text of this element is being edited and is not well-formed; this row shows it as it last was.");
+                            } else {
+                                ui.label(name);
+                            }
+                        });
+                        continue;
+                    }
+                    let ci = shown[column - LEAD];
                     let editing = grid_edit.as_mut().filter(|e| e.row == id && e.column == ci);
                     if let Some(editor) = editing {
                         editor_shown = true;
@@ -359,7 +375,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     let kept = &cells[ci];
                     let cell = &kept.cell;
                     let nested = matches!(cell, Cell::Element(_) | Cell::Repeated { .. });
-                    let (_, resp) = row.col(|ui| {
+                    let resp = row.col(|ui| {
                         draw_cell(ui, cell);
                         if marked && *grid_cell == Some(ci) {
                             outline(ui);
@@ -395,7 +411,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                         }
                     });
                 }
-                let resp = row.response();
+                let Some(resp) = row.response() else { return };
                 // A double-click opens the row, also on a value cell (GRID-7).
                 let open_row = resp.double_clicked()
                     && id != grid.parent
@@ -407,8 +423,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                 } else if action.is_none() && resp.clicked() {
                     action = Some(Action::Focus(id, None));
                 }
-            });
-        });
+    });
     grid_cells.end();
     // Asked for here, outside the table: the table's own scroll area, which scrolls only up
     // and down, would swallow it.
@@ -766,5 +781,46 @@ mod tests {
             unseen, 0,
             "lines drawn out of sight, beside {seen} in sight"
         );
+    }
+
+    /// GRID-20: the marked cell comes into view from columns that are not drawn, and goes
+    /// back to the row's start.
+    #[test]
+    fn a_marked_cell_out_of_sight_is_scrolled_to() {
+        let attributes: String = (0..120).map(|i| format!(" a{i}=\"v{i}\"")).collect();
+        let doc = Document::from_bytes(format!("<r><o{attributes}/></r>").into_bytes());
+        let mut open = Open::new(doc, egui::Id::unique("grid-reveal"));
+        let root = open.doc.index.root_element().unwrap();
+        open.select(root);
+        let row = open.grid.as_ref().unwrap().rows[0];
+        open.focus(row);
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(700.0, 400.0));
+        let mut time = 0.0;
+        for (cell, text) in [(Some(117), "v117"), (Some(3), "v3"), (None, "#")] {
+            open.grid_cell = cell;
+            open.grid_reveal_cell = true;
+            let mut in_sight = false;
+            // Scrolling there is animated.
+            for _ in 0..60 {
+                time += 0.1;
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    time: Some(time),
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| show(ui, &mut open));
+                out.textures_delta.clear();
+                in_sight = out.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Text(t) => {
+                        let rect = t.galley.rect.translate(t.pos.to_vec2());
+                        t.galley.text() == text
+                            && s.clip_rect.intersect(screen).contains(rect.center())
+                    }
+                    _ => false,
+                });
+            }
+            assert!(in_sight, "{cell:?}");
+        }
     }
 }
