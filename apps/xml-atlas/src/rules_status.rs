@@ -28,6 +28,9 @@ pub struct RulesStatus {
 struct Checked {
     text: Arc<str>,
     revision: u64,
+    /// The document was waiting to be read again: that replaces its nodes and keeps the
+    /// revision (TEXT-22).
+    stale: bool,
     report: Report,
     /// Matches were counted in the document.
     counted: bool,
@@ -36,7 +39,7 @@ struct Checked {
 impl RulesStatus {
     /// Checks when that is due. Returns when to look again while it waits.
     pub fn update(&mut self, text: &Arc<str>, doc: &Document, now: Instant) -> Option<Duration> {
-        let revision = doc.revision();
+        let (revision, stale) = (doc.revision(), doc.stale().is_some());
         // The pointer, not the text, as this runs each frame: a tab keeps it while it is the
         // same text.
         let same_text = self
@@ -47,7 +50,7 @@ impl RulesStatus {
             if self
                 .checked
                 .as_ref()
-                .is_some_and(|c| c.revision == revision)
+                .is_some_and(|c| c.revision == revision && c.stale == stale)
             {
                 self.waiting = None;
                 return None;
@@ -61,16 +64,17 @@ impl RulesStatus {
             if now < due {
                 return Some(due - now);
             }
-            if doc.stale().is_some() {
+            if stale {
                 // Reading it again wakes the window.
                 return None;
             }
         }
-        let counted = doc.src.len() <= COUNT_AT_MOST && doc.stale().is_none();
+        let counted = doc.src.len() <= COUNT_AT_MOST && !stale;
         self.checked = Some(Checked {
             report: check(text, counted.then_some(doc)),
             text: Arc::clone(text),
             revision,
+            stale,
             counted,
         });
         self.waiting = None;
@@ -187,6 +191,31 @@ mod tests {
         assert_eq!(summary(&status), "1 warning");
         status.update(&"{\"includes\": [],}".into(), &doc, now);
         assert_eq!(summary(&status), "1 error");
+    }
+
+    /// Rules changed while the document waits to be read again are counted once it was read:
+    /// that gives it new nodes without a new revision (TEXT-22).
+    #[test]
+    fn a_document_read_again_is_counted_in() {
+        let src = "<R><Größe src=\"a\"></Größe></R>";
+        let mut doc = Document::from_bytes(src.as_bytes().to_vec());
+        let at = src.find("</Größe>").unwrap();
+        let open_part = "<![CDATA[hi";
+        doc.apply_typed(Edit::new("Type").replace(at..at, open_part))
+            .unwrap();
+        let end = at + open_part.len();
+        doc.apply_typed(Edit::new("Type").replace(end..end, "]]>"))
+            .unwrap();
+        assert!(doc.stale().is_some());
+        let mut status = RulesStatus::default();
+        let text: Arc<str> = RULES.into();
+        let now = Instant::now();
+        status.update(&text, &doc, now);
+        assert_eq!(summary(&status), "OK, not counted");
+        assert!(doc.reparse());
+        status.update(&text, &doc, now + PAUSE);
+        status.update(&text, &doc, now + PAUSE * 3);
+        assert_eq!(summary(&status), "check OK");
     }
 
     /// A large document is not counted in, so a rule without a match is not reported there.
