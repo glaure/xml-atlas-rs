@@ -17,6 +17,9 @@ const NAME_WIDTH: f32 = 110.0;
 const COLUMN_WIDTH: f32 = 140.0;
 const COLUMN_MIN: f32 = 40.0;
 
+/// Why the editor does not open on a long value (GRID-10).
+const TOO_LONG: &str = "Too long to edit here: edit it in the text";
+
 /// Spacing of the hatching that marks an absent value.
 const HATCH_STEP: f32 = 6.0;
 
@@ -169,6 +172,10 @@ fn start_edit(open: &mut Open, row: NodeId, column: usize) {
     let Some(c) = grid.columns.get(column) else {
         return;
     };
+    if grid.too_long_to_edit(&open.doc, row, c) {
+        open.note = Some(Note::refused(TOO_LONG));
+        return;
+    }
     match grid.edit_target(&open.doc, row, c) {
         Some((target, text)) => {
             open.grid_cell = Some(column);
@@ -653,9 +660,52 @@ pub fn key(open: &mut Open, key: GridKey) {
 
 #[cfg(test)]
 mod tests {
+    use xml_atlas_engine::grid::EDIT_CHARS;
     use xml_atlas_engine::{Document, command};
 
     use super::*;
+
+    /// GRID-10: F2, Enter and the menu's Edit do not open the editor on a value over the
+    /// limit; they say why and change nothing. At the limit they open it with all of it.
+    #[test]
+    fn a_long_value_is_not_edited_in_place() {
+        let edit = |open: &mut Open, row, way| match way {
+            0 => key(open, GridKey::Edit),
+            1 => key(open, GridKey::Enter),
+            // What the menu's Edit does.
+            _ => run(open, Action::Edit { row, column: 0 }),
+        };
+        for (chars, opens) in [(EDIT_CHARS, true), (EDIT_CHARS + 1, false)] {
+            let value = "ü".repeat(chars);
+            for src in [
+                format!("\u{feff}<r>\r\n<o><Größe>{value}</Größe></o>\r\n</r>"),
+                format!("\u{feff}<r>\r\n<o Größe=\"{value}\"/>\r\n</r>"),
+            ] {
+                for way in 0..3 {
+                    let doc = Document::from_bytes(src.clone().into_bytes());
+                    let mut open = Open::new(doc, egui::Id::unique("grid-long"));
+                    let root = command::resolve(&open.doc, "/r").unwrap();
+                    open.select(root);
+                    let row = open.grid.as_ref().unwrap().rows[0];
+                    open.focus(row);
+                    open.grid_cell = Some(0);
+                    edit(&mut open, row, way);
+                    let at = format!("{chars} characters, way {way}");
+                    match (&open.grid_edit, &open.note) {
+                        (Some(editor), None) if opens => assert_eq!(editor.text, value, "{at}"),
+                        (None, Some(note)) if !opens => {
+                            assert!(note.refused, "{at}");
+                            assert_eq!(note.text, TOO_LONG, "{at}");
+                        }
+                        _ => panic!("editor or note wrong at {at}"),
+                    }
+                    assert_eq!(open.focus, Some(row), "{at}");
+                    assert_eq!(open.grid_cell, Some(0), "{at}");
+                    assert!(*open.doc.src == src.as_bytes(), "changed at {at}");
+                }
+            }
+        }
+    }
 
     /// AGENTS.md, rule 2: frames in which nothing changes work out no cell, in the grid or in
     /// the cell pane beside it.
