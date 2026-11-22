@@ -17,9 +17,6 @@ const NAME_WIDTH: f32 = 110.0;
 const COLUMN_WIDTH: f32 = 140.0;
 const COLUMN_MIN: f32 = 40.0;
 
-/// Rows of the attribute table shown before it scrolls.
-const ATTRIBUTE_ROWS: f32 = 6.0;
-
 /// Spacing of the hatching that marks an absent value.
 const HATCH_STEP: f32 = 6.0;
 
@@ -77,7 +74,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     } else {
         path_line(ui, path, &after);
     }
-    attributes(ui, grid);
+    crate::attribute_table::show(ui, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
     let scroll = open.grid_scroll_to.take();
     let reveal = std::mem::take(&mut open.grid_reveal_cell);
@@ -202,7 +199,6 @@ fn not_editable(cell: &Cell) -> &'static str {
     }
 }
 
-/// The selected element's own attributes (GRID-11).
 /// One line: the path of a grid's element, then `after`, weak. The path is cut to the width
 /// the rest of the line leaves, and shown whole on hover: the path of a deep element (AUTOSAR
 /// files nest a dozen levels) must not widen its pane, because an egui side panel is never
@@ -234,39 +230,6 @@ pub(crate) fn path_line(ui: &mut Ui, path: RichText, after: &[String]) -> egui::
         response
     })
     .inner
-}
-
-pub(crate) fn attributes(ui: &mut Ui, grid: &Grid) {
-    if grid.attributes.is_empty() {
-        ui.label(RichText::new("No attributes").weak());
-        return;
-    }
-    let title = match grid.attributes.len() {
-        1 => "1 attribute".to_string(),
-        n => format!("{n} attributes"),
-    };
-    egui::CollapsingHeader::new(title)
-        .id_salt(("grid-attributes", grid.parent))
-        .default_open(true)
-        .show(ui, |ui| {
-            let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-            egui::ScrollArea::vertical()
-                .id_salt(("grid-attributes-scroll", grid.parent))
-                .max_height(row_h * ATTRIBUTE_ROWS)
-                .show(ui, |ui| {
-                    egui::Grid::new(("grid-attributes-table", grid.parent))
-                        .striped(true)
-                        .num_columns(2)
-                        .show(ui, |ui| {
-                            for (name, value) in &grid.attributes {
-                                ui.label(RichText::new(name).strong());
-                                ui.add(egui::Label::new(value).truncate());
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-    ui.add_space(4.0);
 }
 
 /// The child table. Returns what a click asked for.
