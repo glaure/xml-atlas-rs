@@ -51,7 +51,7 @@ How the views are laid out, and how the window looks.
   *Check for updates now* asks for a newer version at once (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
   Cut, Copy, Paste | Undo, Redo, Find, XPath | Drill Up, Drill Down, Format | Diagram (D36,
-  switches View > Diagram). Each button does
+  switches View > Diagram), Expand tree on click (TREE-12; shown pressed while on). Each button does
   what its menu entry or key does and is greyed out when that is: Save without changes, Cut and
   Copy without a text selection, Undo and Redo with nothing to undo or redo, the rest without
   an open document (except New and Open). Resting the pointer on a button names it and its key.
@@ -105,14 +105,14 @@ How the views are laid out, and how the window looks.
 - **WIN-11** `[built]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
   font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
-  the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Edit > Format
+  whether a click in the text expands it (TREE-12), the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Edit > Format
   options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
   change applies and is saved at once, without OK and Cancel; each section has *Reset to
   defaults*. A test checks that every setting but the recent files and the find options is
   in a section, so a new setting cannot be left out.
   The View menu keeps word wrap, the layout, the grid, the cell pane, references, their
   preview and its tree,
-  attribute rows, the toolbar and the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
+  attribute rows, expanding on a click in the text, the toolbar and the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
   only in Settings. Not in Settings: the recent files, window and pane sizes, the find
   options (`docs/decisions.md`, D31).
 - **WIN-12** `[built]` Settings > Appearance shows how each theme looks: above each of

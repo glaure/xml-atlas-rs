@@ -210,6 +210,9 @@ pub struct Open {
     pub text_goal: Option<usize>,
     /// Scroll the cursor into view on the next frame.
     pub text_reveal: bool,
+    /// A click in the text expands the tree to the clicked element (TREE-12); from the
+    /// settings, every frame.
+    pub text_click_expands: bool,
     /// Give the text view the keyboard on the next frame: an Edit menu command acts there.
     pub text_focus: bool,
     /// Text an input method is composing at the cursor; shown, not yet in the document
@@ -1548,6 +1551,16 @@ impl App {
                 flip(&cell_pane, &mut self.settings.cell_pane);
                 let toolbar = ui.checkbox(&mut self.settings.toolbar, "Toolbar");
                 flip(&toolbar, &mut self.settings.toolbar);
+                let expand = ui
+                    .checkbox(
+                        &mut self.settings.expand_on_text_click,
+                        "Expand the tree on a click in the text",
+                    )
+                    .on_hover_text(
+                        "Off, a click in the text selects the closest element the tree shows \
+                         and opens nothing",
+                    );
+                flip(&expand, &mut self.settings.expand_on_text_click);
                 crate::ref_preview::switches(ui, &mut self.settings);
                 if ui.button("Font…").picked() {
                     ui.close();
@@ -1863,6 +1876,15 @@ impl App {
             ui.separator();
             if tool_icons::button(ui, open, Tool::Diagram, "Diagram    Ctrl+Shift+D") {
                 self.settings.diagram = !self.settings.diagram;
+            }
+            let expand = self.settings.expand_on_text_click;
+            let tip = if expand {
+                "A click in the text expands the tree: on. Click to turn off"
+            } else {
+                "A click in the text expands the tree: off. Click to turn on"
+            };
+            if tool_icons::toggle(ui, true, Tool::FollowText, expand, tip) {
+                self.settings.expand_on_text_click = !expand;
             }
         });
     }
@@ -2181,6 +2203,7 @@ impl eframe::App for App {
         let show_diagram = self.settings.diagram;
         let show_grid = self.settings.grid && !show_diagram;
         let wrap = open.wraps(self.settings.word_wrap);
+        let expand_on_click = self.settings.expand_on_text_click;
         let text_font = self.settings.text_font.font_id();
         egui::CentralPanel::default().show(ui, |ui| {
             let panes = &mut self.settings.panes;
@@ -2256,6 +2279,7 @@ impl eframe::App for App {
                 .frame(theme.view_frame(ui.style(), true))
                 .show(ui, |ui| {
                     ui.push_id(open.id, |ui| {
+                        open.text_click_expands = expand_on_click;
                         crate::text_view::show(ui, open, &format, wrap, &text_font)
                     });
                 });
@@ -2312,6 +2336,7 @@ impl Open {
             text_sel: None,
             text_goal: None,
             text_reveal: false,
+            text_click_expands: true,
             text_focus: false,
             text_scroll: crate::scroll::RowScroll::default(),
             text_left: 0.0,
@@ -2758,6 +2783,12 @@ impl Open {
 
     /// Makes `id` the selected element: grid shows its children, tree reveals it, text scrolls.
     pub fn select(&mut self, id: NodeId) {
+        self.select_in(id, true);
+    }
+
+    /// As [`Self::select`]; with `expand` off the tree does not open up to `id` but selects the
+    /// closest ancestor that is visible (TREE-12).
+    pub fn select_in(&mut self, id: NodeId, expand: bool) {
         let id = self.element_or_parent(id);
         self.selected = Some(id);
         self.focus = Some(id);
@@ -2765,7 +2796,11 @@ impl Open {
         self.grid = Some(Grid::start(&self.doc, id));
         self.grid_cell = None;
         self.grid_edit = None;
-        self.tree.reveal(&self.doc, id);
+        if expand {
+            self.tree.reveal(&self.doc, id);
+        } else {
+            self.tree.select_visible(&self.doc, id);
+        }
         self.scroll_text_to = Some(self.doc.index.node(id).start);
     }
 
@@ -3058,6 +3093,35 @@ mod tests {
             used <= width,
             "the pane's content needs {used} points of the {width} it has"
         );
+    }
+
+    /// TREE-12: a click in the text with expansion off leaves the tree closed and selects the
+    /// closest element it shows; the grid still follows the clicked element. With expansion on
+    /// the tree opens up to it. Non-ASCII text and CRLF, as real files have.
+    #[test]
+    fn a_text_click_expands_the_tree_only_when_asked() {
+        let src = "<r>\r\n  <a>\r\n    <b>Grüße</b>\r\n  </a>\r\n</r>\r\n";
+        let doc = Document::from_bytes(src.as_bytes().to_vec());
+        let at = src.find("<b>").unwrap() as u64;
+        let mut open = Open::new(doc, egui::Id::unique("text-click"));
+        let b = open.element_at(at).unwrap();
+        let a = open.doc.index.node(b).parent;
+        open.tree.collapse_all(&open.doc);
+
+        open.select_in(b, false);
+        assert_eq!(open.selected, Some(b), "the grid follows the click");
+        assert_eq!(
+            open.tree.selected(),
+            Some(xml_atlas_engine::tree::Row::Node(a))
+        );
+        assert!(!open.tree.is_expanded(a), "nothing was opened");
+
+        open.select_in(b, true);
+        assert_eq!(
+            open.tree.selected(),
+            Some(xml_atlas_engine::tree::Row::Node(b))
+        );
+        assert!(open.tree.is_expanded(a));
     }
 
     #[test]

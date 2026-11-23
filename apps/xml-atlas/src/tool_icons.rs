@@ -35,6 +35,8 @@ pub enum Tool {
     DrillUp,
     DrillDown,
     Format,
+    /// View > Expand the tree on a click in the text (TREE-12).
+    FollowText,
     /// View > Diagram (D36).
     Diagram,
 }
@@ -42,7 +44,7 @@ pub enum Tool {
 impl Tool {
     /// Every tool, in toolbar order.
     #[cfg(test)]
-    pub const ALL: [Tool; 14] = [
+    pub const ALL: [Tool; 15] = [
         Tool::New,
         Tool::Open,
         Tool::Save,
@@ -57,13 +59,23 @@ impl Tool {
         Tool::DrillDown,
         Tool::Format,
         Tool::Diagram,
+        Tool::FollowText,
     ];
 }
 
 /// A toolbar button with `tool`'s icon and `tip` on hover, greyed out unless `enabled`.
 /// Returns whether it was clicked.
 pub fn button(ui: &mut Ui, enabled: bool, tool: Tool, tip: &str) -> bool {
-    ui.add_enabled(enabled, |ui: &mut Ui| icon_button(ui, tool))
+    ui.add_enabled(enabled, |ui: &mut Ui| icon_button(ui, tool, false))
+        .on_hover_text(tip)
+        .on_disabled_hover_text(tip)
+        .clicked()
+}
+
+/// A toolbar button that is on or off: on, it shows a background, as a pressed button does.
+/// Returns whether it was clicked.
+pub fn toggle(ui: &mut Ui, enabled: bool, tool: Tool, on: bool, tip: &str) -> bool {
+    ui.add_enabled(enabled, |ui: &mut Ui| icon_button(ui, tool, on))
         .on_hover_text(tip)
         .on_disabled_hover_text(tip)
         .clicked()
@@ -258,6 +270,21 @@ pub fn draw(painter: &Painter, center: Pos2, tool: Tool, color: Color32) {
                 line(vec![pos2(l + 1.0 + indent, yy), pos2(rt - 1.0 - short, yy)]);
             }
         }
+        Tool::FollowText => {
+            // A tree: a parent and two children, and an arrow into it from the right, as a
+            // click in the text goes into the tree.
+            let bar = l + 2.0;
+            line(vec![pos2(l, t + 2.0), pos2(l + 5.0, t + 2.0)]);
+            line(vec![pos2(bar, t + 2.0), pos2(bar, b - 2.0)]);
+            line(vec![pos2(bar, t + 7.0), pos2(l + 7.0, t + 7.0)]);
+            line(vec![pos2(bar, b - 2.0), pos2(l + 7.0, b - 2.0)]);
+            line(vec![pos2(rt, t + 7.0), pos2(l + 9.0, t + 7.0)]);
+            painter.add(Shape::convex_polygon(
+                arrow_head(l + 8.0, t + 7.0, l + 11.0, 2.5),
+                color,
+                Stroke::NONE,
+            ));
+        }
         Tool::Diagram => {
             // A box joined to two boxes right of it, as the diagram lays out a path's
             // children.
@@ -279,11 +306,14 @@ pub fn draw(painter: &Painter, center: Pos2, tool: Tool, color: Color32) {
 }
 
 /// The button itself: a frameless square that shows a background under the pointer.
-fn icon_button(ui: &mut Ui, tool: Tool) -> Response {
+fn icon_button(ui: &mut Ui, tool: Tool, on: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
     if ui.is_rect_visible(rect) {
         let visuals = ui.style().interact(&resp);
-        if resp.hovered() || resp.has_focus() {
+        if on {
+            let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.5);
+            ui.painter().rect_filled(rect, HOVER_ROUNDING, fill);
+        } else if resp.hovered() || resp.has_focus() {
             ui.painter()
                 .rect_filled(rect, HOVER_ROUNDING, visuals.weak_bg_fill);
         }

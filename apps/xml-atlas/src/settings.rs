@@ -60,6 +60,9 @@ pub struct Settings {
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
     pub toolbar: bool,
+    /// A click in the text expands the tree to show the clicked element (TREE-12); off, the
+    /// tree selects the closest element that is visible.
+    pub expand_on_text_click: bool,
     /// References are resolved at all (REF-12); off, no rules file is even looked for.
     pub references: bool,
     /// The pane with the selected element's references resolved (REF-5).
@@ -98,6 +101,7 @@ impl Default for Settings {
             diagram: false,
             word_wrap: false,
             toolbar: true,
+            expand_on_text_click: true,
             references: false,
             reference_preview: false,
             preview_tree: false,
@@ -203,6 +207,7 @@ impl Settings {
              diagram = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
+             expand_on_text_click = {}\n\
              references = {}\n\
              reference_preview = {}\n\
              preview_tree = {}\n\
@@ -242,6 +247,7 @@ impl Settings {
             self.diagram,
             self.word_wrap,
             self.toolbar,
+            self.expand_on_text_click,
             self.references,
             self.reference_preview,
             self.preview_tree,
@@ -349,6 +355,9 @@ impl Settings {
                 ("view", "diagram") => set(&mut s.diagram, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
+                ("view", "expand_on_text_click") => {
+                    set(&mut s.expand_on_text_click, boolean(value))
+                }
                 ("view", "references") => set(&mut s.references, boolean(value)),
                 ("view", "reference_preview") => set(&mut s.reference_preview, boolean(value)),
                 ("view", "preview_tree") => set(&mut s.preview_tree, boolean(value)),
@@ -490,6 +499,7 @@ mod tests {
             diagram: true,
             word_wrap: true,
             toolbar: false,
+            expand_on_text_click: false,
             references: true,
             reference_preview: true,
             preview_tree: true,
