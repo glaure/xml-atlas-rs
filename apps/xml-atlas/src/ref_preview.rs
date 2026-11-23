@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 
+use crate::menu_keys::flip;
 use egui::{Color32, FontId, Label, RichText, Sense, Ui, vec2};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::references::{self, Choice, Preview, RefKind, Resolution, Rules};
@@ -73,26 +74,32 @@ pub struct Cached {
 /// The switch for references (REF-12) and, under it, the preview's two panes, as View and
 /// Settings > Views show them.
 pub fn switches(ui: &mut Ui, settings: &mut Settings) {
-    ui.checkbox(&mut settings.references, "Resolve references")
+    let resolve = ui
+        .checkbox(&mut settings.references, "Resolve references")
         .on_hover_text(
             "Use the rules files of Settings > References: go to a reference's target (F12), \
              list those that find nothing as problems, and allow the preview (REF-12)",
         );
+    flip(&resolve, &mut settings.references);
     ui.indent("reference-switches", |ui| {
-        ui.add_enabled(
-            settings.references,
-            egui::Checkbox::new(
-                &mut settings.reference_preview,
-                "Preview with references resolved",
-            ),
-        )
-        .on_hover_text("A pane with the selected element as it reads resolved (REF-5)")
-        .on_disabled_hover_text("Turn on Resolve references first");
-        ui.add_enabled(
-            settings.references && settings.reference_preview,
-            egui::Checkbox::new(&mut settings.preview_tree, "Preview tree"),
-        )
-        .on_hover_text("The preview as a tree, right of it (REF-10)");
+        let preview = ui
+            .add_enabled(
+                settings.references,
+                egui::Checkbox::new(
+                    &mut settings.reference_preview,
+                    "Preview with references resolved",
+                ),
+            )
+            .on_hover_text("A pane with the selected element as it reads resolved (REF-5)")
+            .on_disabled_hover_text("Turn on Resolve references first");
+        flip(&preview, &mut settings.reference_preview);
+        let tree = ui
+            .add_enabled(
+                settings.references && settings.reference_preview,
+                egui::Checkbox::new(&mut settings.preview_tree, "Preview tree"),
+            )
+            .on_hover_text("The preview as a tree, right of it (REF-10)");
+        flip(&tree, &mut settings.preview_tree);
     });
 }
 

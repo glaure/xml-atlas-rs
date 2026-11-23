@@ -16,6 +16,7 @@ use xml_atlas_engine::{
 
 use crate::disk_watch::DiskWatch;
 use crate::installer::{self, Installer};
+use crate::menu_keys::{MenuPick, choose, flip};
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::sizes::Split;
 use crate::tabs::Tabs;
@@ -1303,12 +1304,12 @@ impl App {
                             egui::Button::new((name, folder)).wrap_mode(egui::TextWrapMode::Extend),
                         )
                         .on_hover_text(path.display().to_string());
-                    if button.clicked() {
+                    if button.picked() {
                         chosen = Some(path.clone());
                     }
                 }
                 ui.separator();
-                if ui.button("Clear list").clicked() {
+                if ui.button("Clear list").picked() {
                     clear = true;
                 }
             });
@@ -1339,14 +1340,14 @@ impl App {
             let file = ui.menu_button("File", |ui| {
                 if ui
                     .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.new_document();
                 }
                 if ui
                     .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.pick_file(&ctx);
@@ -1355,7 +1356,7 @@ impl App {
                 let can_save = self.docs.active().is_some_and(|o| o.doc.is_modified());
                 if ui
                     .add_enabled(can_save, egui::Button::new("Save").shortcut_text("Ctrl+S"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.save();
@@ -1365,7 +1366,7 @@ impl App {
                         !self.docs.is_empty(),
                         egui::Button::new("Save As…").shortcut_text("Ctrl+Shift+S"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.save_as();
@@ -1374,7 +1375,7 @@ impl App {
                     .docs
                     .active()
                     .is_some_and(|o| o.doc.encoding().is_some())
-                    && ui.button("Save as UTF-8").clicked()
+                    && ui.button("Save as UTF-8").picked()
                 {
                     ui.close();
                     self.save_as_utf8(None);
@@ -1384,7 +1385,7 @@ impl App {
                         !self.docs.is_empty(),
                         egui::Button::new("Close").shortcut_text("Ctrl+W"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.close_tab(&ctx);
@@ -1392,13 +1393,13 @@ impl App {
                 ui.separator();
                 if ui
                     .add(egui::Button::new("Settings…").shortcut_text("Ctrl+,"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.settings_window.open = true;
                 }
                 ui.separator();
-                if ui.button("Quit").clicked() {
+                if ui.button("Quit").picked() {
                     ui.close();
                     self.request(&ctx, Action::Quit);
                 }
@@ -1416,7 +1417,7 @@ impl App {
                         undo.is_some(),
                         egui::Button::new(text("Undo", &undo)).shortcut_text("Ctrl+Z"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.undo();
@@ -1426,7 +1427,7 @@ impl App {
                         redo.is_some(),
                         egui::Button::new(text("Redo", &redo)).shortcut_text("Ctrl+Y"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.redo();
@@ -1439,7 +1440,7 @@ impl App {
                         !self.docs.is_empty(),
                         egui::Button::new("Find…").shortcut_text("Ctrl+F"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.find.open(self.docs.active_mut());
@@ -1451,7 +1452,7 @@ impl App {
                         egui::Button::new("Find in element…").shortcut_text("Ctrl+Shift+F"),
                     )
                     .on_hover_text("Find only inside the element selected in tree or grid")
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     if let Some(open) = self.docs.active_mut() {
@@ -1463,7 +1464,7 @@ impl App {
                         !self.docs.is_empty(),
                         egui::Button::new("Replace…").shortcut_text("Ctrl+H"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.find.open_replace();
@@ -1474,26 +1475,26 @@ impl App {
                         egui::Button::new("XPath…").shortcut_text("Ctrl+Shift+X"),
                     )
                     .on_hover_text("Select nodes with an XPath 1.0 expression")
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.xpath.open();
                 }
                 if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Format"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.format_document();
                 }
                 if ui
                     .add_enabled(!self.docs.is_empty(), egui::Button::new("Compact"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.compact_document();
                 }
-                if ui.button("Format options…").clicked() {
+                if ui.button("Format options…").picked() {
                     ui.close();
                     self.format_dialog = Some(self.settings.format);
                 }
@@ -1501,91 +1502,94 @@ impl App {
             let view = ui.menu_button("View", |ui| {
                 ui.add_enabled_ui(!self.docs.is_empty(), |ui| {
                     let mut show = self.docs.active().is_none_or(|o| o.tree.options.attributes);
-                    if ui.checkbox(&mut show, "Attributes in the tree").changed() {
+                    let check = ui.checkbox(&mut show, "Attributes in the tree");
+                    if check.changed() | flip(&check, &mut show) {
                         // A view setting: for every tab.
                         for open in self.docs.iter_mut() {
                             open.tree.set_attributes(show);
                         }
                         self.settings.tree_attributes = show;
                     }
-                    if ui.button("Collapse the tree").clicked() {
+                    if ui.button("Collapse the tree").picked() {
                         ui.close();
                         if let Some(open) = self.docs.active_mut() {
                             open.tree.collapse_all(&open.doc);
                         }
                     }
                 });
-                ui.add_enabled(
-                    !self.settings.diagram,
-                    egui::Checkbox::new(&mut self.settings.grid, "Grid"),
-                )
-                .on_hover_text("Hidden, the text and the reference preview take its place");
-                ui.add(egui::Checkbox::new(
-                    &mut self.settings.diagram,
-                    (
-                        "Diagram",
-                        egui::Atom::grow(),
-                        RichText::new("Ctrl+Shift+D").weak(),
-                    ),
-                ))
-                .on_hover_text(
-                    "The structure of the document in the grid's place: one box per path \
+                let grid = ui
+                    .add_enabled(
+                        !self.settings.diagram,
+                        egui::Checkbox::new(&mut self.settings.grid, "Grid"),
+                    )
+                    .on_hover_text("Hidden, the text and the reference preview take its place");
+                flip(&grid, &mut self.settings.grid);
+                let diagram = ui
+                    .add(egui::Checkbox::new(
+                        &mut self.settings.diagram,
+                        (
+                            "Diagram",
+                            egui::Atom::grow(),
+                            RichText::new("Ctrl+Shift+D").weak(),
+                        ),
+                    ))
+                    .on_hover_text(
+                        "The structure of the document in the grid's place: one box per path \
                          of element names, with how many there are (D36)",
-                );
-                ui.add_enabled(
+                    );
+                flip(&diagram, &mut self.settings.diagram);
+                let cell_pane = ui.add_enabled(
                     self.settings.grid && !self.settings.diagram,
                     egui::Checkbox::new(
                         &mut self.settings.cell_pane,
                         "Cell pane beside the grid (experiment)",
                     ),
                 );
-                ui.checkbox(&mut self.settings.toolbar, "Toolbar");
+                flip(&cell_pane, &mut self.settings.cell_pane);
+                let toolbar = ui.checkbox(&mut self.settings.toolbar, "Toolbar");
+                flip(&toolbar, &mut self.settings.toolbar);
                 crate::ref_preview::switches(ui, &mut self.settings);
-                if ui.button("Font…").clicked() {
+                if ui.button("Font…").picked() {
                     ui.close();
                     self.font_dialog =
                         Some(crate::fonts::FontDialog::new(&self.settings.text_font));
                 }
                 let setting = self.settings.word_wrap;
                 let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
-                if ui
-                    .add(egui::Checkbox::new(
-                        &mut wrap,
-                        (
-                            "Word wrap",
-                            egui::Atom::grow(),
-                            RichText::new("Alt+Z").weak(),
-                        ),
-                    ))
-                    .changed()
-                {
+                let wrap_check = ui.add(egui::Checkbox::new(
+                    &mut wrap,
+                    (
+                        "Word wrap",
+                        egui::Atom::grow(),
+                        RichText::new("Alt+Z").weak(),
+                    ),
+                ));
+                if wrap_check.changed() || wrap_check.released_over() {
                     self.toggle_wrap();
                 }
                 ui.separator();
                 ui.label("Theme");
-                ui.radio_value(
-                    &mut self.settings.theme,
-                    ThemeChoice::System,
-                    "Follow system",
-                );
-                ui.radio_value(&mut self.settings.theme, ThemeChoice::Light, "Light");
-                ui.radio_value(&mut self.settings.theme, ThemeChoice::Dark, "Dark");
+                for (value, label) in [
+                    (ThemeChoice::System, "Follow system"),
+                    (ThemeChoice::Light, "Light"),
+                    (ThemeChoice::Dark, "Dark"),
+                ] {
+                    let radio = ui.radio_value(&mut self.settings.theme, value, label);
+                    choose(&radio, &mut self.settings.theme, value);
+                }
                 ui.separator();
                 ui.label("Layout");
-                ui.radio_value(
-                    &mut self.settings.layout,
-                    Layout::GridAbove,
-                    "Grid above text",
-                );
-                ui.radio_value(
-                    &mut self.settings.layout,
-                    Layout::TextAbove,
-                    "Text above grid (as in XML Marker)",
-                );
+                for (value, label) in [
+                    (Layout::GridAbove, "Grid above text"),
+                    (Layout::TextAbove, "Text above grid (as in XML Marker)"),
+                ] {
+                    let radio = ui.radio_value(&mut self.settings.layout, value, label);
+                    choose(&radio, &mut self.settings.layout, value);
+                }
                 if ui
                     .button("Reset layout")
                     .on_hover_text("The panes' first sizes again")
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.settings.panes = Default::default();
@@ -1594,7 +1598,7 @@ impl App {
             let help = ui.menu_button("Help", |ui| {
                 if ui
                     .add(egui::Button::new("XML Atlas Help").shortcut_text("F1"))
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.help.guide = true;
@@ -1604,12 +1608,12 @@ impl App {
                         !self.updates.running(),
                         egui::Button::new("Check for updates now"),
                     )
-                    .clicked()
+                    .picked()
                 {
                     ui.close();
                     self.check_for_updates_now(ui.ctx());
                 }
-                if ui.button("About XML Atlas").clicked() {
+                if ui.button("About XML Atlas").picked() {
                     ui.close();
                     self.help.about = true;
                 }
@@ -1646,7 +1650,7 @@ impl App {
         ];
         for ((label, keys), enabled, command) in items {
             let button = egui::Button::new(label).shortcut_text(keys);
-            if !ui.add_enabled(enabled, button).clicked() {
+            if !ui.add_enabled(enabled, button).picked() {
                 continue;
             }
             ui.close();
