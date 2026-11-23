@@ -103,9 +103,12 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Bug: a tree row's cost per frame followed the file (TREE-7): 4 s a frame for the
       attribute rows of an element with a 50 MiB value. Now rows are worked out when they
       come on screen or change, and read only as much of a value as they show
-- [ ] Bug: with word wrap on, a new width of the text view breaks long lines anew over all
+- [x] Bug: with word wrap on, a new width of the text view breaks long lines anew over all
       their length (TEXT-13): 130-140 ms a frame while resizing with one line of 50 MiB, 3 ms
-      with 1 MiB, 0.2 ms with wrap off. A minified file opens with wrap on (TEXT-23)
+      with 1 MiB, 0.2 ms with wrap off. A minified file opens with wrap on (TEXT-23). Now the
+      line is broken 1.6-3.2 times faster (35-57 ms at 50 MiB), and with a line of 4 MiB or
+      more a changing width is held back until it settles. Left: one 35-57 ms hitch when it
+      settles on a 50 MiB line, and not measured in the window, only the engine
 - [ ] Bug: the grid's cost follows the number of columns (GRID-9): about 130 ms for the frame
       after an edit and 3 ms for each other one with 100,000 attributes on one element. All
       cells of a row are worked out, also of columns out of sight (about 40 ms a row); the

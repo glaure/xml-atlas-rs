@@ -184,6 +184,12 @@ of it.
   25 ms once (again when the view's width changes), then a typed letter about 0.1 ms and
   the text view's frame 0.19 ms median and 2.6 ms at most while scrolling; on the 100 MiB
   fixture 0.12 ms median, against 0.10 ms without wrap.
+  A new width breaks a long line anew: a row is measured and searched as a whole when it is
+  well-formed UTF-8 without tabs (the same rows as going character by character, tested),
+  1.6 to 3.2 times faster than character by character (50 MiB of one line: 95 to 35 ms for
+  ASCII, 92 to 57 ms with non-ASCII text once in 160 bytes; 1 MiB: 2.6 to 0.8 ms). With a line of 4 MiB or more the
+  new width is held back until it has stayed the same for 150 ms, so resizing the window does
+  not break the line at every width it passes; the rows are the old width's meanwhile.
 
 ## Acceptance tests
 
