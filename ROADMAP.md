@@ -109,10 +109,14 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
       line is broken 1.6-3.2 times faster (35-57 ms at 50 MiB), and with a line of 4 MiB or
       more a changing width is held back until it settles. Left: one 35-57 ms hitch when it
       settles on a 50 MiB line, and not measured in the window, only the engine
-- [ ] Bug: the grid's cost follows the number of columns (GRID-9): about 130 ms for the frame
-      after an edit and 3 ms for each other one with 100,000 attributes on one element. All
-      cells of a row are worked out, also of columns out of sight (about 40 ms a row); the
-      rest is in the grid as well and not profiled yet. Low priority: far from real files
+- [x] Bug: the grid's cost follows the number of columns (GRID-9): about 130 ms for the frame
+      after an edit and 3 ms for each other one with 100,000 attributes on one element. The
+      table is now virtualized sideways (D42), and a row finds its columns by name with one
+      lookup for each of its attributes and children, not an allocation for each: a row of
+      100,000 attributes takes 16 ms, not 33. The lookup is rebuilt only when the columns
+      change, not after each edit. Left: an idle frame still compares the column list
+      (0.7 ms at 100,000), and a row still builds a cell for every column, in sight or not
+      (16 ms for a row that has them all); far from real files
 - [ ] Text: a formatted view of a minified file that leaves the file as it is (TEXT-24)
 - [x] Help menu: a built-in guide (F1) and About with the version (WIN-4)
 - [x] Toolbar after XML Marker's (WIN-5), and File > New (OPEN-22)
