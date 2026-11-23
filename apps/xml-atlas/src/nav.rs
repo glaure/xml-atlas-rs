@@ -72,6 +72,9 @@ pub fn handle(ctx: &egui::Context, open: &mut Open) {
         crate::ref_preview::go_to_target(open);
         return;
     }
+    if crate::bookmarks::keys(ctx, open, in_text) {
+        return;
+    }
     if in_text {
         return;
     }

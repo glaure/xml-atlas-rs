@@ -76,6 +76,8 @@ pub struct History {
     limit: usize,
     /// The last undo step may take more typing (TEXT-20); [`History::seal`] ends it.
     open: bool,
+    /// Where each change of the last edit, undo or redo landed ([`History::landed`]).
+    landed: Vec<Splice>,
 }
 
 /// One change to make: replace `len` bytes at `at` with `inserted`. The bytes it removes are
@@ -150,6 +152,7 @@ impl History {
             saved: Some(0),
             limit,
             open: false,
+            landed: Vec::new(),
         }
     }
 
@@ -196,6 +199,7 @@ impl History {
         };
         let mut step = replace(src, changes, label);
         let splice = step.splice();
+        self.note_landed(&step);
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             // The saved state was among the undone steps, which are now gone.
             self.saved = None;
@@ -287,6 +291,7 @@ impl History {
         let label = step.label.clone();
         let reverse = run(src, step);
         let splice = reverse.splice();
+        self.note_landed(&reverse);
         self.redo.push(reverse);
         self.open = false;
         Some((label, splice))
@@ -298,9 +303,27 @@ impl History {
         let label = step.label.clone();
         let reverse = run(src, step);
         let splice = reverse.splice();
+        self.note_landed(&reverse);
         self.undo.push(reverse);
         self.open = false;
         Some((label, splice))
+    }
+
+    /// Where each change of the last edit, undo or redo landed, in source order: `removed`
+    /// bytes of before became `inserted` ones at `at`, an offset of the new source. Unlike the
+    /// [`Splice`] they return, it leaves out the bytes between the changes, so what lies
+    /// there can be followed (bookmarks, TREE-15).
+    pub fn landed(&self) -> &[Splice] {
+        &self.landed
+    }
+
+    fn note_landed(&mut self, step: &Step) {
+        self.landed.clear();
+        self.landed.extend(step.changes.iter().map(|c| Splice {
+            at: c.at,
+            removed: c.inserted.len(),
+            inserted: c.len,
+        }));
     }
 
     /// What Edit > Undo would undo.

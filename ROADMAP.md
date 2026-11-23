@@ -149,8 +149,8 @@ From XML Marker's 2.x change log (observe it, write the rules in `docs/spec/` fi
 needs a spec ID before work starts). Checked against the menus of XML Marker 2.2.0 (the
 latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
 
-- [ ] Bookmarks in text, tree and grid: set (Ctrl+F2), cycle (F2); they follow edits. Navigate
-      menu: Toggle, Last, Next, Clear all bookmarks
+- [x] Bookmarks in text, tree and grid: set (Ctrl+F2), cycle (F2 in the text, F4 anywhere);
+      they follow edits. Navigate menu: Toggle, Next, Last, Clear all (TREE-15)
 - [ ] New Text and New Json in File > New, next to New DTD (OPEN-22 has New XML; XM-69)
 - [ ] Save as with Encoding: a Save As that asks for the encoding, with and without BOM
       (OPEN-8, D23; XM-64 to XM-67). Do better than XML Marker: ask before characters are

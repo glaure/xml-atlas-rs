@@ -21,6 +21,7 @@ pub use format::{
 };
 pub use xml_atlas_xml as xml;
 
+pub mod bookmarks;
 pub mod command;
 pub mod disk;
 pub mod edit;
@@ -92,6 +93,9 @@ pub struct Document {
     pub timings: Timings,
     /// Undo and redo, and whether the source differs from the file.
     pub history: History,
+    /// The elements marked to come back to (TREE-15). They follow every change, and are not
+    /// part of the document: no undo step, not saved.
+    pub bookmarks: bookmarks::Bookmarks,
     /// Counts changes to the source, so views can tell that what they computed is stale.
     revision: u64,
     /// The file as it was when last read or written; `None` when there was none (OPEN-14).
@@ -210,6 +214,7 @@ impl Document {
                 together: Some(together),
             },
             history: History::new(),
+            bookmarks: bookmarks::Bookmarks::default(),
             revision: 0,
             disk: None,
             last_change: None,
@@ -403,6 +408,22 @@ impl Document {
     fn reindex(&mut self, splice: Option<Splice>, typed: bool) {
         self.revision += 1;
         self.last_change = splice;
+        // A change that replaces everything (Format, Compact) keeps the structure, so the
+        // marked elements are found again by their position (TREE-15). Any other change moves
+        // the marks with the text.
+        let whole = !typed
+            && !self.bookmarks.is_empty()
+            && matches!(self.history.landed(), [c] if c.at == 0 && c.inserted == self.src.len());
+        let marked: Vec<Vec<u32>> = if whole {
+            let index = &self.index;
+            self.bookmarks
+                .elements(index)
+                .map(|id| index.element_position(id))
+                .collect()
+        } else {
+            self.bookmarks.follow(self.history.landed());
+            Vec::new()
+        };
         let t = Instant::now();
         let stale = if typed { self.stale } else { self.stale.take() };
         // Copies the index only while a query on another thread still holds it (D35).
@@ -426,6 +447,15 @@ impl Document {
                 self.index = Arc::new(xml_atlas_xml::index(&self.src));
                 self.stale = None;
             }
+        }
+        if whole {
+            let index = &self.index;
+            self.bookmarks.set(
+                marked
+                    .iter()
+                    .filter_map(|p| index.element_at_position(p))
+                    .map(|id| index.node(id).start as usize),
+            );
         }
         self.timings.index = t.elapsed();
         let t = Instant::now();

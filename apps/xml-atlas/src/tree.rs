@@ -405,6 +405,16 @@ pub fn draw<C>(
             } else if resp.hovered() {
                 painter.rect_filled(rect, 2.0, visuals.widgets.hovered.weak_bg_fill);
             }
+            // A bookmark (TREE-15): a bar at the row's left edge.
+            if let Row::Node(id) = row
+                && crate::bookmarks::is_marked(doc, id)
+            {
+                painter.rect_filled(
+                    Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
+                    1.0,
+                    crate::bookmarks::color(visuals),
+                );
+            }
             let x = rect.left() + shown.depth as f32 * INDENT;
             let expandable = shown.expandable;
             if let (true, Row::Node(id)) = (expandable, row) {
