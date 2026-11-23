@@ -14,6 +14,7 @@ mod diagram_svg;
 mod disk_watch;
 mod find_bar;
 mod fonts;
+mod goto_bar;
 mod grid;
 mod help;
 mod highlight;

@@ -364,6 +364,50 @@ pub fn at_column(doc: &Document, line: usize, col: usize) -> usize {
     pos
 }
 
+/// Why [`go_to`] could not make a position of its input.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GoToError {
+    #[error("Type a line number, or line:column")]
+    Empty,
+    #[error("\"{0}\" is not a line number; type 12 or 12:5")]
+    NotANumber(String),
+    #[error("Lines start at 1")]
+    Zero,
+    #[error("The file has {0} lines")]
+    PastTheEnd(usize),
+}
+
+/// The position `input` names (Go to line, TEXT-27): `12` is the start of line 12, `12:5` its
+/// column 5, both counted from 1; the column is in display columns as the status bar's is
+/// (TEXT-4), and past the end of a short line means its end. Blanks around the numbers are
+/// allowed. A line past the last is an error rather than the end: the number is probably a
+/// mistake, such as one from another file. The last line is the one after the final line
+/// break, if the file ends with one.
+pub fn go_to(doc: &Document, input: &str) -> Result<usize, GoToError> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(GoToError::Empty);
+    }
+    let (line, column) = match input.split_once(':') {
+        Some((l, c)) => (l.trim(), Some(c.trim())),
+        None => (input, None),
+    };
+    let number = |s: &str| {
+        s.parse::<usize>()
+            .map_err(|_| GoToError::NotANumber(input.to_owned()))
+    };
+    let line = number(line)?;
+    let column = column.map(number).transpose()?;
+    if line == 0 || column == Some(0) {
+        return Err(GoToError::Zero);
+    }
+    let lines = doc.line_count();
+    if line > lines {
+        return Err(GoToError::PastTheEnd(lines));
+    }
+    Ok(at_column(doc, line - 1, column.map_or(0, |c| c - 1)))
+}
+
 /// The position `lines` lines up (negative) or down from `at`, at display column `col`
 /// (Up, Down, Page Up, Page Down). Above the first line is the document's start; below the
 /// last, its end.
@@ -595,6 +639,44 @@ mod tests {
 
     fn doc() -> Document {
         Document::from_bytes(SRC.to_vec())
+    }
+
+    /// TEXT-27: a line, or line:column, from 1, with a byte order mark, CRLF, a tab and
+    /// non-ASCII text in the file.
+    #[test]
+    fn go_to_names_a_line_and_a_column() {
+        let d = doc();
+        let at = |s: &str| go_to(&d, s);
+        // Line 1 starts after the byte order mark, never before it.
+        assert_eq!(at("1"), Ok(3));
+        assert_eq!(at(" 1 : 1 "), Ok(3));
+        // Line 2 is the tab, then `<a`.
+        let line2 = find(&d, "\t<a");
+        assert_eq!(at("2"), Ok(line2));
+        // A tab is four columns: column 5 is the `<`, column 2 is inside the tab and
+        // rounds to its nearer side.
+        assert_eq!(at("2:5"), Ok(line2 + 1));
+        // Columns count characters as the view does: `ü` and `ß` are one each.
+        let sharp = find(&d, "ße");
+        let col_of_e = column(&d, sharp + 2) + 1;
+        assert_eq!(at(&format!("2:{col_of_e}")), Ok(sharp + 2));
+        // Past the end of the line is the end of the line, before the CRLF.
+        assert_eq!(at("2:999"), Ok(find(&d, "</a>") + 4));
+        // The empty line after the last line break is a line.
+        assert_eq!(at(&d.line_count().to_string()), Ok(d.src.len()));
+    }
+
+    #[test]
+    fn go_to_says_what_is_wrong() {
+        let d = doc();
+        assert_eq!(go_to(&d, "  "), Err(GoToError::Empty));
+        assert_eq!(go_to(&d, "0"), Err(GoToError::Zero));
+        assert_eq!(go_to(&d, "3:0"), Err(GoToError::Zero));
+        assert_eq!(go_to(&d, "x"), Err(GoToError::NotANumber("x".to_owned())));
+        assert_eq!(go_to(&d, "-1"), Err(GoToError::NotANumber("-1".to_owned())));
+        assert_eq!(go_to(&d, "5"), Err(GoToError::PastTheEnd(4)));
+        // The message names the count.
+        assert_eq!(GoToError::PastTheEnd(4).to_string(), "The file has 4 lines");
     }
 
     fn find(doc: &Document, s: &str) -> usize {

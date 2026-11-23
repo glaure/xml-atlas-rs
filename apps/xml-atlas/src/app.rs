@@ -71,6 +71,7 @@ pub struct App {
     find: crate::find_bar::FindBar,
     /// Edit > XPath… (D35).
     xpath: crate::xpath_bar::XPathBar,
+    goto: crate::goto_bar::GoToBar,
     /// Files being opened, in the order asked for.
     loading: Vec<Loading>,
     /// Files the system asks to open while the app runs: from Finder on macOS (D26).
@@ -361,6 +362,7 @@ impl App {
             find,
             menu_keys: Default::default(),
             xpath: Default::default(),
+            goto: Default::default(),
             loading: Vec::new(),
             opened,
             help: Default::default(),
@@ -1465,6 +1467,16 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
+                        egui::Button::new("Go to line…").shortcut_text("Ctrl+G"),
+                    )
+                    .picked()
+                {
+                    ui.close();
+                    self.goto.open();
+                }
+                if ui
+                    .add_enabled(
+                        !self.docs.is_empty(),
                         egui::Button::new("Replace…").shortcut_text("Ctrl+H"),
                     )
                     .picked()
@@ -2132,6 +2144,7 @@ impl eframe::App for App {
             crate::diagram::shortcuts(&ctx, open);
         }
         self.find.shortcuts(&ctx, self.docs.active_mut());
+        self.goto.shortcuts(&ctx, !self.docs.is_empty());
         if self.confirm.is_none()
             && let Some(open) = self.docs.active_mut()
         {
@@ -2258,6 +2271,9 @@ impl eframe::App for App {
             }
             if self.xpath.visible {
                 egui::Panel::top("xpath").show(ui, |ui| self.xpath.show(ui, open));
+            }
+            if self.goto.visible {
+                egui::Panel::top("goto").show(ui, |ui| self.goto.show(ui, open));
             }
             if preview_tree {
                 // Added first, so it is the rightmost: main tree | text | preview | its tree.

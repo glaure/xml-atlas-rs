@@ -158,6 +158,15 @@ of it.
   then replaces only inside it. The ✕ next to it, Ctrl+F, Edit > Find… and closing the bar
   return to the whole document. The CLI's `find --within PATH` and the agents' `find` with
   `within` do the same. Asked for in issue #104.
+- **TEXT-27** `[done]` Go to line: Edit > Go to line… or Ctrl+G opens a bar above the text with
+  one field, hinted with the number of lines. `12` goes to the start of line 12 and `12:5` to
+  its column 5, both from 1; columns are display columns as the status bar's are (TEXT-4), and
+  past the end of a short line is its end. Enter moves the text cursor there, scrolls it into
+  view and gives the keyboard back to the text; Escape closes the bar the same way. A number
+  below 1, past the last line or not a number is not followed: the bar says why and stays
+  open. When the document has an error the hint is its line, and Enter on an empty field goes
+  there. The parsing is `text::go_to` in the engine. Moving the cursor does not select an
+  element (TREE-12).
 - **TEXT-13** `[done]` Word wrap: View > Word wrap, or Alt+Z, turns it on and off for every
   tab, remembered with the other settings; off at first. Lines wrap at the view's width,
   after a blank or before a `<`, at the last such place that fits; a word wider than the view
