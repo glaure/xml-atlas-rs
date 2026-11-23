@@ -524,7 +524,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
             && let Some(element) = open.element_at(line_first as u64)
         {
             // A click still selects the element of its line (TEXT-7, TREE-12).
-            open.select(element);
+            open.select_in(element, open.text_click_expands);
             // The click came from the text view; don't jump it.
             open.scroll_text_to = None;
         }

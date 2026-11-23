@@ -105,6 +105,7 @@ impl Section {
                 settings.panes = d.panes;
                 settings.layout = d.layout;
                 settings.tree_attributes = d.tree_attributes;
+                settings.expand_on_text_click = d.expand_on_text_click;
                 settings.grid = d.grid;
                 settings.cell_pane = d.cell_pane;
                 settings.diagram = d.diagram;
@@ -269,6 +270,10 @@ fn section(
                     ui.label("Show");
                     ui.vertical(|ui| {
                         ui.checkbox(&mut s.tree_attributes, "Attributes in the tree");
+                        ui.checkbox(
+                            &mut s.expand_on_text_click,
+                            "Expand the tree on a click in the text",
+                        );
                         ui.checkbox(&mut s.grid, "Grid");
                         ui.add_enabled(
                             s.grid,
@@ -381,6 +386,7 @@ mod tests {
             theme: ThemeChoice::Dark,
             light_style: LightStyle::Classic,
             tree_attributes: false,
+            expand_on_text_click: false,
             grid: false,
             cell_pane: false,
             diagram: true,

@@ -165,6 +165,28 @@ impl TreeState {
             .map(|i| i.saturating_sub(CONTEXT_ROWS));
     }
 
+    /// Selects `id` if it is visible, else the closest ancestor that is, without expanding
+    /// anything, and scrolls to it. For a click in the text with automatic expansion off
+    /// (TREE-12).
+    pub fn select_visible(&mut self, doc: &Document, id: NodeId) {
+        // The topmost collapsed ancestor is the one shown: everything above it is expanded.
+        let mut shown = id;
+        let mut p = doc.index.node(id).parent;
+        while p != ROOT && p != NONE {
+            if !self.expanded[p as usize] {
+                shown = p;
+            }
+            p = doc.index.node(p).parent;
+        }
+        self.selected = Some(Row::Node(shown));
+        self.rebuild(doc);
+        self.scroll_to = self
+            .rows
+            .iter()
+            .position(|&r| r == Row::Node(shown))
+            .map(|i| i.saturating_sub(CONTEXT_ROWS));
+    }
+
     /// Scrolls just enough to show `row`, if it is off screen.
     /// Leaves the tree scrolled where it is, after an edit re-selected the same element
     /// (TREE-12: typing does not move the tree).
@@ -238,6 +260,11 @@ impl TreeState {
     }
 
     /// The marked row.
+    #[cfg(test)]
+    pub fn is_expanded(&self, id: NodeId) -> bool {
+        self.expanded[id as usize]
+    }
+
     pub fn selected(&self) -> Option<Row> {
         self.selected
     }
@@ -738,6 +765,25 @@ mod tests {
         }
         t.rebuild(doc);
         t.selected.map(|r| name(doc, r)).unwrap_or_default()
+    }
+
+    /// TREE-12: with expansion off, a click on a hidden element selects its topmost collapsed
+    /// ancestor and expands nothing; on a visible one it selects the element itself.
+    #[test]
+    fn select_visible_stops_at_the_collapsed_ancestor() {
+        let (doc, mut t) = setup();
+        let idx = &doc.index;
+        let r = idx.children(ROOT).next().unwrap();
+        let x = idx.children(r).next().unwrap();
+        let y = idx.children(x).next().unwrap();
+        assert_eq!(idx.node(y).parent, x);
+        t.expanded[x as usize] = false;
+        t.select_visible(&doc, y);
+        assert_eq!(t.selected, Some(Row::Node(x)));
+        assert!(!t.expanded[x as usize], "nothing is expanded");
+        t.expanded[x as usize] = true;
+        t.select_visible(&doc, y);
+        assert_eq!(t.selected, Some(Row::Node(y)));
     }
 
     /// TREE-7 and AGENTS.md, rule 2: a frame in which nothing changed reads nothing from the

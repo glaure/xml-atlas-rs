@@ -55,7 +55,11 @@ The tree shows the structure of the document and is the main way to move around 
   element with child elements, element with only text, empty element (attributes do not
   count), attribute, text. The icons are our own shapes, drawn in the colours of the text
   view's palette, so they follow the light and dark theme.
-- **TREE-12** `[planned]` A click in the text moves the tree to that element (TREE-6, TEXT-7).
+- **TREE-12** `[built]` A click in the text moves the tree to that element (TREE-6, TEXT-7),
+  expanding what is closed above it. A setting turns the expanding off (View > Expand the
+  tree on a click in the text, Settings > Views, a toolbar toggle; on by default): the tree
+  then selects the closest element it shows, the topmost collapsed ancestor, and opens
+  nothing; the grid and the text still follow the clicked element.
   Moving the cursor while typing does not. Locate in tree (Ctrl+L) moves it on request
   (XM-42).
 - **TREE-13** `[planned]` Editor Select, from the tree's right-click menu (and Ctrl+E): selects
