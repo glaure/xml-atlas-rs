@@ -1659,7 +1659,8 @@ impl App {
     fn navigate_menu(&mut self, ui: &mut Ui) {
         let marks = self.docs.active().map_or(0, |o| o.doc.bookmarks.len());
         let has_document = !self.docs.is_empty();
-        let items: [(&str, Option<KeyboardShortcut>, bool, fn(&mut Open)); 4] = [
+        type Item<'a> = (&'a str, Option<KeyboardShortcut>, bool, fn(&mut Open));
+        let items: [Item; 4] = [
             (
                 "Toggle Bookmark",
                 Some(crate::bookmarks::TOGGLE),

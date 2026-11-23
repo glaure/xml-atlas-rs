@@ -221,7 +221,7 @@ mod tests {
                 )),
                 ..Default::default()
             };
-            ctx.run_ui(input, |ui| {
+            let mut out = ctx.run_ui(input, |ui| {
                 egui::Panel::left("tree").show(ui, |ui| crate::tree::show(ui, &mut open, None));
                 egui::Panel::bottom("grid").show(ui, |ui| crate::grid::show(ui, &mut open));
                 egui::CentralPanel::default().show(ui, |ui| {
@@ -234,6 +234,7 @@ mod tests {
                     )
                 });
             });
+            out.textures_delta.clear();
         }
         assert_eq!(marked(&open), ["d"]);
     }
