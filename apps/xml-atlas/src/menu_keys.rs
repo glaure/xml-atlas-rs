@@ -26,6 +26,77 @@ impl AltTap {
     }
 }
 
+/// A mouse press that began on a menu's name and has not been let go yet (see the module doc).
+#[derive(Clone, Copy, Debug, Default)]
+struct Drag {
+    active: bool,
+    /// Where the button was let go this frame, when a drag ended.
+    release: Option<egui::Pos2>,
+}
+
+impl Drag {
+    fn id() -> egui::Id {
+        egui::Id::NULL.with("menu-drag")
+    }
+
+    fn get(ctx: &egui::Context) -> Self {
+        ctx.data(|d| d.get_temp(Self::id())).unwrap_or_default()
+    }
+
+    fn set(self, ctx: &egui::Context) {
+        ctx.data_mut(|d| d.insert_temp(Self::id(), self));
+    }
+}
+
+/// What a menu entry asks of its response.
+pub trait MenuPick {
+    /// Clicked, or the mouse button was let go over it at the end of a drag from the bar.
+    /// While such a drag is on, the entry under the pointer is highlighted.
+    fn picked(&self) -> bool;
+    /// The mouse button was let go over it at the end of a drag from the bar: for entries that
+    /// toggle, which egui does not see as a click.
+    fn released_over(&self) -> bool;
+}
+
+impl MenuPick for egui::Response {
+    fn picked(&self) -> bool {
+        self.clicked() || self.released_over()
+    }
+
+    fn released_over(&self) -> bool {
+        let drag = Drag::get(&self.ctx);
+        if drag.active && self.enabled() {
+            let (down, pos) = self
+                .ctx
+                .input(|i| (i.pointer.primary_down(), i.pointer.latest_pos()));
+            if down && pos.is_some_and(|p| self.rect.contains(p)) {
+                // The keyboard's highlight is the one that shows.
+                self.request_focus();
+            }
+        }
+        self.enabled() && drag.release.is_some_and(|p| self.rect.contains(p))
+    }
+}
+
+/// A check box entry, for the end of a drag from the bar: flips `value` when the button was
+/// let go over it. egui reports `changed` for a click only.
+pub fn flip(response: &egui::Response, value: &mut bool) -> bool {
+    let hit = response.released_over();
+    if hit {
+        *value = !*value;
+    }
+    hit
+}
+
+/// A radio entry, as [`flip`] is for check boxes.
+pub fn choose<T: PartialEq>(response: &egui::Response, current: &mut T, value: T) -> bool {
+    let hit = response.released_over() && *current != value;
+    if hit {
+        *current = value;
+    }
+    hit
+}
+
 /// The menu bar's keyboard state.
 #[derive(Debug, Default)]
 pub struct MenuKeys {
@@ -41,6 +112,22 @@ impl MenuKeys {
     /// Call once per frame before the bar is drawn: the menu's own arrow keys act while it is
     /// drawn, so the request to enter a menu has to be there first.
     pub fn before(&mut self, ctx: &egui::Context) {
+        let mut drag = Drag::get(ctx);
+        drag.release = None;
+        let (down, released, pos) = ctx.input(|i| {
+            (
+                i.pointer.primary_down(),
+                i.pointer.primary_released(),
+                i.pointer.latest_pos(),
+            )
+        });
+        if drag.active && released {
+            drag.release = pos;
+            drag.active = false;
+        } else if !down {
+            drag.active = false;
+        }
+        drag.set(ctx);
         if self.enter > 0 {
             self.enter -= 1;
             if self.enter == 0 && egui::Popup::is_any_open(ctx) {
@@ -92,6 +179,8 @@ impl MenuKeys {
             not_moving();
         }
 
+        self.mouse(ctx, bar, &ids, open);
+
         // Nothing of the menu has the keyboard any more (Esc, a click elsewhere): back to
         // where it was.
         if !tapped
@@ -102,6 +191,55 @@ impl MenuKeys {
         {
             ctx.memory_mut(|m| m.request_focus(id));
         }
+    }
+}
+
+impl MenuKeys {
+    fn mouse(
+        &mut self,
+        ctx: &egui::Context,
+        bar: &[egui::Response],
+        ids: &[egui::Id],
+        open: Option<usize>,
+    ) {
+        use egui::Popup;
+        let mut drag = Drag::get(ctx);
+        let (pressed, down, pos) = ctx.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.latest_pos(),
+            )
+        });
+        let over = |p: egui::Pos2| bar.iter().position(|r| r.rect.contains(p));
+        if let Some(pos) = pos {
+            if pressed
+                && let Some(j) = over(pos)
+                && open != Some(j)
+            {
+                // Pressed on a menu that is not open: open it now and follow the pointer.
+                Popup::open_id(ctx, ids[j]);
+                drag.active = true;
+            } else if drag.active
+                && down
+                && let Some(j) = over(pos)
+                && open != Some(j)
+            {
+                Popup::open_id(ctx, ids[j]);
+            }
+        }
+        if let Some(pos) = drag.release {
+            if let Some(j) = over(pos) {
+                // Let go on a name: the menu stays open, whatever egui's click made of it.
+                Popup::open_id(ctx, ids[j]);
+            } else if ctx
+                .layer_id_at(pos)
+                .is_none_or(|l| l.order != egui::Order::Foreground)
+            {
+                Popup::close_all(ctx);
+            }
+        }
+        drag.set(ctx);
     }
 }
 
