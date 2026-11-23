@@ -964,7 +964,25 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
         let y = match (boxes[i].kids.first(), boxes[i].kids.last()) {
             (Some(&a), Some(&b)) => {
                 let middle = (boxes[a].rect.center().y + boxes[b].rect.center().y) / 2.0;
-                (middle - h / 2.0).max(top)
+                let wanted = middle - h / 2.0;
+                if wanted >= top {
+                    wanted
+                } else {
+                    // A box taller than its children cannot rise above where they start, so
+                    // they move down with everything below them, until its line meets
+                    // theirs (#166). Its subtree follows it in `boxes`.
+                    let by = top - wanted;
+                    for k in i + 1..boxes.len() {
+                        if depth_of[k] <= depth_of[i] {
+                            break;
+                        }
+                        let moved = boxes[k].rect.translate(vec2(0.0, by));
+                        boxes[k].rect = moved;
+                        size = size.max(moved.max.to_vec2() + vec2(GAP_X, GAP_Y));
+                    }
+                    next_y += by;
+                    top
+                }
             }
             _ => next_y,
         };
@@ -1112,6 +1130,42 @@ mod tests {
         let (a, b) = (customer.kids[0], customer.kids[1]);
         let middle = (l.boxes[a].rect.center().y + l.boxes[b].rect.center().y) / 2.0;
         assert!((customer.rect.center().y - middle).abs() < 0.1);
+    }
+
+    /// #166: a box with attributes is taller than a plain child. It cannot rise above where the
+    /// child starts, so the child moves down: their lines meet and nothing overlaps. Also with
+    /// several children, grandchildren and a following sibling. Non-ASCII names, a byte order
+    /// mark and CRLF, as real files have.
+    #[test]
+    fn a_tall_parent_and_its_shorter_children_share_a_line() {
+        let src = "\u{feff}<röot>\r\n<größe a=\"1\"><b/></größe>\r\n\
+                   <größe2 a=\"1\"><b/><c><d/></c></größe2>\r\n<last/>\r\n</röot>";
+        let mut open = opened(src);
+        walk(&mut open);
+        let l = layout(&open);
+        let mut tall = 0;
+        for b in &l.boxes {
+            let (Some(&a), Some(&z)) = (b.kids.first(), b.kids.last()) else {
+                continue;
+            };
+            let middle = (l.boxes[a].rect.center().y + l.boxes[z].rect.center().y) / 2.0;
+            assert!(
+                (b.rect.center().y - middle).abs() < 0.1,
+                "{} sits at {}, its children's middle at {middle}",
+                b.name,
+                b.rect.center().y
+            );
+            if b.rect.height() > l.boxes[a].rect.height() {
+                tall += 1;
+            }
+        }
+        assert!(tall >= 2, "the sample has no tall parent");
+        for (i, a) in l.boxes.iter().enumerate() {
+            assert!(l.size.x >= a.rect.right() && l.size.y >= a.rect.bottom());
+            for b in &l.boxes[i + 1..] {
+                assert!(!a.rect.intersects(b.rect), "{} overlaps {}", a.name, b.name);
+            }
+        }
     }
 
     #[test]
