@@ -21,6 +21,7 @@ mod icons;
 mod installer;
 #[cfg(target_os = "macos")]
 mod macos_open;
+mod menu_keys;
 mod nav;
 mod problems_panel;
 mod ref_preview;
