@@ -65,6 +65,8 @@ pub struct App {
     confirm: Option<Action>,
     /// Set once the user agreed to close, so the close request is not asked about again.
     quitting: bool,
+    /// Alt tapped on its own opens the menu bar for the keyboard (#167).
+    menu_keys: crate::menu_keys::MenuKeys,
     find: crate::find_bar::FindBar,
     /// Edit > XPath… (D35).
     xpath: crate::xpath_bar::XPathBar,
@@ -353,6 +355,7 @@ impl App {
             confirm: None,
             quitting: false,
             find,
+            menu_keys: Default::default(),
             xpath: Default::default(),
             loading: Vec::new(),
             opened,
@@ -1281,12 +1284,13 @@ impl App {
     }
 
     /// File > Open Recent (OPEN-12): newest first, the file name with its folder beside it.
-    fn recent_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+    fn recent_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) -> bool {
         let enabled = !self.settings.recent.is_empty();
         let mut chosen = None;
         let mut clear = false;
+        let mut submenu_open = false;
         ui.add_enabled_ui(enabled, |ui| {
-            ui.menu_button("Open Recent", |ui| {
+            let button = ui.menu_button("Open Recent", |ui| {
                 for (i, path) in self.settings.recent.iter().enumerate() {
                     let folder = path
                         .parent()
@@ -1308,6 +1312,9 @@ impl App {
                     clear = true;
                 }
             });
+            // Left and Right are the submenu's while it is open.
+            let id = egui::containers::menu::SubMenu::id_from_widget_id(button.response.id);
+            submenu_open = button.response.has_focus() || egui::Popup::is_id_open(ctx, id);
         });
         if let Some(path) = chosen {
             ui.close();
@@ -1317,6 +1324,7 @@ impl App {
             ui.close();
             self.settings.recent.clear();
         }
+        submenu_open
     }
 
     fn menu(&mut self, ui: &mut Ui) {
@@ -1325,8 +1333,10 @@ impl App {
         if !ctx.input(|i| i.focused) {
             egui::Popup::close_all(&ctx);
         }
+        let mut in_submenu = false;
+        self.menu_keys.before(&ctx);
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
+            let file = ui.menu_button("File", |ui| {
                 if ui
                     .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
                     .clicked()
@@ -1341,7 +1351,7 @@ impl App {
                     ui.close();
                     self.pick_file(&ctx);
                 }
-                self.recent_menu(ui, &ctx);
+                in_submenu = self.recent_menu(ui, &ctx);
                 let can_save = self.docs.active().is_some_and(|o| o.doc.is_modified());
                 if ui
                     .add_enabled(can_save, egui::Button::new("Save").shortcut_text("Ctrl+S"))
@@ -1393,7 +1403,7 @@ impl App {
                     self.request(&ctx, Action::Quit);
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            let edit = ui.menu_button("Edit", |ui| {
                 let history = self.docs.active().map(|o| &o.doc.history);
                 let undo = history.and_then(|h| h.undo_label()).map(str::to_owned);
                 let redo = history.and_then(|h| h.redo_label()).map(str::to_owned);
@@ -1488,7 +1498,7 @@ impl App {
                     self.format_dialog = Some(self.settings.format);
                 }
             });
-            ui.menu_button("View", |ui| {
+            let view = ui.menu_button("View", |ui| {
                 ui.add_enabled_ui(!self.docs.is_empty(), |ui| {
                     let mut show = self.docs.active().is_none_or(|o| o.tree.options.attributes);
                     if ui.checkbox(&mut show, "Attributes in the tree").changed() {
@@ -1581,7 +1591,7 @@ impl App {
                     self.settings.panes = Default::default();
                 }
             });
-            ui.menu_button("Help", |ui| {
+            let help = ui.menu_button("Help", |ui| {
                 if ui
                     .add(egui::Button::new("XML Atlas Help").shortcut_text("F1"))
                     .clicked()
@@ -1604,6 +1614,8 @@ impl App {
                     self.help.about = true;
                 }
             });
+            let bar = [file.response, edit.response, view.response, help.response];
+            self.menu_keys.bar(&ctx, &bar, in_submenu);
         });
     }
 
