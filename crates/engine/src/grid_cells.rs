@@ -29,6 +29,7 @@ pub struct Shown {
 pub struct Cells {
     version: Option<NodesVersion>,
     columns: Vec<Column>,
+    lookup: Lookup,
     rows: HashMap<NodeId, Row>,
     frame: u64,
     worked_out: u64,
@@ -46,9 +47,13 @@ impl Cells {
     pub fn begin(&mut self, doc: &Document, grid: &Grid) {
         self.frame += 1;
         let version = doc.nodes_version();
-        if self.version != Some(version) || self.columns != grid.columns {
-            self.version = Some(version);
+        if self.columns != grid.columns {
             self.columns.clone_from(&grid.columns);
+            self.lookup = Lookup::new(&self.columns);
+            self.rows.clear();
+        }
+        if self.version != Some(version) {
+            self.version = Some(version);
             self.rows.clear();
         }
     }
@@ -59,7 +64,7 @@ impl Cells {
         let kept = self.rows.entry(row).or_insert_with(|| {
             self.worked_out += 1;
             Row {
-                cells: row_cells(doc, &self.columns, row),
+                cells: row_cells(doc, &self.columns, &self.lookup, row),
                 frame,
             }
         });
@@ -79,47 +84,74 @@ impl Cells {
     }
 }
 
+/// Where each attribute and child column is, by name, so a row finds its columns with one
+/// lookup for each attribute and child it has, not one for each column.
+#[derive(Debug, Default)]
+struct Lookup {
+    attributes: HashMap<String, usize>,
+    children: HashMap<Vec<u8>, usize>,
+}
+
+impl Lookup {
+    fn new(columns: &[Column]) -> Self {
+        let mut lookup = Lookup::default();
+        for (i, column) in columns.iter().enumerate() {
+            match column {
+                Column::Attribute(name) => {
+                    lookup.attributes.entry(name.clone()).or_insert(i);
+                }
+                Column::Child(name) => {
+                    lookup.children.entry(name.as_bytes().to_vec()).or_insert(i);
+                }
+                Column::Text => {}
+            }
+        }
+        lookup
+    }
+}
+
 /// The cells of `row` in `columns`, as [`Grid::cell`] gives them, with one walk over the
-/// row's children: not one for each column.
-fn row_cells(doc: &Document, columns: &[Column], row: NodeId) -> Vec<Shown> {
+/// row's children and attributes: not one for each column.
+fn row_cells(doc: &Document, columns: &[Column], lookup: &Lookup, row: NodeId) -> Vec<Shown> {
     let idx = &doc.index;
     let src = &doc.src[..];
 
-    // Per child column, by name: the first such child and how many there are.
-    let mut children: HashMap<&[u8], (Option<NodeId>, usize)> = columns
-        .iter()
-        .filter_map(|column| match column {
-            Column::Child(name) => Some((name.as_bytes(), (None, 0))),
-            _ => None,
-        })
-        .collect();
+    // Per child column: the first such child and how many there are.
+    let mut children: Vec<(Option<NodeId>, usize)> = Vec::new();
+    if !lookup.children.is_empty() {
+        children.resize(columns.len(), (None, 0));
+    }
     let mut only_text = true;
     for c in idx.children(row) {
         let kind = idx.node(c).kind;
         only_text &= matches!(kind, NodeKind::Text | NodeKind::CData);
         if kind == NodeKind::Element
-            && let Some((first, count)) = children.get_mut(idx.name(src, c))
+            && let Some(&at) = lookup.children.get(idx.name(src, c))
         {
+            let (first, count) = &mut children[at];
             first.get_or_insert(c);
             *count += 1;
         }
     }
 
-    // Raw: a cell decodes only the start it shows.
-    let mut attributes: HashMap<String, Cow<'_, [u8]>> = HashMap::new();
-    if columns.iter().any(|c| matches!(c, Column::Attribute(_))) {
+    // Raw: a cell decodes only the start it shows. Per attribute column.
+    let mut attributes: Vec<Option<Cow<'_, [u8]>>> = Vec::new();
+    if !lookup.attributes.is_empty() {
+        attributes.resize(columns.len(), None);
         for (name, value) in idx.attribute_parts(src, row) {
-            let name = String::from_utf8_lossy(&name).into_owned();
-            // The first of two with one name, as `Grid::cell` finds.
-            attributes.entry(name).or_insert(value);
+            if let Some(&at) = lookup.attributes.get(&*String::from_utf8_lossy(&name)) {
+                // The first of two with one name, as `Grid::cell` finds.
+                attributes[at].get_or_insert(value);
+            }
         }
     }
 
     columns
         .iter()
-        .map(|column| match column {
-            Column::Attribute(name) => {
-                let value = attributes.get(name);
+        .enumerate()
+        .map(|(i, column)| match column {
+            Column::Attribute(_) => {
+                let value = attributes[i].as_ref();
                 Shown {
                     node: value.map(|_| row),
                     cell: value.map_or(Cell::Absent, |raw| Cell::Value(attribute_cell(raw))),
@@ -127,7 +159,7 @@ fn row_cells(doc: &Document, columns: &[Column], row: NodeId) -> Vec<Shown> {
                 }
             }
             Column::Child(name) => {
-                let (node, count) = children[name.as_bytes()];
+                let (node, count) = children[i];
                 let cell = child_cell(doc, name, node, count);
                 let editable = matches!(cell, Cell::Value(_))
                     && node.is_some_and(|child| holds_only_text(doc, child));
