@@ -130,8 +130,14 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
     if wrap {
         // Rows as wide as the view, less a column for the cursor at a row's end.
         let columns = ((text_rect.width() - gutter) / char_w).floor() as usize;
-        open.text_wrap
-            .set_width(columns.saturating_sub(1).max(MIN_WRAP_COLUMNS));
+        let wanted = columns.saturating_sub(1).max(MIN_WRAP_COLUMNS);
+        // A new width may be held back while it still changes (a heavy line).
+        if let Some(wait) = open
+            .text_wrap
+            .offer_width(wanted, std::time::Instant::now())
+        {
+            ui.ctx().request_repaint_after(wait);
+        }
     }
     let resp = ui.interact(text_rect, id, Sense::click_and_drag());
     if std::mem::take(&mut open.text_focus) {

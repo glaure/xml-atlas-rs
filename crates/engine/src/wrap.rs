@@ -9,6 +9,8 @@
 //! are asked for; a long line's are kept and follow the edits typed into it, so typing in a
 //! minified file costs a few rows, not the line.
 
+use std::time::{Duration, Instant};
+
 use crate::Document;
 use crate::text::{self, TAB_WIDTH};
 
@@ -17,6 +19,12 @@ pub const KEPT_LINE_BYTES: usize = 4000;
 
 /// How many long lines keep their rows at most.
 const KEPT_LINES: usize = 64;
+
+/// A line this long (about 3 ms to break) makes a new width wait until it has settled.
+const HEAVY_LINE_BYTES: usize = 4 << 20;
+
+/// How long a width must stay the same before a document with a heavy line is wrapped to it.
+pub const WIDTH_SETTLES: Duration = Duration::from_millis(150);
 
 /// A row of the wrapped text: row `row` of line `line`, both from 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,6 +45,10 @@ pub struct Wrap {
     long: Vec<(usize, Vec<usize>)>,
     /// Row starts of the last short line asked for.
     short: Vec<usize>,
+    /// The longest line wrapped so far, in bytes; kept when the width changes.
+    heaviest: usize,
+    /// A width asked for but held back, and since when ([`Wrap::offer_width`]).
+    wanted: Option<(usize, Instant)>,
 }
 
 impl Wrap {
@@ -56,8 +68,38 @@ impl Wrap {
     pub fn set_width(&mut self, width: usize) {
         let width = width.max(1);
         if width != self.width {
+            let heaviest = self.heaviest;
             *self = Self::new(width);
+            self.heaviest = heaviest;
         }
+    }
+
+    /// The view is `width` columns wide now (TEXT-13). Normally this is [`Self::set_width`].
+    /// With a line of megabytes, breaking it anew for every width a resize passes through
+    /// costs more than a frame (a few ms per 4 MiB), so the new width is held back until it
+    /// has stayed the same for [`WIDTH_SETTLES`]; meanwhile the rows are the old width's.
+    /// Returns how long to wait before asking again, when it was held back.
+    pub fn offer_width(&mut self, width: usize, now: Instant) -> Option<Duration> {
+        let width = width.max(1);
+        if width == self.width || self.heaviest < HEAVY_LINE_BYTES {
+            self.wanted = None;
+            self.set_width(width);
+            return None;
+        }
+        let since = match self.wanted {
+            Some((w, since)) if w == width => since,
+            _ => {
+                self.wanted = Some((width, now));
+                return Some(WIDTH_SETTLES);
+            }
+        };
+        let waited = now.saturating_duration_since(since);
+        if waited < WIDTH_SETTLES {
+            return Some(WIDTH_SETTLES - waited);
+        }
+        self.wanted = None;
+        self.set_width(width);
+        None
     }
 
     /// Where the rows of line `n` start, in bytes from the line's start (after the byte order
@@ -76,6 +118,7 @@ impl Wrap {
                     self.long.clear();
                 }
                 let t = std::time::Instant::now();
+                self.heaviest = self.heaviest.max(line.len());
                 let starts = row_starts(line, self.width);
                 log::debug!(
                     "wrapped line {n} of {} bytes into {} rows in {:?}",
@@ -241,8 +284,10 @@ impl Wrap {
 pub fn row_starts(line: &[u8], width: usize) -> Vec<usize> {
     let mut starts = vec![0];
     let mut at = 0;
+    // One check of the whole line saves one for each of its rows.
+    let utf8 = std::str::from_utf8(line).is_ok();
     loop {
-        at = next_start(line, at, width);
+        at = next_start(line, at, width, utf8);
         if at >= line.len() {
             return starts;
         }
@@ -260,8 +305,90 @@ fn line_bytes(doc: &Document, n: usize) -> (usize, &[u8]) {
 
 /// Where the row after the one starting at `from` starts; the line's length when the row
 /// takes the rest of it.
-fn next_start(line: &[u8], from: usize, width: usize) -> usize {
+///
+/// A row of well-formed text without tabs, nearly all of them, is measured and searched as a
+/// whole; the rest goes character by character ([`next_start_scan`]), with the same answer.
+/// This is what a new width of the view costs for a minified file (TEXT-13): every row of a
+/// line of megabytes is worked out again.
+fn next_start(line: &[u8], from: usize, width: usize, utf8: bool) -> usize {
     let width = width.max(1);
+    match next_start_fast(line, from, width, utf8) {
+        Some(at) => at,
+        None => next_start_scan(line, from, width),
+    }
+}
+
+/// [`next_start`] for a row that is valid UTF-8 and has no tab, else `None`. `utf8`: the whole
+/// line is valid UTF-8, so a row needs no check of its own.
+fn next_start_fast(line: &[u8], from: usize, width: usize, utf8: bool) -> Option<usize> {
+    // The bytes holding `width` characters: as many bytes to begin with, and more while
+    // characters are wider than a byte.
+    let mut end = from.checked_add(width)?.min(line.len());
+    let (cols, window) = loop {
+        let window = &line[from..end];
+        // A character cut by the end of the window is taken whole.
+        let valid = if utf8 {
+            let mut whole = end;
+            while whole < line.len() && line[whole] & 0xC0 == 0x80 {
+                whole += 1;
+            }
+            whole
+        } else {
+            match std::str::from_utf8(window) {
+                Ok(_) => end,
+                Err(e) if e.error_len().is_none() => {
+                    let lead = window[e.valid_up_to()];
+                    let len = match lead {
+                        0xC0..=0xDF => 2,
+                        0xE0..=0xEF => 3,
+                        _ => 4,
+                    };
+                    let whole = from + e.valid_up_to() + len;
+                    if whole > line.len() {
+                        return None;
+                    }
+                    whole
+                }
+                Err(_) => return None,
+            }
+        };
+        if valid != end {
+            end = valid;
+            continue;
+        }
+        let cols = window.iter().filter(|&&b| b & 0xC0 != 0x80).count();
+        if cols >= width || end == line.len() {
+            break (cols, window);
+        }
+        end = (end + (width - cols)).min(line.len());
+    };
+    if memchr::memchr(b'\t', window).is_some() {
+        return None;
+    }
+    if cols < width || end == line.len() && cols <= width {
+        // Everything left fits.
+        return Some(line.len());
+    }
+    // The character at `end` does not fit. A blank there hangs past the edge, and the next
+    // row starts after the blanks; else the row breaks after the last blank or before the
+    // last `<` that is not its first character, or here.
+    if matches!(line[end], b' ' | b'\t') {
+        let blanks = line[end..]
+            .iter()
+            .take_while(|&&b| matches!(b, b' ' | b'\t'))
+            .count();
+        return Some(end + blanks);
+    }
+    let brk = memchr::memrchr2(b'<', b' ', window).and_then(|i| match window[i] {
+        b' ' => Some(from + i + 1),
+        _ if i > 0 => Some(from + i),
+        _ => None,
+    });
+    Some(brk.unwrap_or(end))
+}
+
+/// [`next_start`] character by character, for any bytes.
+fn next_start_scan(line: &[u8], from: usize, width: usize) -> usize {
     let (mut at, mut cols) = (from, 0);
     // The last place after `from` where the row may break.
     let mut brk = None;
@@ -315,7 +442,7 @@ fn follow_edit(
     let mut fresh = Vec::new();
     let mut s = starts[j];
     loop {
-        s = next_start(line, s, width);
+        s = next_start(line, s, width, false);
         if s >= line.len() {
             starts.truncate(j + 1);
             starts.extend(fresh);
@@ -362,6 +489,103 @@ mod tests {
             out.push(&line[s..e]);
         }
         out
+    }
+
+    /// The rows measured as a whole give the answer of going character by character, on
+    /// lines with blanks, tags, tabs, two to four byte characters, and bytes that are not
+    /// UTF-8 (a Latin-1 `ä`, a cut character), at every width from 1 to 40.
+    #[test]
+    fn the_fast_rows_are_the_scanned_rows() {
+        const PIECES: &[&[u8]] = &[
+            b" ",
+            b" ",
+            b"<",
+            b"<a>",
+            b"</a>",
+            b"ab",
+            b"x",
+            b"\t",
+            "ä".as_bytes(),
+            "日".as_bytes(),
+            "😀".as_bytes(),
+            b"\xE4",
+            b"\x80",
+            b"\xF0\x9F",
+            b"  ",
+        ];
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n as u64) as usize
+        };
+        for case in 0..3000 {
+            // Mostly clean text, so that the fast path is what is tried.
+            let dirty = case % 3 == 0;
+            let mut line = Vec::new();
+            for _ in 0..next(60) {
+                let p = PIECES[next(PIECES.len())];
+                let bad = p == b"\t" || p == b"\xE4" || p == b"\x80" || p == b"\xF0\x9F";
+                if dirty || !bad {
+                    line.extend_from_slice(p);
+                }
+            }
+            for width in 1..=40 {
+                let mut from = 0;
+                while from < line.len() {
+                    let utf8 = std::str::from_utf8(&line).is_ok();
+                    let fast = next_start(&line, from, width, utf8);
+                    let scan = next_start_scan(&line, from, width);
+                    if !dirty {
+                        assert!(
+                            next_start_fast(&line, from, width, utf8).is_some(),
+                            "valid text without tabs takes the fast path"
+                        );
+                    }
+                    assert_eq!(
+                        fast,
+                        scan,
+                        "from {from}, width {width}, line {:?}",
+                        String::from_utf8_lossy(&line)
+                    );
+                    from = scan;
+                }
+            }
+        }
+    }
+
+    /// A width that is still changing is held back for a document with a heavy line, and
+    /// taken at once for any other.
+    #[test]
+    fn a_heavy_line_waits_for_the_width_to_settle() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let line = "<a>x</a> ".repeat(HEAVY_LINE_BYTES / 9 + 1);
+        let doc = Document::from_bytes(line.into_bytes());
+        let mut w = Wrap::new(60);
+        // Nothing heavy has been wrapped yet: the width is taken at once.
+        assert_eq!(w.offer_width(70, at(0)), None);
+        assert_eq!(w.width(), 70);
+        assert!(w.rows(&doc, 0) > 1000);
+        // Now it is heavy: a new width waits, and a changing one starts the wait again.
+        assert_eq!(w.offer_width(80, at(10)), Some(WIDTH_SETTLES));
+        assert_eq!(w.width(), 70);
+        assert_eq!(w.offer_width(90, at(60)), Some(WIDTH_SETTLES));
+        assert_eq!(
+            w.offer_width(90, at(100)),
+            Some(WIDTH_SETTLES - Duration::from_millis(40))
+        );
+        assert_eq!(w.width(), 70);
+        // Settled: taken, and the rows are the new width's.
+        assert_eq!(w.offer_width(90, at(60 + 150)), None);
+        assert_eq!(w.width(), 90);
+        // Back to the width it has: nothing is waiting any more.
+        assert_eq!(w.offer_width(90, at(400)), None);
+        // A small document takes any width at once.
+        let mut small = Wrap::new(60);
+        assert_eq!(small.offer_width(61, at(0)), None);
+        assert_eq!(small.width(), 61);
     }
 
     #[test]
