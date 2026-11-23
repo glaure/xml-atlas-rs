@@ -238,6 +238,14 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
     );
     let painter = ui.painter_at(text_clip);
     let left = open.text_left;
+    // The lines of the bookmarks, in order (TREE-15).
+    let marked_lines: Vec<usize> = open
+        .doc
+        .bookmarks
+        .starts()
+        .iter()
+        .map(|&s| open.doc.line_of(s as u64))
+        .collect();
     let mut widest: f64 = 0.0;
     let mut caret_x = None;
     let view_columns = (text_view_w / char_w).ceil() as usize;
@@ -383,6 +391,18 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
                 }
             }
             if row.first {
+                // A bookmark's line has its number on a tinted ground (TREE-15).
+                if marked_lines.binary_search(&n).is_ok() {
+                    let ground = Rect::from_min_max(
+                        pos2(rect.left() + marker_w, rect.top()),
+                        pos2(rect.left() + gutter - 3.0, rect.bottom()),
+                    );
+                    numbers.rect_filled(
+                        ground,
+                        2.0,
+                        crate::bookmarks::color(visuals).gamma_multiply(0.45),
+                    );
+                }
                 numbers.text(
                     pos2(rect.left() + gutter - 8.0, rect.center().y),
                     Align2::RIGHT_CENTER,

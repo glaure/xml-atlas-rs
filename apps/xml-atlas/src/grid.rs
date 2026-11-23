@@ -311,6 +311,18 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                 while let Some(column) = row.next_column() {
                     if column == 0 {
                         row.col(|ui| {
+                            // A bookmark (TREE-15): a bar at the row's left edge.
+                            if crate::bookmarks::is_marked(doc, id) {
+                                let r = ui.max_rect();
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(
+                                        r.left_top(),
+                                        egui::vec2(3.0, r.height()),
+                                    ),
+                                    1.0,
+                                    crate::bookmarks::color(ui.visuals()),
+                                );
+                            }
                             ui.label(RichText::new(grid.number(i).to_string()).weak());
                             if reveal && marked && grid_cell.is_none() {
                                 reveal_rect = Some(ui.max_rect());

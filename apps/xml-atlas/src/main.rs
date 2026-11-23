@@ -8,6 +8,7 @@
 mod agent;
 mod app;
 mod attribute_table;
+mod bookmarks;
 mod cell_pane;
 mod diagram;
 mod diagram_svg;

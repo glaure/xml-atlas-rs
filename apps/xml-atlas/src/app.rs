@@ -1620,6 +1620,7 @@ impl App {
                     self.settings.panes = Default::default();
                 }
             });
+            let navigate = ui.menu_button("Navigate", |ui| self.navigate_menu(ui));
             let help = ui.menu_button("Help", |ui| {
                 if ui
                     .add(egui::Button::new("XML Atlas Help").shortcut_text("F1"))
@@ -1643,9 +1644,60 @@ impl App {
                     self.help.about = true;
                 }
             });
-            let bar = [file.response, edit.response, view.response, help.response];
+            let bar = [
+                file.response,
+                edit.response,
+                view.response,
+                navigate.response,
+                help.response,
+            ];
             self.menu_keys.bar(&ctx, &bar, in_submenu);
         });
+    }
+
+    /// Navigate: the bookmarks (TREE-15).
+    fn navigate_menu(&mut self, ui: &mut Ui) {
+        let marks = self.docs.active().map_or(0, |o| o.doc.bookmarks.len());
+        let has_document = !self.docs.is_empty();
+        let items: [(&str, Option<KeyboardShortcut>, bool, fn(&mut Open)); 4] = [
+            (
+                "Toggle Bookmark",
+                Some(crate::bookmarks::TOGGLE),
+                has_document,
+                crate::bookmarks::toggle,
+            ),
+            (
+                "Next Bookmark",
+                Some(crate::bookmarks::NEXT),
+                marks > 0,
+                |open| crate::bookmarks::step(open, true),
+            ),
+            (
+                "Last Bookmark",
+                Some(crate::bookmarks::PREVIOUS),
+                marks > 0,
+                |open| crate::bookmarks::step(open, false),
+            ),
+            (
+                "Clear all Bookmarks",
+                None,
+                marks > 0,
+                crate::bookmarks::clear,
+            ),
+        ];
+        for (label, keys, enabled, run) in items {
+            let mut button = egui::Button::new(label);
+            if let Some(keys) = keys {
+                button = button.shortcut_text(ui.ctx().format_shortcut(&keys));
+            }
+            let button = ui.add_enabled(enabled, button);
+            if button.picked() {
+                ui.close();
+                if let Some(open) = self.docs.active_mut() {
+                    run(open);
+                }
+            }
+        }
     }
 
     /// Edit > Cut, Copy, Paste and Select All (TEXT-17, TEXT-18). They act in the text view:
@@ -2566,6 +2618,15 @@ impl Open {
             .grid
             .as_ref()
             .map(|g| (g.path.clone(), g.view().clone()));
+        // A move replaces both elements in the text, so their marks are found again by
+        // position (TREE-15); other changes move the marks with the text.
+        let marked: Option<Vec<Vec<u32>>> = matches!(shift, Shift::Swap(..)).then(|| {
+            self.doc
+                .bookmarks
+                .elements(idx)
+                .filter_map(|id| shift.remap(&idx.element_position(id)))
+                .collect()
+        });
         let expanded: Vec<Vec<u32>> = self
             .tree
             .expanded_ids()
@@ -2573,6 +2634,15 @@ impl Open {
             .collect();
         if !change(&mut self.doc)? {
             return Ok(false);
+        }
+        if let Some(marked) = marked {
+            let idx = &self.doc.index;
+            self.doc.bookmarks.set(
+                marked
+                    .iter()
+                    .filter_map(|p| idx.element_at_position(p))
+                    .map(|id| idx.node(id).start as usize),
+            );
         }
         let attributes = self.tree.options.attributes;
         self.tree = tree::TreeState::new(&self.doc);
@@ -2847,7 +2917,7 @@ impl Open {
         }
     }
 
-    fn element_or_parent(&self, mut id: NodeId) -> NodeId {
+    pub fn element_or_parent(&self, mut id: NodeId) -> NodeId {
         while id != ROOT && self.doc.index.node(id).kind != NodeKind::Element {
             id = self.doc.index.node(id).parent;
         }

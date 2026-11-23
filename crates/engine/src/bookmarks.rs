@@ -80,7 +80,7 @@ impl Bookmarks {
     }
 
     /// Replaces the marks with those at `starts`.
-    pub(crate) fn set(&mut self, starts: impl Iterator<Item = usize>) {
+    pub fn set(&mut self, starts: impl Iterator<Item = usize>) {
         self.starts = starts.collect();
         self.starts.sort_unstable();
         self.starts.dedup();
