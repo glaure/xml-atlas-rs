@@ -152,7 +152,7 @@ latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
       display option only (XM-62)
 - [ ] View > Stat: a panel with the time to start, load and parse (XM-63, XM-68); compare
       with `xml-atlas-cli stats`
-- [ ] Go to line (Ctrl+G) in the text view; also with the line of an error
+- [x] Go to line (Ctrl+G) in the text view; also with the line of an error (TEXT-27)
 - [ ] Branch selector: a box that shows the selected element as a path and selects another
       element when the path is edited (overlaps XPath; decide whether XPath answers it)
 - [ ] Reparse all (F7): the manual form of the index rebuild after text edits (D19). In 2.2
