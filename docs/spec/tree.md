@@ -70,6 +70,22 @@ The tree shows the structure of the document and is the main way to move around 
   tree scrolls to the top. The selection and the grid stay; the next key in the tree starts
   again at the first row. It changes nothing in the document and is not an undo step.
   Asked for in issue #103.
+- **TREE-15** `[planned]` Bookmarks mark elements to come back to. Navigate > Toggle Bookmark
+  or Ctrl+F2 marks the selected element, or takes the mark off (XM-61). Navigate > Next
+  Bookmark and Last Bookmark select the next and the previous marked element in document
+  order, going round at the ends, and say in the status bar which one of how many (`bookmark
+  2 of 5`), or that there are none. In the text view F2 is Next Bookmark and Shift+F2 Last
+  Bookmark; in the tree and the grid F2 keeps renaming and editing (TREE-8, GRID-10), and the
+  menu entries carry other keys (F4 and Shift+F4). Clear all Bookmarks takes every mark off.
+  - A marked element shows a mark in the text's gutter at the line of its start tag, a mark
+    on its row in the tree, and a mark on its row in the grid. Not a mark in the grid's
+    attribute or text cells.
+  - A bookmark follows its element through edits, undo and redo, and Format and Compact; it
+    is gone when its element is deleted or replaced. A bookmark is not part of the
+    document: it is not an undo step, does not make the document modified, and is not
+    saved. Closing the tab or reloading the file from disk ends the bookmarks; they are not
+    remembered between runs.
+  - One list for all views of a tab, kept per tab.
 
 ## Acceptance tests
 
