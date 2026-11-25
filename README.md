@@ -51,7 +51,7 @@ Things to try:
 
 ## Status
 
-Version 1.3, for Windows, Linux and macOS. What it does:
+Version 1.4, for Windows, Linux and macOS. What it does:
 
 - Opens large files on background threads: a 100 MiB file with 2.3 M elements is indexed in
   about 0.1 s (`xml-atlas-cli stats`). Views are virtualized: their work per frame depends on
@@ -61,8 +61,8 @@ Version 1.3, for Windows, Linux and macOS. What it does:
   and edits cells.
 - Editing: the text as in any editor, with undo and input methods; in the tree and grid,
   rename, delete, duplicate, move and set values. Tree and grid follow typing.
-- Find and Replace, an error list with markers, and files that are not well-formed open
-  up to the error and past it.
+- Find and Replace, Go to line (Ctrl+G), bookmarks that follow edits, an error list with
+  markers, and files that are not well-formed open up to the error and past it.
 - Format, Compact, remove comments and trim text change only whitespace and what was asked
   for; the byte order mark and line endings are kept.
 - Files in other encodings (Latin-1, UTF-16 and others) open and are saved in their own.
