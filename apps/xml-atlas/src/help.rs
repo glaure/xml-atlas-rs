@@ -13,6 +13,12 @@ const HOMEPAGE: &str = "https://github.com/glaure/xml-atlas-rs";
 
 const RELEASES: &str = "https://github.com/glaure/xml-atlas-rs/releases";
 
+/// The guide window's size when there is room for it.
+const GUIDE_SIZE: egui::Vec2 = egui::vec2(560.0, 620.0);
+
+/// Space kept free around the guide window, for its frame and the program's edges.
+const MARGIN: f32 = 24.0;
+
 /// Which help windows are open.
 #[derive(Default)]
 pub struct Help {
@@ -31,9 +37,15 @@ enum Block {
 
 /// Draws the open help windows.
 pub fn show(ctx: &egui::Context, help: &mut Help) {
+    // Never larger than the program's window, so the guide wraps at the window's width and
+    // scrolls, however many displays the desktop spans (#178).
+    let room = ctx.content_rect().size() - egui::vec2(MARGIN, MARGIN);
+    let size = egui::vec2(GUIDE_SIZE.x.min(room.x), GUIDE_SIZE.y.min(room.y));
     egui::Window::new("XML Atlas Help")
+        .id(guide_id())
         .open(&mut help.guide)
-        .default_size([560.0, 620.0])
+        .default_size(size)
+        .max_size(room)
         .vscroll(true)
         .show(ctx, |ui| guide(ui, GUIDE));
     egui::Window::new("About XML Atlas")
@@ -41,6 +53,10 @@ pub fn show(ctx: &egui::Context, help: &mut Help) {
         .collapsible(false)
         .resizable(false)
         .show(ctx, about);
+}
+
+fn guide_id() -> egui::Id {
+    egui::Id::unique("help-guide")
 }
 
 fn guide(ui: &mut Ui, text: &str) {
@@ -93,8 +109,8 @@ fn inline(ui: &mut Ui, text: &str) {
         let font = if i % 2 == 1 { &code } else { &body };
         job.append(part, 0.0, TextFormat::simple(font.clone(), colour));
     }
-    job.wrap.max_width = ui.available_width();
-    ui.label(job);
+    // A window sizes itself with `Extend`, which lays text out on one line; wrap it instead.
+    ui.add(egui::Label::new(job).wrap_mode(egui::TextWrapMode::Wrap));
 }
 
 /// The guide's text as headings, list items and paragraphs.
@@ -181,5 +197,38 @@ mod tests {
             })
             .sum();
         assert_eq!(in_blocks, in_file);
+    }
+
+    /// The guide fits inside a main window that is smaller than its default size (#178).
+    #[test]
+    fn the_guide_fits_a_small_window() {
+        for (w, h) in [(900.0, 600.0), (480.0, 360.0)] {
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h));
+            let ctx = egui::Context::default();
+            let mut help = Help {
+                guide: true,
+                about: false,
+            };
+            for _ in 0..4 {
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                ctx.run_pass(input, |ctx| show(ctx, &mut help))
+                    .drop_without_applying_deltas();
+            }
+            let rect = ctx
+                .memory(|m| m.area_rect(guide_id()))
+                .expect("the help window is open");
+            assert!(
+                screen.contains_rect(rect.shrink(0.5)),
+                "{rect:?} is not inside {screen:?}"
+            );
+            let used = ctx.globally_used_rect();
+            assert!(
+                screen.contains_rect(used.shrink(0.5)),
+                "content {used:?} is not inside {screen:?}"
+            );
+        }
     }
 }
