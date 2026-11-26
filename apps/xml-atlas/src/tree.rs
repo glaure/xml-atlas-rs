@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 
+use egui::KeyboardShortcut;
 use egui::{Align2, Color32, FontId, Key, Rect, Sense, Shape, Ui, pos2, vec2};
 use xml_atlas_engine::Document;
 use xml_atlas_engine::command::{self, Direction};
@@ -12,6 +13,7 @@ use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
 use crate::app::{Note, Open, Shift};
 use crate::icons;
+use crate::keys;
 use crate::theme;
 
 const INDENT: f32 = 14.0;
@@ -634,17 +636,21 @@ fn context_menu(
 ) -> Option<TreeCommand> {
     let idx = &doc.index;
     let mut chosen = None;
-    let mut item = |ui: &mut Ui, enabled: bool, text: &str, command| {
-        if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
-            chosen = Some(command);
-        }
-    };
+    let mut item =
+        |ui: &mut Ui, enabled: bool, text: &str, shortcut: &KeyboardShortcut, command| {
+            let shortcut = keys::text(ui.ctx(), shortcut);
+            let button = egui::Button::new(text).shortcut_text(shortcut);
+            if ui.add_enabled(enabled, button).clicked() {
+                chosen = Some(command);
+            }
+        };
     // A reference first: where it goes is what a right-click on one is most often for.
     if rules.is_some_and(|r| is_reference(doc, r, row)) {
         item(
             ui,
             true,
-            "Go to reference target    F12",
+            "Go to reference target",
+            &keys::GO_TO_REFERENCE,
             TreeCommand::GoToReference,
         );
         ui.separator();
@@ -652,14 +658,21 @@ fn context_menu(
     match row {
         Row::Node(id) if idx.node(id).kind == NodeKind::Element => {
             let inner = Some(id) != idx.root_element();
-            item(ui, true, "Rename    F2", TreeCommand::Rename);
-            item(ui, inner, "Delete    Del", TreeCommand::Delete);
-            item(ui, inner, "Duplicate    Ctrl+D", TreeCommand::Duplicate);
+            item(ui, true, "Rename", &keys::EDIT, TreeCommand::Rename);
+            item(ui, inner, "Delete", &keys::DELETE, TreeCommand::Delete);
+            item(
+                ui,
+                inner,
+                "Duplicate",
+                &keys::DUPLICATE,
+                TreeCommand::Duplicate,
+            );
             ui.separator();
             item(
                 ui,
                 true,
-                "Find in element…    Ctrl+Shift+F",
+                "Find in element…",
+                &crate::find_bar::OPEN_WITHIN,
                 TreeCommand::FindIn,
             );
             ui.separator();
@@ -668,21 +681,33 @@ fn context_menu(
             item(
                 ui,
                 up,
-                "Move up    Alt+Shift+↑",
+                "Move up",
+                &keys::MOVE_UP,
                 TreeCommand::Move(Direction::Up),
             );
             item(
                 ui,
                 down,
-                "Move down    Alt+Shift+↓",
+                "Move down",
+                &keys::MOVE_DOWN,
                 TreeCommand::Move(Direction::Down),
             );
         }
-        Row::Attribute { .. } => item(ui, true, "Delete attribute    Del", TreeCommand::Delete),
-        Row::Node(_) | Row::FoldedText(_) => item(ui, true, "Delete    Del", TreeCommand::Delete),
+        Row::Attribute { .. } => item(
+            ui,
+            true,
+            "Delete attribute",
+            &keys::DELETE,
+            TreeCommand::Delete,
+        ),
+        Row::Node(_) | Row::FoldedText(_) => {
+            item(ui, true, "Delete", &keys::DELETE, TreeCommand::Delete)
+        }
     }
     ui.separator();
-    item(ui, true, "Collapse all", TreeCommand::CollapseAll);
+    if ui.button("Collapse all").clicked() {
+        chosen = Some(TreeCommand::CollapseAll);
+    }
     if chosen.is_some() {
         ui.close();
     }

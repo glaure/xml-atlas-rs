@@ -235,7 +235,10 @@ impl RulesEditor {
                     let can = f.is_modified() && !f.changed_on_disk;
                     save |= ui
                         .add_enabled(can, egui::Button::new("Save"))
-                        .on_hover_text("Ctrl+S, or Cmd+S on macOS, while the text has the keys")
+                        .on_hover_text(format!(
+                            "{}, while the text has the keys",
+                            crate::keys::text(ui.ctx(), &SAVE)
+                        ))
                         .clicked();
                     if ui
                         .add_enabled(f.is_modified(), egui::Button::new("Revert"))

@@ -54,8 +54,11 @@ pub struct Settings {
     pub grid: bool,
     /// The pane beside the grid for the clicked cell (GRID-16).
     pub cell_pane: bool,
-    /// The structure diagram, in the grid's place (D36).
+    /// The structure diagram, in the grid's place (D36). Never on together with `grid`.
     pub diagram: bool,
+    /// While the diagram is on: whether it took the grid's place, which comes back when the
+    /// diagram is switched off.
+    pub grid_behind_diagram: bool,
     /// Long lines wrap in the text view (TEXT-13).
     pub word_wrap: bool,
     /// The toolbar under the menu (WIN-5).
@@ -99,6 +102,7 @@ impl Default for Settings {
             grid: true,
             cell_pane: true,
             diagram: false,
+            grid_behind_diagram: false,
             word_wrap: false,
             toolbar: true,
             expand_on_text_click: true,
@@ -119,6 +123,29 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Grid in View and Settings (D37): showing it switches the diagram off.
+    pub fn show_grid(&mut self, on: bool) {
+        self.grid = on;
+        if on {
+            self.diagram = false;
+        }
+    }
+
+    /// Diagram in View, Settings, the toolbar and its key (D37): it takes the grid's place,
+    /// and a grid it replaced comes back when it is switched off.
+    pub fn show_diagram(&mut self, on: bool) {
+        if on == self.diagram {
+            return;
+        }
+        if on {
+            self.grid_behind_diagram = self.grid;
+            self.grid = false;
+        } else {
+            self.grid = self.grid_behind_diagram;
+        }
+        self.diagram = on;
+    }
+
     /// The saved settings, or the defaults.
     pub fn load() -> Self {
         path().map_or_else(Self::default, |p| Self::load_from(&p))
@@ -205,6 +232,7 @@ impl Settings {
              grid = {}\n\
              cell_pane = {}\n\
              diagram = {}\n\
+             grid_behind_diagram = {}\n\
              word_wrap = {}\n\
              toolbar = {}\n\
              expand_on_text_click = {}\n\
@@ -245,6 +273,7 @@ impl Settings {
             self.grid,
             self.cell_pane,
             self.diagram,
+            self.grid_behind_diagram,
             self.word_wrap,
             self.toolbar,
             self.expand_on_text_click,
@@ -353,6 +382,7 @@ impl Settings {
                 ("view", "grid") => set(&mut s.grid, boolean(value)),
                 ("view", "cell_pane") => set(&mut s.cell_pane, boolean(value)),
                 ("view", "diagram") => set(&mut s.diagram, boolean(value)),
+                ("view", "grid_behind_diagram") => set(&mut s.grid_behind_diagram, boolean(value)),
                 ("view", "word_wrap") => set(&mut s.word_wrap, boolean(value)),
                 ("view", "toolbar") => set(&mut s.toolbar, boolean(value)),
                 ("view", "expand_on_text_click") => {
@@ -414,6 +444,11 @@ impl Settings {
             if !ok {
                 log::warn!("settings: skipped {line:?} in [{section}]");
             }
+        }
+        // Before D37 the diagram covered a grid that stayed switched on.
+        if s.diagram && s.grid {
+            s.grid_behind_diagram = true;
+            s.grid = false;
         }
         s
     }
@@ -497,6 +532,7 @@ mod tests {
             grid: false,
             cell_pane: false,
             diagram: true,
+            grid_behind_diagram: true,
             word_wrap: true,
             toolbar: false,
             expand_on_text_click: false,
@@ -575,6 +611,40 @@ mod tests {
         assert!(!s.shows_preview() && !s.shows_preview_tree());
         s.references = true;
         assert!(s.shows_preview() && s.shows_preview_tree());
+    }
+
+    #[test]
+    fn grid_and_diagram_exclude_each_other() {
+        let panes = |s: &Settings| (s.grid, s.diagram);
+        let mut s = Settings::default();
+        // The diagram takes the grid's place, and gives it back.
+        s.show_diagram(true);
+        assert_eq!(panes(&s), (false, true));
+        s.show_diagram(true);
+        s.show_diagram(false);
+        assert_eq!(panes(&s), (true, false));
+        // The grid switches the diagram off.
+        s.show_diagram(true);
+        s.show_grid(true);
+        assert_eq!(panes(&s), (true, false));
+        // Both off is no pane, also after the diagram came and went.
+        s.show_grid(false);
+        assert_eq!(panes(&s), (false, false));
+        s.show_diagram(true);
+        s.show_diagram(false);
+        assert_eq!(panes(&s), (false, false));
+    }
+
+    /// Settings written before D37 have both on for a diagram over the grid.
+    #[test]
+    fn an_older_diagram_keeps_the_grid_behind_it() {
+        let mut s = Settings::from_text("[view]\r\ngrid = true\r\ndiagram = true\r\n");
+        assert_eq!((s.grid, s.diagram), (false, true));
+        s.show_diagram(false);
+        assert!(s.grid);
+        let mut s = Settings::from_text("[view]\ngrid = false\ndiagram = true\n");
+        s.show_diagram(false);
+        assert!(!s.grid);
     }
 
     #[test]

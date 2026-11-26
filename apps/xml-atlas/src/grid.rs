@@ -8,6 +8,7 @@ use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
 use xml_atlas_engine::xml::NodeId;
 
 use crate::app::{Note, Open, Pane, Shift};
+use crate::keys;
 use crate::table;
 
 /// The table's columns before the grid's own: the row number and the element's name.
@@ -377,12 +378,18 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     }
                     resp.context_menu(|ui| {
                         if let Some(child) = child {
-                            if ui.button("Open    Enter").clicked() {
+                            let button = egui::Button::new("Open")
+                                .shortcut_text(keys::text(ui.ctx(), &keys::ENTER));
+                            if ui.add(button).clicked() {
                                 cell_action = Some(Action::Enter(child));
                             }
                         } else {
                             let button = ui
-                                .add_enabled(kept.editable, egui::Button::new("Edit    F2"))
+                                .add_enabled(
+                                    kept.editable,
+                                    egui::Button::new("Edit")
+                                        .shortcut_text(keys::text(ui.ctx(), &keys::EDIT)),
+                                )
                                 .on_disabled_hover_text(not_editable(cell));
                             if button.clicked() {
                                 cell_action = Some(Action::Edit {

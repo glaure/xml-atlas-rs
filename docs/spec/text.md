@@ -168,7 +168,9 @@ of it.
   there. The parsing is `text::go_to` in the engine. Moving the cursor does not select an
   element (TREE-12).
 - **TEXT-13** `[done]` Word wrap: View > Word wrap, or Alt+Z, turns it on and off for every
-  tab, remembered with the other settings; off at first. Lines wrap at the view's width,
+  tab, remembered with the other settings; off at first. In a tab with a word wrap of its own
+  (TEXT-23) the View entry reads *Word wrap in this tab* and switches only that tab;
+  Settings has *Word wrap in every tab*. Lines wrap at the view's width,
   after a blank or before a `<`, at the last such place that fits; a word wider than the view
   is cut where the row is full. Blanks at a break stay at the end of the row, so each row
   starts with something visible. Rows count characters as the view does (TEXT-4, TEXT-21);

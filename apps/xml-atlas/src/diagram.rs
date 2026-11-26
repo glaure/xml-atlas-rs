@@ -688,9 +688,15 @@ fn header(ui: &mut Ui, d: &mut Diagram) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let reset = crate::keys::text(ui.ctx(), &RESET_ZOOM);
+            let wheel = if ui.ctx().os().is_mac() {
+                "Cmd"
+            } else {
+                "Ctrl"
+            };
             ui.label(
                 RichText::new(format!(
-                    "{:.0} %  ·  Ctrl+wheel zooms, Ctrl+0 resets",
+                    "{:.0} %  ·  {wheel}+wheel zooms, {reset} resets",
                     d.zoom * 100.0
                 ))
                 .weak(),

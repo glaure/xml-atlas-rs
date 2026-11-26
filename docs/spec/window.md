@@ -13,7 +13,10 @@ How the views are laid out, and how the window looks.
   is remembered (WIN-3). View > Grid hides the grid, and its cell pane, so that the text and the
   reference preview (REF-5) have the room; the arrow keys then go to the tree. Remembered
   too. View > Diagram (Ctrl+Shift+D) shows the structure diagram in the grid's place, with a
-  height of its own per layout, also while the grid is hidden (D36); remembered too. Its
+  height of its own per layout, also while the grid is hidden (D36); remembered too. Grid and
+  Diagram exclude each other, in View and in Settings: switching one on switches the other
+  off, and both may be off (D37). Switching the diagram off brings back the grid it replaced.
+  The cell pane can be chosen while the grid is shown. Its
   *Levels* control collapses it below a depth, and Find's match and XPath's results mark
   their boxes. *Export as SVG…* writes it as an image.
 - **WIN-3** `[done]` Settings are remembered between sessions: the layout (WIN-1), attribute
@@ -121,6 +124,12 @@ How the views are laid out, and how the window looks.
   theme's colours. *Follow system* is half light, half dark; it and *Light* show the chosen
   light style. A click on an example chooses it. The examples are drawn from the themes,
   not stored as images. On a screen too low for the section, it scrolls.
+
+- **WIN-13** `[built]` Keys in menus, context menus and tooltips (D37) are set to the right
+  of the entry, aligned, and read as the platform names them: Cmd for Ctrl on macOS. Each
+  label is made from the shortcut its handler takes (`apps/xml-atlas/src/keys.rs`). Ctrl+Q is
+  File > Quit and asks as it does (OPEN-11). Ctrl+I is Edit > Format; a focused text field
+  keeps it. The built-in guide and these specs write Ctrl.
 
 ## Acceptance tests
 

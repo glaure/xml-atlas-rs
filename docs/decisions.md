@@ -1641,6 +1641,11 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   3. Ctrl+Q and Ctrl+I? Proposed: yes.
 - **Decided (owner, 2026-11-22):** as proposed. The six menus, References whole under
   Tools, Ctrl+Q and Ctrl+I, in the order of work above. Not built yet.
+- **Built, step 1:** aligned keys (WIN-13), Ctrl+Q and Ctrl+I with them as they move no
+  entry; Grid and Diagram exclude each other (WIN-1); *Word wrap in this tab* and *Word wrap
+  in every tab* (TEXT-13). One rule added to the proposal: switching the diagram off brings
+  back the grid it replaced, so that its key pressed twice changes nothing. Steps 2 and 3 are
+  not built.
 
 ## D38: The layout options, next to XML Marker 2.2's
 
