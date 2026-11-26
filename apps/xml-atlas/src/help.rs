@@ -1,4 +1,4 @@
-//! Help > XML Atlas Help (F1) and Help > About XML Atlas (WIN-4, PKG-2).
+//! Help > XML Atlas Help (F1) (WIN-4), and the help windows' state.
 //!
 //! The guide is `assets/help.md`, built into the program so it works offline. It uses a small
 //! part of Markdown: `#` and `##` headings, `- ` list items, paragraphs, and `code`; a line
@@ -7,11 +7,9 @@
 use egui::text::LayoutJob;
 use egui::{FontId, RichText, TextFormat, Ui};
 
+use crate::about::About;
+
 const GUIDE: &str = include_str!("../assets/help.md");
-
-const HOMEPAGE: &str = "https://github.com/glaure/xml-atlas-rs";
-
-const RELEASES: &str = "https://github.com/glaure/xml-atlas-rs/releases";
 
 /// The guide window's size when there is room for it.
 const GUIDE_SIZE: egui::Vec2 = egui::vec2(560.0, 620.0);
@@ -23,7 +21,7 @@ const MARGIN: f32 = 24.0;
 #[derive(Default)]
 pub struct Help {
     pub guide: bool,
-    pub about: bool,
+    pub about: About,
 }
 
 /// A piece of the guide.
@@ -35,7 +33,7 @@ enum Block {
     Paragraph(String),
 }
 
-/// Draws the open help windows.
+/// Draws the guide while it is open; [`About`] shows itself.
 pub fn show(ctx: &egui::Context, help: &mut Help) {
     // Never larger than the program's window, so the guide wraps at the window's width and
     // scrolls, however many displays the desktop spans (#178).
@@ -48,11 +46,6 @@ pub fn show(ctx: &egui::Context, help: &mut Help) {
         .max_size(room)
         .vscroll(true)
         .show(ctx, |ui| guide(ui, GUIDE));
-    egui::Window::new("About XML Atlas")
-        .open(&mut help.about)
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, about);
 }
 
 fn guide_id() -> egui::Id {
@@ -82,21 +75,6 @@ fn guide(ui: &mut Ui, text: &str) {
             }
         }
     }
-}
-
-fn about(ui: &mut Ui) {
-    ui.heading("XML Atlas");
-    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-    ui.add_space(6.0);
-    ui.label("Fast viewer and editor for large XML files.");
-    ui.label("Licensed under the MIT license or the Apache License 2.0, at your option.");
-    ui.label(
-        "The licenses of the libraries it contains are installed with it, in \
-         THIRD-PARTY-LICENSES.txt.",
-    );
-    ui.add_space(6.0);
-    ui.hyperlink_to("Project page", HOMEPAGE);
-    ui.hyperlink_to("Releases", RELEASES);
 }
 
 /// Text with `code` in the monospace font, wrapped at the window's width.
@@ -207,7 +185,7 @@ mod tests {
             let ctx = egui::Context::default();
             let mut help = Help {
                 guide: true,
-                about: false,
+                ..Default::default()
             };
             for _ in 0..4 {
                 let input = egui::RawInput {

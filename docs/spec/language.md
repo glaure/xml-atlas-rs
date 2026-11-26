@@ -143,6 +143,7 @@ English texts.
    are English until step 4, and what the status bar says until step 3. Tests draw the
    menus and every section of Settings in German and find nothing cut off (LANG-15); the
    rest of the window is not looked at yet. macOS shows its keys the same in German.
+   The About card was translated ahead of step 3, with its new look (owner, 2026-11-26).
 3. The window's other texts (the rest of LANG-1, LANG-4).
 4. The engine's messages made into values the window can translate, a part at a time
    (LANG-2). The engine's own texts stay as they are.

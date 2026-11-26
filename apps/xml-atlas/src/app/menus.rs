@@ -665,7 +665,7 @@ impl App {
             self.check_for_updates_now(ui.ctx());
         }
         if entry(ui, lang, lang.menu_help_about(), None, None) {
-            self.help.about = true;
+            self.help.about.open = true;
         }
     }
 
