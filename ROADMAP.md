@@ -129,7 +129,7 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [ ] Text: split view, with Split Up, Down, Left and Right, up to 4 views of the document
       (D44, #182); needs rules in `docs/spec/` first
 - [ ] UI localization: English (default) and German, a file per language, English where a
-      text is missing (D45, #183); needs rules in `docs/spec/` first
+      text is missing (D45, #183; LANG-1 to LANG-18)
 - [ ] UI localization, later: French and Spanish (D45, #183)
 
 Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`):

@@ -44,6 +44,7 @@ Each area file ends with three lists:
 | `window.md`    | Layout of the views, light and dark theme                   |
 | `references.md`| References a rules file defines: go to target, preview      |
 | `xpath.md`     | XPath 1.0 queries: the query bar, the results, the CLI      |
+| `language.md`  | The language of the window's texts                          |
 | `reference.md` | What XML Marker and the Qt XML Atlas do, as observed        |
 
 Not written yet: find and replace, the edits themselves, settings, keyboard shortcuts.

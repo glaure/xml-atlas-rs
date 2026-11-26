@@ -2034,13 +2034,22 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   4. A language need not be complete: where it lacks a text, the English one is shown. This
      replaces, for a missing text, the failed build or test that the comparison was to
      favour.
-- **Next:** rules in `docs/spec/`. Not built.
+- **Rules:** `docs/spec/language.md`, LANG-1 to LANG-18.
+  Found in writing them: `sys-locale` is built for Linux, Windows and macOS already, through
+  egui's system fonts (`cargo tree`); windows whose id egui takes from their title need an
+  id of their own, or a new language would forget their state.
+- **Next:** step 2 of the order of work. Not built.
 
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About the language rules (owner, 2026-11-26), all as proposed: *Sie* in German; German
+number separators in the window's own texts; the setting first in Settings > Appearance; the
+reference preview's comments in English; the German words for the main terms
+(`docs/spec/language.md`).
 
 About D44 and D45, split view and localization (owner, 2026-11-26), asked one by one, all
 as proposed: one document in at most 4 views, menus and close buttons without keys, the last
