@@ -765,12 +765,11 @@ mod tests {
         }
     }
 
+    /// A key's text: with modifiers, however the platform names them, a `+` joins them,
+    /// which no entry's name has; or it is a function key.
     fn is_key(text: &str) -> bool {
         let function = |t: &str| t.strip_prefix('F').is_some_and(|n| n.parse::<u8>().is_ok());
-        text.starts_with("Ctrl+")
-            || text.starts_with("Alt+")
-            || text.starts_with("Shift+")
-            || function(text)
+        text.contains('+') || function(text)
     }
 
     fn collect(shape: egui::Shape, out: &mut Vec<(String, Rect)>) {
@@ -874,17 +873,27 @@ mod tests {
                 &["XML Atlas Help", "Check for updates now", "About XML Atlas"],
             ),
         ];
-        for document in [false, true] {
+        // As macOS too, wherever the test runs: it names the keys differently.
+        use egui::os::OperatingSystem;
+        for (os, document) in [OperatingSystem::Nix, OperatingSystem::Mac]
+            .into_iter()
+            .flat_map(|os| [(os, false), (os, true)])
+        {
             for (menu, entries) in &expected {
                 let mut bar = if document {
                     with_document()
                 } else {
                     Bar::new()
                 };
+                bar.ctx.set_os(os);
                 bar.settle();
                 bar.click(menu);
                 // The checkboxes' keys sit in their own atoms and are left out too.
-                assert_eq!(bar.entries(), *entries, "{menu}, document: {document}");
+                assert_eq!(
+                    bar.entries(),
+                    *entries,
+                    "{menu}, document: {document}, {os:?}"
+                );
             }
         }
     }
