@@ -8,6 +8,7 @@
 //! attribute), where the path is a small part of XPath: child names, `*`, `.`, `..`, `//`,
 //! `@name`, `text()` and the predicates `[@a='v']`, `[@a]` and `[n]`.
 
+use std::fmt;
 use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -118,12 +119,54 @@ pub enum Resolution {
     /// Left as it is by the rules (`skip_when`).
     Skipped,
     /// Known only when the program that reads the file runs.
-    Runtime(String),
+    Runtime(Reason),
     /// Depends on where it is used: a context that is looked for around the reference
     /// (`nearest`) has nothing around it here.
-    Elsewhere(String),
+    Elsewhere(Reason),
     /// Finds nothing, or cannot be read.
-    Unresolved(String),
+    Unresolved(Reason),
+}
+
+/// Why a reference stands for nothing here. Its words (`Display`), which go on after the
+/// reference or stand alone, are the English the CLI, the MCP tools and the preview's
+/// comments give; the window words each case in its own language elsewhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reason {
+    FindsNothing,
+    /// The run-time context or the `$` variable of this name.
+    RuntimeOnly(String),
+    /// A context the rules file does not name.
+    UnknownContext(String),
+    /// A context whose path finds no element.
+    NothingAtContext {
+        context: String,
+        path: String,
+    },
+    /// A `nearest` context with no element `up_to` around the reference.
+    LookedForInside {
+        context: String,
+        up_to: String,
+    },
+    UnclosedVariable,
+    AttributeBeforeLastStep,
+    EmptyPath,
+    UnreadablePath(String),
+    BracketNotOpened,
+    Unclosed(String),
+    /// A part of `path` the preview cannot read.
+    CannotRead {
+        part: PathPart,
+        path: String,
+    },
+}
+
+/// A part of a path, as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PathPart {
+    AttributeStep(String),
+    Step(String),
+    /// What stands between the brackets.
+    Condition(String),
 }
 
 /// A reference resolved.
@@ -567,7 +610,10 @@ pub fn problems(doc: &Document, rules: &Rules) -> Vec<Problem> {
             Resolution::Unresolved(why) => Some(Problem {
                 severity: Severity::Warning,
                 offset: r.span.start as u64,
-                message: Message::Reference(format!("Reference {:?} {why}", r.expr)),
+                message: Message::Reference {
+                    reference: r.expr.clone(),
+                    why,
+                },
             }),
             _ => None,
         })
@@ -706,7 +752,7 @@ impl Previewer<'_> {
                 self.note(&format!(" <!-- {NOTE} {why} -->"));
             }
             (RefKind::Include, Resolution::Unresolved(why)) => {
-                self.unresolved_include(r.span.start, original, &why)
+                self.unresolved_include(r.span.start, original, &why.to_string())
             }
             (RefKind::Attribute(_), Resolution::Value(v)) => {
                 let start = self.out.text.len();
@@ -892,7 +938,7 @@ fn resolve_expr(
     anchor: NodeId,
     choices: &[Choice],
 ) -> Resolved {
-    let unresolved = |why: String| Resolved {
+    let unresolved = |why: Reason| Resolved {
         resolution: Resolution::Unresolved(why),
         via: None,
     };
@@ -944,7 +990,7 @@ fn resolve_expr(
             Err(e) => last_error = Some(e),
         }
     }
-    unresolved(last_error.unwrap_or_else(|| "finds nothing".to_string()))
+    unresolved(last_error.unwrap_or(Reason::FindsNothing))
 }
 
 /// `(Some("Ctx"), "path")` for `Ctx:path`, else `(None, expr)`. The context ends at the
@@ -971,21 +1017,20 @@ fn context_nodes(
         return Ok(vec![(site, None)]);
     };
     if rules.runtime.iter().any(|r| r == name) {
-        return Err(Resolution::Runtime(format!(
-            "{name} is known only at run time"
-        )));
+        return Err(Resolution::Runtime(Reason::RuntimeOnly(name.to_string())));
     }
     let Some((_, ctx)) = rules.contexts.iter().find(|(n, _)| n == name) else {
-        return Err(Resolution::Unresolved(format!(
-            "uses the context {name}, which the rules file does not name"
+        return Err(Resolution::Unresolved(Reason::UnknownContext(
+            name.to_string(),
         )));
     };
     match ctx {
         Context::Path(p) => match select(doc, ROOT, p) {
             Ok(Selection::Nodes(n)) if !n.is_empty() => Ok(vec![(n[0], None)]),
-            _ => Err(Resolution::Unresolved(format!(
-                "uses the context {name}, but nothing is at {p}"
-            ))),
+            _ => Err(Resolution::Unresolved(Reason::NothingAtContext {
+                context: name.to_string(),
+                path: p.clone(),
+            })),
         },
         Context::Nearest {
             name: wanted,
@@ -993,9 +1038,10 @@ fn context_nodes(
         } => {
             let c = nearest(doc, anchor, wanted, up_to, choices);
             if c.is_empty() {
-                return Err(Resolution::Elsewhere(format!(
-                    "{name} is looked for inside a <{up_to}>: resolved where this is imported"
-                )));
+                return Err(Resolution::Elsewhere(Reason::LookedForInside {
+                    context: name.to_string(),
+                    up_to: up_to.clone(),
+                }));
             }
             Ok(c.into_iter().map(|n| (n, Some(n))).collect())
         }
@@ -1061,7 +1107,7 @@ fn expand_dynamic(
         return Ok(path.to_string());
     };
     let Some(len) = path[start..].find('}') else {
-        return Err(Resolution::Unresolved("has ${ without }".into()));
+        return Err(Resolution::Unresolved(Reason::UnclosedVariable));
     };
     let inner = &path[start + 2..start + len];
     let found = resolve_expr(doc, rules, site, inner, anchor, choices);
@@ -1092,11 +1138,50 @@ fn expand_variables(
             .chars()
             .take_while(|&c| c == '$' || c.is_ascii_alphanumeric() || c == '_')
             .collect();
-        return Err(Resolution::Runtime(format!(
-            "{name} is known only at run time"
-        )));
+        return Err(Resolution::Runtime(Reason::RuntimeOnly(name.to_string())));
     }
     Ok(out)
+}
+
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FindsNothing => f.write_str("finds nothing"),
+            Self::RuntimeOnly(name) => write!(f, "{name} is known only at run time"),
+            Self::UnknownContext(name) => write!(
+                f,
+                "uses the context {name}, which the rules file does not name"
+            ),
+            Self::NothingAtContext { context, path } => {
+                write!(f, "uses the context {context}, but nothing is at {path}")
+            }
+            Self::LookedForInside { context, up_to } => write!(
+                f,
+                "{context} is looked for inside a <{up_to}>: resolved where this is imported"
+            ),
+            Self::UnclosedVariable => f.write_str("has ${ without }"),
+            Self::AttributeBeforeLastStep => {
+                f.write_str("has @ or text() before its last step, which the preview cannot follow")
+            }
+            Self::EmptyPath => f.write_str("has an empty path"),
+            Self::UnreadablePath(path) => {
+                write!(f, "has a path {path:?} the preview cannot read")
+            }
+            Self::BracketNotOpened => f.write_str("a ] without ["),
+            Self::Unclosed(path) => write!(f, "has an unclosed [ or quote in {path:?}"),
+            Self::CannotRead { part, path } => write!(f, "has {part} in {path:?}"),
+        }
+    }
+}
+
+impl fmt::Display for PathPart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AttributeStep(step) => write!(f, "the attribute step {step:?}"),
+            Self::Step(step) => write!(f, "the step {step:?}"),
+            Self::Condition(condition) => write!(f, "the condition [{condition}]"),
+        }
+    }
 }
 
 /// What a path selects.
@@ -1128,7 +1213,7 @@ enum Predicate {
 }
 
 /// Evaluates `path` from element `from` (or the document node).
-fn select(doc: &Document, from: NodeId, path: &str) -> Result<Selection, String> {
+fn select(doc: &Document, from: NodeId, path: &str) -> Result<Selection, Reason> {
     let steps = parse_path(path)?;
     let idx = &doc.index;
     let mut set = vec![from];
@@ -1199,9 +1284,7 @@ fn select(doc: &Document, from: NodeId, path: &str) -> Result<Selection, String>
                 return Ok(Selection::Value(value));
             }
             Step::Attribute(_) | Step::Text => {
-                return Err(
-                    "has @ or text() before its last step, which the preview cannot follow".into(),
-                );
+                return Err(Reason::AttributeBeforeLastStep);
             }
         }
         set.sort_unstable();
@@ -1227,10 +1310,10 @@ fn predicate(doc: &Document, id: NodeId, p: &Predicate, position: usize) -> bool
     }
 }
 
-fn parse_path(path: &str) -> Result<Vec<Step>, String> {
+fn parse_path(path: &str) -> Result<Vec<Step>, Reason> {
     let path = path.trim();
     if path.is_empty() {
-        return Err("has an empty path".into());
+        return Err(Reason::EmptyPath);
     }
     let mut steps = Vec::new();
     let mut rest = path;
@@ -1248,18 +1331,22 @@ fn parse_path(path: &str) -> Result<Vec<Step>, String> {
         if part.is_empty() {
             // `a//b`: the empty step between the slashes.
             if i == 0 || i + 1 == parts.len() {
-                return Err(format!("has a path {path:?} the preview cannot read"));
+                return Err(Reason::UnreadablePath(path.to_string()));
             }
             steps.push(Step::Descendants);
             continue;
         }
-        steps.push(parse_step(part).map_err(|e| format!("has {e} in {path:?}"))?);
+        let step = parse_step(part).map_err(|part| Reason::CannotRead {
+            part,
+            path: path.to_string(),
+        })?;
+        steps.push(step);
     }
     Ok(steps)
 }
 
 /// Splits at `/` outside brackets and quotes.
-fn split_steps(path: &str) -> Result<Vec<&str>, String> {
+fn split_steps(path: &str) -> Result<Vec<&str>, Reason> {
     let mut out = Vec::new();
     let (mut depth, mut quote, mut start) = (0usize, None, 0);
     for (i, c) in path.char_indices() {
@@ -1268,7 +1355,7 @@ fn split_steps(path: &str) -> Result<Vec<&str>, String> {
             (c, Some(q)) if c == q => quote = None,
             (_, Some(_)) => {}
             ('[', None) => depth += 1,
-            (']', None) => depth = depth.checked_sub(1).ok_or("a ] without [")?,
+            (']', None) => depth = depth.checked_sub(1).ok_or(Reason::BracketNotOpened)?,
             ('/', None) if depth == 0 => {
                 out.push(&path[start..i]);
                 start = i + 1;
@@ -1277,13 +1364,13 @@ fn split_steps(path: &str) -> Result<Vec<&str>, String> {
         }
     }
     if depth != 0 || quote.is_some() {
-        return Err(format!("has an unclosed [ or quote in {path:?}"));
+        return Err(Reason::Unclosed(path.to_string()));
     }
     out.push(&path[start..]);
     Ok(out)
 }
 
-fn parse_step(s: &str) -> Result<Step, String> {
+fn parse_step(s: &str) -> Result<Step, PathPart> {
     match s {
         "." => return Ok(Step::SelfNode),
         ".." => return Ok(Step::Parent),
@@ -1295,7 +1382,7 @@ fn parse_step(s: &str) -> Result<Step, String> {
         return if is_name(name) {
             Ok(Step::Attribute(Some(name.to_string())))
         } else {
-            Err(format!("the attribute step {s:?}"))
+            Err(PathPart::AttributeStep(s.to_string()))
         };
     }
     let (name, mut rest) = match s.find('[') {
@@ -1305,19 +1392,19 @@ fn parse_step(s: &str) -> Result<Step, String> {
     let name = match name.trim() {
         "*" => None,
         n if is_name(n) => Some(n.to_string()),
-        _ => return Err(format!("the step {s:?}")),
+        _ => return Err(PathPart::Step(s.to_string())),
     };
     let mut preds = Vec::new();
     while let Some(r) = rest.strip_prefix('[') {
-        let end = r.find(']').ok_or_else(|| format!("the step {s:?}"))?;
+        let end = r.find(']').ok_or_else(|| PathPart::Step(s.to_string()))?;
         preds.push(
             parse_predicate(r[..end].trim())
-                .ok_or_else(|| format!("the condition [{}]", &r[..end]))?,
+                .ok_or_else(|| PathPart::Condition(r[..end].to_string()))?,
         );
         rest = r[end + 1..].trim_start();
     }
     if !rest.is_empty() {
-        return Err(format!("the step {s:?}"));
+        return Err(PathPart::Step(s.to_string()));
     }
     Ok(Step::Child(name, preds))
 }
