@@ -95,6 +95,13 @@ The language of the window's texts: English and German now, French and Spanish l
   bar. A longer text makes its place wider or wraps. The program's fonts have every
   character its texts use.
 
+### The guide
+
+- **LANG-16** `[planned]` The built-in guide (WIN-4) is shown in the window's language:
+  `help.md` in English, `help.de.md` in German, with the same sections in the same order.
+  It names menus, entries and keys as the window shows them in that language. A language
+  without a guide shows the English one.
+
 ### Wording
 
 - **LANG-17** `[planned]` Numbers the window writes in its own texts follow the language.
@@ -120,13 +127,6 @@ The language of the window's texts: English and German now, French and Spanish l
   | reference, rules file | Verweis, Regeldatei |
   | well-formed | wohlgeformt |
   | undo, redo | Rückgängig, Wiederholen |
-
-### The guide
-
-- **LANG-16** `[planned]` The built-in guide (WIN-4) is shown in the window's language:
-  `help.md` in English, `help.de.md` in German, with the same sections in the same order.
-  It names menus, entries and keys as the window shows them in that language. A language
-  without a guide shows the English one.
 
 ## Order of work
 
