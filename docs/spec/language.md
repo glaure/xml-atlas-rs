@@ -182,7 +182,11 @@ English texts.
       errors, its errors for a document that is not well-formed, and bytes that are not
       UTF-8. A test holds the window's English to the engine's and reads broken files in
       German. The one kind of warning left in English is a reference's (fifth part).
-   4. XPath.
+   4. XPath. Built: why an expression cannot be read or run, as it is typed and when run.
+      What a result is, and how many nodes, was German already; paths to nodes are XPath and
+      stay (LANG-3). A test gets the errors from the engine and holds the window's English to
+      its. Where the XPath bar has no room for why a query failed, it goes under the bar
+      (LANG-15), as in the Find bar.
    5. References and rules files.
 5. The German guide (LANG-16).
 

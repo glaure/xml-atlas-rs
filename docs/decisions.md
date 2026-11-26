@@ -2077,7 +2077,13 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   words are the English they were. For the library's errors those words still come from the
   library. The window matches the library's `SyntaxError` and `IllFormedError` by case, so
   an update that adds one does not build until it is worded.
-- **Next:** step 4, XPath.
+- **Built, step 4, fourth part:** XPath's errors, as `SyntaxReason` and `EvalReason`. The
+  XPath bar keeps the error and words it when drawn. The syntax reason is boxed: with the
+  reasons as plain values the error was larger, and the slowest-affected of three queries on
+  100 MB took about 4% longer; every step of an evaluation returns a result with room for
+  the error. A test holds its size. Found: in German a run's reason could cover the bar's
+  close button, so without room it goes under the bar.
+- **Next:** step 4, references and rules files.
 
 ## Open questions
 

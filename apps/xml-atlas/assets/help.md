@@ -176,8 +176,8 @@ references, format options, updates and AI agents. A change applies at once. App
 each theme; click one to use it.
 
 *Language / Sprache*, under Localization, chooses English (the default), Deutsch or
-the system's language. German is not complete yet: messages about XPath, references
-and rules files, among others, and this guide are still in English.
+the system's language. German is not complete yet: messages about references and
+rules files, among others, and this guide are still in English.
 
 ## Updates
 

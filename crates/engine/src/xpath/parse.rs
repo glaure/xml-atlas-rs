@@ -1,7 +1,7 @@
 //! Reading an XPath 1.0 expression (W3C XPath 1.0, §2 and §3): the tokens of §3.7, then the
 //! grammar, into an [`Expr`]. Names are resolved later, against the document.
 
-use super::XPathError;
+use super::{Found, SyntaxReason, Wanted, XPathError};
 
 /// Expressions nested deeper than this (parentheses, predicates, arguments, minus signs) are
 /// refused. Parser and evaluator recurse about a dozen calls per level, and the expression is
@@ -278,11 +278,11 @@ pub(super) fn parse(text: &str) -> Result<Expr, XPathError> {
         depth: 0,
     };
     if p.tokens.is_empty() {
-        return Err(syntax("the expression is empty", 0));
+        return Err(syntax(SyntaxReason::Empty, 0));
     }
     let e = p.expr()?;
     if let Some(t) = p.tokens.get(p.next) {
-        return Err(syntax(format!("unexpected {}", describe(&t.tok)), t.at));
+        return Err(syntax(SyntaxReason::Unexpected(describe(&t.tok)), t.at));
     }
     Ok(e)
 }
@@ -377,36 +377,37 @@ fn calls_position(e: &Expr) -> bool {
     }
 }
 
-fn syntax(message: impl Into<String>, at: usize) -> XPathError {
+fn syntax(reason: SyntaxReason, at: usize) -> XPathError {
     XPathError::Syntax {
-        message: message.into(),
+        reason: Box::new(reason),
         at: at + 1,
     }
 }
 
-fn describe(t: &Tok) -> String {
-    match t {
+fn describe(t: &Tok) -> Found {
+    let code = match t {
         Tok::Name {
             prefix,
             local: Some(l),
         } => match prefix {
-            Some(p) => format!("`{p}:{l}`"),
-            None => format!("`{l}`"),
+            Some(p) => format!("{p}:{l}"),
+            None => l.clone(),
         },
         Tok::Name {
             prefix,
             local: None,
         } => match prefix {
-            Some(p) => format!("`{p}:*`"),
-            None => "`*`".into(),
+            Some(p) => format!("{p}:*"),
+            None => "*".into(),
         },
-        Tok::NodeType(n) | Tok::Function(n) => format!("`{n}(`"),
-        Tok::Axis(n) => format!("`{n}::`"),
-        Tok::Literal(s) => format!("\"{s}\""),
-        Tok::Number(_) => "a number".into(),
-        Tok::Variable(v) => format!("`${v}`"),
-        other => format!("`{}`", symbol(other)),
-    }
+        Tok::NodeType(n) | Tok::Function(n) => format!("{n}("),
+        Tok::Axis(n) => format!("{n}::"),
+        Tok::Literal(s) => return Found::Literal(s.clone()),
+        Tok::Number(_) => return Found::Number,
+        Tok::Variable(v) => format!("${v}"),
+        other => symbol(other).into(),
+    };
+    Found::Code(code)
 }
 
 fn symbol(t: &Tok) -> &'static str {
@@ -533,7 +534,7 @@ fn tokenize(text: &str) -> Result<Vec<Token>, XPathError> {
                 let end = cs[i + 1..]
                     .iter()
                     .position(|&q| q == c)
-                    .ok_or_else(|| syntax("the string is not closed", at))?;
+                    .ok_or_else(|| syntax(SyntaxReason::UnclosedString, at))?;
                 let s: String = cs[i + 1..i + 1 + end].iter().collect();
                 (Tok::Literal(s), end + 2)
             }
@@ -551,12 +552,12 @@ fn tokenize(text: &str) -> Result<Vec<Token>, XPathError> {
                 let s: String = cs[i..j].iter().collect();
                 let v = s
                     .parse::<f64>()
-                    .map_err(|_| syntax(format!("`{s}` is not a number"), at))?;
+                    .map_err(|_| syntax(SyntaxReason::NotANumber(s.clone()), at))?;
                 (Tok::Number(v), j - i)
             }
             '$' => {
                 let (name, j) =
-                    qname(&cs, i + 1).ok_or_else(|| syntax("expected a name after `$`", at))?;
+                    qname(&cs, i + 1).ok_or_else(|| syntax(SyntaxReason::NameAfterDollar, at))?;
                 (Tok::Variable(name), j - i)
             }
             c if is_name_start(c) => {
@@ -572,7 +573,7 @@ fn tokenize(text: &str) -> Result<Vec<Token>, XPathError> {
                         "div" => Tok::Div,
                         "mod" => Tok::Mod,
                         _ => {
-                            return Err(syntax(format!("expected an operator, not `{first}`"), at));
+                            return Err(syntax(SyntaxReason::OperatorExpected(first), at));
                         }
                     };
                     (tok, j - i)
@@ -593,7 +594,7 @@ fn tokenize(text: &str) -> Result<Vec<Token>, XPathError> {
                                 k,
                             )
                         } else {
-                            return Err(syntax("expected a name after `:`", j));
+                            return Err(syntax(SyntaxReason::NameAfterColon, j));
                         }
                     } else {
                         (None, Some(first), j)
@@ -624,7 +625,10 @@ fn tokenize(text: &str) -> Result<Vec<Token>, XPathError> {
                     (tok, j - i)
                 }
             }
-            other => return Err(syntax(format!("unexpected `{other}`"), at)),
+            other => {
+                let found = Found::Code(other.to_string());
+                return Err(syntax(SyntaxReason::Unexpected(found), at));
+            }
         };
         out.push(Token { tok, at });
         i += n;
@@ -673,22 +677,19 @@ impl Parser {
         if self.eat(t) {
             Ok(())
         } else {
-            Err(self.expected(&format!("`{}`", symbol(t))))
+            Err(self.expected(Wanted::Symbol(symbol(t))))
         }
     }
 
-    fn expected(&self, what: &str) -> XPathError {
-        let found = match self.tokens.get(self.next) {
-            Some(t) => format!(", found {}", describe(&t.tok)),
-            None => ", found the end".into(),
-        };
-        syntax(format!("expected {what}{found}"), self.here())
+    fn expected(&self, wanted: Wanted) -> XPathError {
+        let found = self.tokens.get(self.next).map(|t| describe(&t.tok));
+        syntax(SyntaxReason::Expected { wanted, found }, self.here())
     }
 
     fn expr(&mut self) -> Result<Expr, XPathError> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
-            return Err(syntax("the expression is nested too deeply", self.here()));
+            return Err(syntax(SyntaxReason::TooDeep, self.here()));
         }
         let e = self.or();
         self.depth -= 1;
@@ -770,7 +771,7 @@ impl Parser {
         if self.eat(&Tok::Minus) {
             self.depth += 1;
             if self.depth > MAX_DEPTH {
-                return Err(syntax("the expression is nested too deeply", self.here()));
+                return Err(syntax(SyntaxReason::TooDeep, self.here()));
             }
             let e = self.unary();
             self.depth -= 1;
@@ -833,7 +834,7 @@ impl Parser {
     fn primary(&mut self) -> Result<Expr, XPathError> {
         let at = self.here();
         let Some(t) = self.tokens.get(self.next).map(|t| t.tok.clone()) else {
-            return Err(self.expected("an expression"));
+            return Err(self.expected(Wanted::Expression));
         };
         self.next += 1;
         match t {
@@ -844,13 +845,10 @@ impl Parser {
             }
             Tok::Literal(s) => Ok(Expr::Literal(s)),
             Tok::Number(v) => Ok(Expr::Number(v)),
-            Tok::Variable(v) => Err(syntax(
-                format!("variables such as `${v}` are not supported"),
-                at,
-            )),
+            Tok::Variable(v) => Err(syntax(SyntaxReason::Variable(v), at)),
             Tok::Function(name) => {
                 let (f, min, max) = Func::named(&name)
-                    .ok_or_else(|| syntax(format!("there is no function `{name}()`"), at))?;
+                    .ok_or_else(|| syntax(SyntaxReason::NoFunction(name.clone()), at))?;
                 self.expect(&Tok::LParen)?;
                 let mut args = Vec::new();
                 if !self.eat(&Tok::RParen) {
@@ -860,27 +858,24 @@ impl Parser {
                             break;
                         }
                         if !self.eat(&Tok::Comma) {
-                            return Err(self.expected("`,` or `)`"));
+                            return Err(self.expected(Wanted::CommaOrParen));
                         }
                     }
                 }
                 if args.len() < min || args.len() > max {
-                    let wanted = match (min, max) {
-                        (a, b) if a == b => format!("{a}"),
-                        (a, usize::MAX) => format!("at least {a}"),
-                        (a, b) => format!("{a} to {b}"),
+                    let reason = SyntaxReason::ArgumentCount {
+                        function: name,
+                        min,
+                        max: (max != usize::MAX).then_some(max),
+                        given: args.len(),
                     };
-                    let s = if max == 1 && min == 1 { "" } else { "s" };
-                    return Err(syntax(
-                        format!("`{name}()` takes {wanted} argument{s}, not {}", args.len()),
-                        at,
-                    ));
+                    return Err(syntax(reason, at));
                 }
                 Ok(Expr::Call(f, args))
             }
             _ => {
                 self.next -= 1;
-                Err(self.expected("an expression"))
+                Err(self.expected(Wanted::Expression))
             }
         }
     }
@@ -910,7 +905,7 @@ impl Parser {
             }
             _ => {
                 if !self.starts_step() {
-                    return Err(self.expected("an expression"));
+                    return Err(self.expected(Wanted::Expression));
                 }
                 self.relative(&mut steps)?;
                 Start::Context
@@ -974,8 +969,7 @@ impl Parser {
             Some(Tok::Axis(name)) => {
                 self.next += 1;
                 self.expect(&Tok::ColonColon)?;
-                Axis::named(&name)
-                    .ok_or_else(|| syntax(format!("there is no axis `{name}`"), at))?
+                Axis::named(&name).ok_or_else(|| syntax(SyntaxReason::NoAxis(name.clone()), at))?
             }
             _ => Axis::Child,
         };
@@ -1005,7 +999,7 @@ impl Parser {
                 self.expect(&Tok::RParen)?;
                 test
             }
-            _ => return Err(self.expected("a step")),
+            _ => return Err(self.expected(Wanted::Step)),
         };
         let mut predicates = Vec::new();
         while self.peek() == Some(&Tok::LBracket) {

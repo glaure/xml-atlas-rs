@@ -469,7 +469,7 @@ impl FindBar {
 }
 
 /// Whether `status` still goes into the row, with `buttons` after it.
-fn fits(ui: &Ui, status: &str, buttons: &[&str]) -> bool {
+pub(crate) fn fits(ui: &Ui, status: &str, buttons: &[&str]) -> bool {
     let width = |text: &str, style: egui::TextStyle| {
         let font = style.resolve(ui.style());
         let colour = egui::Color32::PLACEHOLDER;
