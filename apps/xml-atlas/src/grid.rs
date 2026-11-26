@@ -63,20 +63,19 @@ enum Header<'a> {
 
 pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
     let Some(grid) = &open.grid else { return };
-    let mut after = vec![format!("{} rows", grid.rows.len())];
+    let mut after = vec![lang.grid_rows(grid.rows.len() as u64)];
     match grid.view().hidden.len() {
         0 => {}
-        1 => after.push("1 column hidden".to_string()),
-        n => after.push(format!("{n} columns hidden")),
+        n => after.push(lang.grid_columns_hidden(n as u64)),
     }
     let path = RichText::new(&grid.path).strong();
     if open.doc.stale() == Some(grid.parent) {
         path_line(ui, path.color(ui.visuals().error_fg_color), &after)
-            .on_hover_text("The text of this element is being edited and is not well-formed; the grid shows it as it last was.");
+            .on_hover_text(lang.grid_stale());
     } else {
         path_line(ui, path, &after);
     }
-    crate::attribute_table::show(ui, grid);
+    crate::attribute_table::show(ui, lang, grid);
     // Cell labels must not take clicks for text selection: a click picks the row or cell.
     let scroll = open.grid_scroll_to.take();
     let reveal = std::mem::take(&mut open.grid_reveal_cell);
@@ -294,7 +293,7 @@ fn table(
                     _ => Header::Column(&grid.columns[shown[column - LEAD]]),
                 };
                 let resp = row.col(|ui| {
-                    ui.strong(header_text(grid, &header));
+                    ui.strong(header_text(lang, grid, &header));
                 });
                 if let Some(a) = header_action(lang, grid, &header, &resp) {
                     action = Some(a);
@@ -302,116 +301,119 @@ fn table(
             }
         });
     body.rows(row_h, grid.rows.len(), |row| {
-                let i = row.index();
-                let id = grid.rows[i];
-                // Marked when the row, or a child shown in one of its cells, is the focus.
-                let marked = focus.is_some_and(|f| f == id || doc.index.node(f).parent == id);
-                row.set_selected(marked);
-                let mut cell_action = None;
-                let cells = grid_cells.row(doc, id);
-                while let Some(column) = row.next_column() {
-                    if column == 0 {
-                        row.col(|ui| {
-                            // A bookmark (TREE-15): a bar at the row's left edge.
-                            if crate::bookmarks::is_marked(doc, id) {
-                                let r = ui.max_rect();
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(
-                                        r.left_top(),
-                                        egui::vec2(3.0, r.height()),
-                                    ),
-                                    1.0,
-                                    crate::bookmarks::color(ui.visuals()),
-                                );
-                            }
-                            ui.label(RichText::new(grid.number(i).to_string()).weak());
-                            if reveal && marked && grid_cell.is_none() {
-                                reveal_rect = Some(ui.max_rect());
-                            }
-                        });
-                        continue;
+        let i = row.index();
+        let id = grid.rows[i];
+        // Marked when the row, or a child shown in one of its cells, is the focus.
+        let marked = focus.is_some_and(|f| f == id || doc.index.node(f).parent == id);
+        row.set_selected(marked);
+        let mut cell_action = None;
+        let cells = grid_cells.row(doc, id);
+        while let Some(column) = row.next_column() {
+            if column == 0 {
+                row.col(|ui| {
+                    // A bookmark (TREE-15): a bar at the row's left edge.
+                    if crate::bookmarks::is_marked(doc, id) {
+                        let r = ui.max_rect();
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(r.left_top(), egui::vec2(3.0, r.height())),
+                            1.0,
+                            crate::bookmarks::color(ui.visuals()),
+                        );
                     }
-                    if column == 1 {
-                        row.col(|ui| {
-                            let name = String::from_utf8_lossy(doc.index.name(&doc.src, id));
-                            // Typing broke this element's text: its last good state (TEXT-10).
-                            if doc.stale() == Some(id) {
-                                ui.label(RichText::new(name).color(ui.visuals().error_fg_color))
-                                    .on_hover_text("The text of this element is being edited and is not well-formed; this row shows it as it last was.");
-                            } else {
-                                ui.label(name);
-                            }
-                        });
-                        continue;
+                    ui.label(RichText::new(grid.number(i).to_string()).weak());
+                    if reveal && marked && grid_cell.is_none() {
+                        reveal_rect = Some(ui.max_rect());
                     }
-                    let ci = shown[column - LEAD];
-                    let editing = grid_edit.as_mut().filter(|e| e.row == id && e.column == ci);
-                    if let Some(editor) = editing {
-                        editor_shown = true;
-                        row.col(|ui| {
-                            if let Some(save) = cell_editor(ui, editor) {
-                                cell_action = Some(Action::Close { save });
-                            }
-                        });
-                        continue;
+                });
+                continue;
+            }
+            if column == 1 {
+                row.col(|ui| {
+                    let name = String::from_utf8_lossy(doc.index.name(&doc.src, id));
+                    // Typing broke this element's text: its last good state (TEXT-10).
+                    if doc.stale() == Some(id) {
+                        ui.label(RichText::new(name).color(ui.visuals().error_fg_color))
+                            .on_hover_text(lang.grid_row_stale());
+                    } else {
+                        ui.label(name);
                     }
-                    let kept = &cells[ci];
-                    let cell = &kept.cell;
-                    let nested = matches!(cell, Cell::Element(_) | Cell::Repeated { .. });
-                    let resp = row.col(|ui| {
-                        draw_cell(ui, cell);
-                        if marked && *grid_cell == Some(ci) {
-                            outline(ui);
-                            if reveal {
-                                reveal_rect = Some(ui.max_rect());
-                            }
-                        }
-                    });
-                    // A nested cell stands for its child element: a click highlights that
-                    // child, a double-click opens it.
-                    let child = kept.node.filter(|_| nested);
-                    let target = child.unwrap_or(id);
-                    if resp.double_clicked() && child.is_some() {
-                        cell_action = Some(Action::Enter(target));
-                    } else if resp.clicked() || resp.secondary_clicked() {
-                        cell_action = Some(Action::Focus(target, Some(ci)));
+                });
+                continue;
+            }
+            let ci = shown[column - LEAD];
+            let editing = grid_edit.as_mut().filter(|e| e.row == id && e.column == ci);
+            if let Some(editor) = editing {
+                editor_shown = true;
+                row.col(|ui| {
+                    if let Some(save) = cell_editor(ui, editor) {
+                        cell_action = Some(Action::Close { save });
                     }
-                    resp.context_menu(|ui| {
-                        if let Some(child) = child {
-                            let button = egui::Button::new(lang.grid_open())
-                                .shortcut_text(keys::text(ui.ctx(), lang, &keys::ENTER));
-                            if ui.add(button).clicked() {
-                                cell_action = Some(Action::Enter(child));
-                            }
-                        } else {
-                            let button = ui
-                                .add_enabled(
-                                    kept.editable,
-                                    egui::Button::new(lang.grid_edit())
-                                        .shortcut_text(keys::text(ui.ctx(), lang, &keys::EDIT)),
-                                )
-                                .on_disabled_hover_text(not_editable(lang, cell));
-                            if button.clicked() {
-                                cell_action = Some(Action::Edit {
-                                    row: id,
-                                    column: ci,
-                                });
-                            }
-                        }
-                    });
+                });
+                continue;
+            }
+            let kept = &cells[ci];
+            let cell = &kept.cell;
+            let nested = matches!(cell, Cell::Element(_) | Cell::Repeated { .. });
+            let resp = row.col(|ui| {
+                draw_cell(ui, cell);
+                if marked && *grid_cell == Some(ci) {
+                    outline(ui);
+                    if reveal {
+                        reveal_rect = Some(ui.max_rect());
+                    }
                 }
-                let Some(resp) = row.response() else { return };
-                // A double-click opens the row, also on a value cell (GRID-7).
-                let open_row = resp.double_clicked()
-                    && id != grid.parent
-                    && !matches!(cell_action, Some(Action::Enter(_)));
-                if open_row {
-                    action = Some(Action::Enter(id));
-                } else if cell_action.is_some() {
-                    action = cell_action;
-                } else if action.is_none() && resp.clicked() {
-                    action = Some(Action::Focus(id, None));
+            });
+            // A nested cell stands for its child element: a click highlights that
+            // child, a double-click opens it.
+            let child = kept.node.filter(|_| nested);
+            let target = child.unwrap_or(id);
+            if resp.double_clicked() && child.is_some() {
+                cell_action = Some(Action::Enter(target));
+            } else if resp.clicked() || resp.secondary_clicked() {
+                cell_action = Some(Action::Focus(target, Some(ci)));
+            }
+            resp.context_menu(|ui| {
+                if let Some(child) = child {
+                    let button = egui::Button::new(lang.grid_open()).shortcut_text(keys::text(
+                        ui.ctx(),
+                        lang,
+                        &keys::ENTER,
+                    ));
+                    if ui.add(button).clicked() {
+                        cell_action = Some(Action::Enter(child));
+                    }
+                } else {
+                    let button = ui
+                        .add_enabled(
+                            kept.editable,
+                            egui::Button::new(lang.grid_edit()).shortcut_text(keys::text(
+                                ui.ctx(),
+                                lang,
+                                &keys::EDIT,
+                            )),
+                        )
+                        .on_disabled_hover_text(not_editable(lang, cell));
+                    if button.clicked() {
+                        cell_action = Some(Action::Edit {
+                            row: id,
+                            column: ci,
+                        });
+                    }
                 }
+            });
+        }
+        let Some(resp) = row.response() else { return };
+        // A double-click opens the row, also on a value cell (GRID-7).
+        let open_row = resp.double_clicked()
+            && id != grid.parent
+            && !matches!(cell_action, Some(Action::Enter(_)));
+        if open_row {
+            action = Some(Action::Enter(id));
+        } else if cell_action.is_some() {
+            action = cell_action;
+        } else if action.is_none() && resp.clicked() {
+            action = Some(Action::Focus(id, None));
+        }
     });
     grid_cells.end();
     // Asked for here, outside the table: the table's own scroll area, which scrolls only up
@@ -427,10 +429,10 @@ fn table(
 }
 
 /// A header's text, with an arrow when the rows are sorted by it (GRID-14).
-fn header_text(grid: &Grid, header: &Header) -> String {
+fn header_text(lang: Lang, grid: &Grid, header: &Header) -> String {
     let (text, by) = match header {
         Header::Number => ("#".to_string(), None),
-        Header::Name => ("element".to_string(), Some(SortBy::Name)),
+        Header::Name => (lang.grid_column_element().to_string(), Some(SortBy::Name)),
         Header::Column(c) => (column_name(c), Some(SortBy::Column((*c).clone()))),
     };
     match &grid.view().sort {

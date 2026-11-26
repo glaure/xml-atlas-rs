@@ -12,6 +12,7 @@ use xml_atlas_engine::Document;
 use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::references::check::{Report, check};
 
+use crate::lang::Lang;
 use crate::rules_editor::{COUNT_AT_MOST, PAUSE};
 
 /// Findings named when the pointer rests on the result.
@@ -82,7 +83,7 @@ impl RulesStatus {
     }
 
     /// Draws the result. True when it was clicked, to edit the rules.
-    pub fn show(&self, ui: &mut Ui) -> bool {
+    pub fn show(&self, ui: &mut Ui, lang: Lang) -> bool {
         let Some(checked) = &self.checked else {
             return false;
         };
@@ -95,8 +96,8 @@ impl RulesStatus {
         } else {
             visuals.weak_text_color()
         };
-        ui.link(RichText::new(checked.summary()).color(colour))
-            .on_hover_text(checked.details())
+        ui.link(RichText::new(checked.summary(lang)).color(colour))
+            .on_hover_text(checked.details(lang))
             .clicked()
     }
 }
@@ -110,37 +111,33 @@ impl Checked {
             .count()
     }
 
-    fn summary(&self) -> String {
-        let count = |n: usize, what: &str| match n {
-            1 => format!("1 {what}"),
-            n => format!("{n} {what}s"),
-        };
+    fn summary(&self, lang: Lang) -> String {
+        let errors = |n: usize| lang.count_errors(n as u64);
+        let warnings = |n: usize| lang.count_warnings(n as u64);
         match (self.report.errors(), self.warnings()) {
-            (0, 0) if self.counted => "check OK".to_owned(),
+            (0, 0) if self.counted => lang.check_ok().to_owned(),
             // No more than that is known without the count.
-            (0, 0) => "OK, not counted".to_owned(),
-            (0, warnings) => count(warnings, "warning"),
-            (errors, 0) => count(errors, "error"),
-            (errors, warnings) => {
-                format!("{}, {}", count(errors, "error"), count(warnings, "warning"))
-            }
+            (0, 0) => lang.check_ok_uncounted().to_owned(),
+            (0, w) => warnings(w),
+            (e, 0) => errors(e),
+            (e, w) => lang.editor_summary(&errors(e), &warnings(w)),
         }
     }
 
-    fn details(&self) -> String {
+    fn details(&self, lang: Lang) -> String {
         let findings = &self.report.findings;
         let mut lines: Vec<String> = findings
             .iter()
             .take(NAMED)
-            .map(|f| format!("Line {}, column {}: {}", f.line, f.column, f.message))
+            .map(|f| lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &f.message))
             .collect();
         if findings.len() > NAMED {
-            lines.push(format!("and {} more", findings.len() - NAMED));
+            lines.push(lang.check_more(&(findings.len() - NAMED).to_string()));
         }
         if !self.counted {
-            lines.push("Matches in the document were not counted: the editor can.".to_owned());
+            lines.push(lang.check_not_counted().to_owned());
         }
-        lines.push("The check of the rules file. Click to edit it.".to_owned());
+        lines.push(lang.check_click().to_owned());
         lines.join("\n")
     }
 }
@@ -154,7 +151,7 @@ mod tests {
     const RULES: &str = r#"{"includes": [{"element": "Größe", "attribute": "src"}]}"#;
 
     fn summary(status: &RulesStatus) -> String {
-        status.checked.as_ref().unwrap().summary()
+        status.checked.as_ref().unwrap().summary(Lang::En)
     }
 
     /// REF-16: at once for the rules; after an edit of the document, at the pause.
@@ -226,7 +223,7 @@ mod tests {
         let mut status = RulesStatus::default();
         status.update(&RULES.into(), &doc, Instant::now());
         let checked = status.checked.as_ref().unwrap();
-        assert!(!checked.counted && checked.details().contains("not counted"));
-        assert_eq!(checked.summary(), "OK, not counted");
+        assert!(!checked.counted && checked.details(Lang::En).contains("not counted"));
+        assert_eq!(checked.summary(Lang::En), "OK, not counted");
     }
 }

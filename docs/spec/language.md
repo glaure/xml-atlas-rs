@@ -1,15 +1,15 @@
 # Language
 
 The language of the window's texts: English and German now, French and Spanish later
-(`docs/decisions.md`, D45; issue #183). Step 2 of the order of work is built: German in the
-menus, the right-click menus, the toolbar and Settings; of step 3, the bars, the status
-bar and the dialogs. A rule that covers more than that stays `[planned]`.
+(`docs/decisions.md`, D45; issue #183). Steps 2 and 3 of the order of
+work are built: German in the window's own texts. The engine's messages (step 4) and the
+guide (step 5) are still English. A rule that is not built yet stays `[planned]`.
 
 ## Rules
 
 ### What is translated
 
-- **LANG-1** `[planned]` The window's own texts are shown in the chosen language: menus and
+- **LANG-1** `[built]` The window's own texts are shown in the chosen language: menus and
   submenus, context menus, the toolbar's tooltips, hints on hover and the reasons greyed
   entries give (WIN-14), dialogs, Settings, the bars (Find, Go to line, XPath), headers of
   panes and columns that are not names from the document, notices, the status bar, and
@@ -28,7 +28,7 @@ bar and the dialogs. A rule that covers more than that stays `[planned]`.
   - the comments the reference preview adds to its text, such as `<!-- XML Atlas: finds
     nothing -->` (REF-5): they are part of that text, which can be copied and which the
     CLI's `preview` prints too. The same reason in the problems list is translated (LANG-2).
-- **LANG-4** `[planned]` Texts that come from outside the program are shown as they come,
+- **LANG-4** `[built]` Texts that come from outside the program are shown as they come,
   after a translated lead that says what failed: messages of the operating system, of the
   regular expression library and of the XML parser library. The file dialogs are the
   system's and follow its language, not this setting.
@@ -93,7 +93,7 @@ bar and the dialogs. A rule that covers more than that stays `[planned]`.
 
 ### Layout
 
-- **LANG-15** `[planned]` In every language, at the window's usual sizes, nothing is cut off
+- **LANG-15** `[built]` In every language, at the window's usual sizes, nothing is cut off
   or overlaps that does not in English: menus, dialogs, Settings, the bars and the status
   bar. A longer text makes its place wider or wraps. The program's fonts have every
   character its texts use.
@@ -107,7 +107,7 @@ bar and the dialogs. A rule that covers more than that stays `[planned]`.
 
 ### Wording
 
-- **LANG-17** `[planned]` Numbers the window writes in its own texts follow the language.
+- **LANG-17** `[built]` Numbers the window writes in its own texts follow the language.
   In German they have a decimal comma (`12,3 MiB`), and a point where thousands are grouped
   in English with a comma (`1.000`, today in the diagram). No grouping is added where there
   is none. Line and column numbers, what Go to line takes, an XPath's number result and
@@ -158,8 +158,12 @@ English texts.
       part left in English. Built. A test draws each dialog in German and finds nothing cut
       off. The engine's words in them stay English until step 4 (what the rules editor
       finds and counts, why a file cannot be read or saved), and the guide until step 5.
-   3. Panes and what is left: the problems list, notices above the views, the grid's and
-      diagram's other texts, the SVG export.
+   3. Panes and what is left: the empty window, an untitled tab, the notices above the
+      views, the grid with its attributes and the cell pane, the problems list, the reference
+      preview and the rules check in its header, the diagram and its SVG export, and why the
+      update check failed. Built. Tests draw these in German, but not the empty window;
+      they check that the panes, the notices and the diagram's header cut nothing off. With
+      this, what is left in English is the engine's (step 4) and the guide (step 5).
 4. The engine's messages made into values the window can translate, a part at a time
    (LANG-2). The engine's own texts stay as they are.
 5. The German guide (LANG-16).

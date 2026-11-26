@@ -487,7 +487,9 @@ impl App {
                     i += 1;
                     continue;
                 }
-                Err(TryRecvError::Disconnected) => Err(std::io::Error::other("loading stopped")),
+                Err(TryRecvError::Disconnected) => {
+                    Err(std::io::Error::other(self.lang().status_loading_stopped()))
+                }
             };
             let loading = self.loading.remove(i);
             match loading.reload {
@@ -937,7 +939,9 @@ impl App {
                 ui.horizontal(|ui| {
                     for (i, open) in self.docs.iter().enumerate() {
                         let path = open.doc.path.as_deref();
-                        let mut name = path.map(file_name).unwrap_or_else(|| "untitled".into());
+                        let mut name = path
+                            .map(file_name)
+                            .unwrap_or_else(|| lang.tabs_untitled().into());
                         if open.doc.is_modified() {
                             name.push_str(" *");
                         }
@@ -945,7 +949,7 @@ impl App {
                         let mut hover = path.map(|p| p.display().to_string()).unwrap_or_default();
                         let name = match open.disk {
                             Some(change) => {
-                                hover.push_str(&format!("\n{}", disk_text(change)));
+                                hover.push_str(&format!("\n{}", disk_text(lang, change)));
                                 RichText::new(name).color(ui.visuals().warn_fg_color)
                             }
                             None => RichText::new(name),
@@ -1282,37 +1286,35 @@ impl App {
         let modified = open.doc.is_modified();
         let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
         let ctx = ui.ctx().clone();
+        let lang = self.lang();
         ui.horizontal_wrapped(|ui| {
             ui.colored_label(
                 ui.visuals().warn_fg_color,
-                format!("⚠ {name} {}.", disk_text(change)),
+                format!("⚠ {name} {}.", disk_text(lang, change)),
             );
             if change == DiskChange::Changed {
                 let (label, tip) = if modified {
-                    (
-                        "Reload, discarding changes",
-                        "Show the file as it is now; your unsaved changes are lost",
-                    )
+                    (lang.disk_reload_discard(), lang.disk_reload_discard_tip())
                 } else {
-                    ("Reload", "Show the file as it is now")
+                    (lang.disk_reload(), lang.disk_reload_tip())
                 };
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.reload(&ctx);
                 }
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the document as it is open here to the file")
+                .button(lang.disk_save())
+                .on_hover_text(lang.disk_save_tip())
                 .clicked()
             {
                 self.save();
             }
-            if ui.button("Save as…").clicked() {
+            if ui.button(lang.disk_save_as()).clicked() {
                 self.save_as();
             }
             if ui
-                .button("Keep")
-                .on_hover_text("Keep the document as it is open here, without saving")
+                .button(lang.disk_keep())
+                .on_hover_text(lang.disk_keep_tip())
                 .clicked()
                 && let Some(open) = self.docs.active_mut()
             {
@@ -1330,22 +1332,18 @@ impl App {
         };
         let name = open.doc.path.as_deref().map(file_name).unwrap_or_default();
         let broken = open.problems.iter().any(|p| p.severity == Severity::Error);
+        let lang = self.lang();
         ui.horizontal_wrapped(|ui| {
-            ui.label(format!(
-                "ℹ {name} is minified: its elements are on one long line, shown wrapped."
-            ));
+            ui.label(format!("ℹ {}", lang.minified_notice(&name)));
             if !broken
                 && ui
-                    .button("Format")
-                    .on_hover_text(
-                        "Put each element on its own indented line. One undo step; the file \
-                         changes only when you save",
-                    )
+                    .button(lang.minified_format())
+                    .on_hover_text(lang.minified_format_tip())
                     .clicked()
             {
                 self.format_document();
             }
-            if ui.button("Dismiss").clicked()
+            if ui.button(lang.minified_dismiss()).clicked()
                 && let Some(open) = self.docs.active_mut()
             {
                 open.minified_notice = false;
@@ -1939,7 +1937,7 @@ impl eframe::App for App {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
                     let key = keys::text(ui.ctx(), self.lang(), &keys::OPEN);
-                    ui.heading(format!("Drop an XML file here, or press {key}"));
+                    ui.heading(self.lang().welcome_drop(&key));
                 });
             });
             return;
@@ -2687,10 +2685,10 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// What happened to the file, after its name.
-fn disk_text(change: DiskChange) -> &'static str {
+fn disk_text(lang: Lang, change: DiskChange) -> &'static str {
     match change {
-        DiskChange::Changed => "changed on disk",
-        DiskChange::Removed => "was deleted or moved on disk",
+        DiskChange::Changed => lang.disk_changed(),
+        DiskChange::Removed => lang.disk_removed(),
     }
 }
 
@@ -3459,5 +3457,98 @@ mod tests {
             &[title, "Regeln speichern", "Nicht speichern", "Abbrechen"],
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// LANG-1 and LANG-15: the notices above the views, the tab of a new file, the grid with
+    /// its attributes and cell pane, the problems list and the reference preview in German.
+    #[test]
+    fn the_panes_and_notices_are_german_and_whole() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.settings = Settings {
+            language: crate::lang::LanguageChoice::German,
+            ..Default::default()
+        };
+        let check = |texts: Vec<String>, wanted: &[&str]| {
+            for part in wanted {
+                assert!(texts.iter().any(|t| t.contains(part)), "{part}: {texts:?}");
+            }
+        };
+
+        app.new_document();
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.tab_bar(ui)),
+            &["unbenannt"],
+        );
+
+        // One long line, so the file counts as minified.
+        let src = format!(
+            "\u{feff}<r a=\"Größe\">{}</r>",
+            "<o><n>ü</n></o>".repeat(400)
+        );
+        let mut doc = Document::from_bytes(src.into_bytes());
+        doc.path = Some(std::env::temp_dir().join("Bestellungen-Größe-und-Lieferungen.xml"));
+        app.add_document(doc);
+        let open = app.docs.active_mut().unwrap();
+        open.lang = Lang::De;
+        open.disk = Some(DiskChange::Changed);
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.minified_bar(ui)),
+            &["ist minifiziert", "Formatieren", "Ausblenden"],
+        );
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.disk_bar(ui)),
+            &[
+                "wurde auf dem Datenträger geändert.",
+                "Neu laden",
+                "Speichern unter…",
+                "Behalten",
+            ],
+        );
+        app.docs.active_mut().unwrap().disk = Some(DiskChange::Removed);
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.disk_bar(ui)),
+            &["gelöscht oder verschoben."],
+        );
+
+        let open = app.docs.active_mut().unwrap();
+        let root = xml_atlas_engine::command::resolve(&open.doc, "/r").unwrap();
+        open.select(root);
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                ui.set_max_width(960.0);
+                let open = app.docs.active_mut().unwrap();
+                crate::grid::show(ui, open, Lang::De);
+            }),
+            &["400 Zeilen", "1 Attribut", "Element"],
+        );
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                ui.set_max_width(320.0);
+                crate::cell_pane::show(ui, app.docs.active_mut().unwrap());
+            }),
+            &["Eine Zeile oder Zelle"],
+        );
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                ui.set_max_width(420.0);
+                let font = egui::FontId::monospace(13.0);
+                crate::ref_preview::show(ui, app.docs.active_mut().unwrap(), &font);
+            }),
+            &["Keine Verweisregeln für diese Datei", "Regeln legen fest"],
+        );
+
+        let mut broken = Document::from_bytes("<r>\r\n<Größe>\r\n</r>".as_bytes().to_vec());
+        broken.path = None;
+        app.add_document(broken);
+        app.docs.active_mut().unwrap().lang = Lang::De;
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                ui.set_max_width(960.0);
+                crate::problems_panel::show(ui, app.docs.active_mut().unwrap());
+            }),
+            &["Probleme", "Fehler, 0 Warnungen", "Zeile "],
+        );
     }
 }

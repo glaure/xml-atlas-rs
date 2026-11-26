@@ -58,6 +58,30 @@ pub enum Install {
     Flatpak,
 }
 
+/// Why the check failed: made on its thread, worded when shown or logged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// The request's own words.
+    Request(String),
+    Stopped,
+    /// The parser's words about GitHub's answer.
+    Unreadable(String),
+    NoVersion,
+    BadVersion(String),
+}
+
+impl Why {
+    fn text(&self, lang: Lang) -> String {
+        match self {
+            Why::Request(why) => why.clone(),
+            Why::Stopped => lang.update_why_stopped().into(),
+            Why::Unreadable(error) => lang.update_why_unreadable(error),
+            Why::NoVersion => lang.update_why_no_version().into(),
+            Why::BadVersion(tag) => lang.update_why_bad_version(&format!("{tag:?}")),
+        }
+    }
+}
+
 /// What the status bar says after a check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
@@ -66,7 +90,7 @@ pub enum Notice {
     /// After *Check now*: this version is the latest.
     UpToDate,
     /// After *Check now*: the check failed.
-    Failed(String),
+    Failed(Why),
 }
 
 /// The request under way, if any.
@@ -76,7 +100,7 @@ pub struct Checker {
 }
 
 struct Running {
-    rx: Receiver<Result<Release, String>>,
+    rx: Receiver<Result<Release, Why>>,
     /// Started by *Check now*, rather than by the daily check.
     asked: bool,
 }
@@ -126,7 +150,7 @@ impl Notice {
             Notice::Newer(r, Install::Download) => lang.update_newer(&r.version.to_string()),
             Notice::Newer(r, Install::Flatpak) => lang.update_newer_flatpak(&r.version.to_string()),
             Notice::UpToDate => lang.update_latest(CURRENT),
-            Notice::Failed(e) => lang.update_failed(e),
+            Notice::Failed(why) => lang.update_failed(&why.text(lang)),
         }
     }
 
@@ -174,12 +198,12 @@ impl Checker {
     }
 
     /// The answer when it has come: whether *Check now* asked, and what came.
-    pub fn poll(&mut self) -> Option<(bool, Result<Release, String>)> {
+    pub fn poll(&mut self) -> Option<(bool, Result<Release, Why>)> {
         let r = self.running.as_ref()?;
         let answer = match r.rx.try_recv() {
             Ok(answer) => answer,
             Err(TryRecvError::Empty) => return None,
-            Err(TryRecvError::Disconnected) => Err("the check stopped".into()),
+            Err(TryRecvError::Disconnected) => Err(Why::Stopped),
         };
         let asked = r.asked;
         self.running = None;
@@ -202,7 +226,7 @@ pub fn due(on: bool, last: Option<u64>, now: u64) -> bool {
 /// (`asked`) always says what it found.
 pub fn notice(
     asked: bool,
-    answer: Result<Release, String>,
+    answer: Result<Release, Why>,
     current: Version,
     shown: Option<Version>,
     install: Install,
@@ -216,7 +240,8 @@ pub fn notice(
         }
         Ok(_) => asked.then_some(Notice::UpToDate),
         Err(e) => {
-            log::info!("update check: {e}");
+            // Logs are in English (LANG-3).
+            log::info!("update check: {}", e.text(Lang::En));
             asked.then_some(Notice::Failed(e))
         }
     }
@@ -244,13 +269,11 @@ pub fn now() -> u64 {
 
 /// Reads GitHub's answer: `tag_name` is the version, `html_url` the page. A link that is not a
 /// page of this project's releases is replaced by [`RELEASES`].
-pub fn read_release(answer: &[u8]) -> Result<Release, String> {
+pub fn read_release(answer: &[u8]) -> Result<Release, Why> {
     let v: serde_json::Value =
-        serde_json::from_slice(answer).map_err(|e| format!("cannot read the answer: {e}"))?;
-    let tag = v["tag_name"]
-        .as_str()
-        .ok_or("the answer names no version")?;
-    let version = Version::parse(tag).ok_or_else(|| format!("{tag:?} is not a version"))?;
+        serde_json::from_slice(answer).map_err(|e| Why::Unreadable(e.to_string()))?;
+    let tag = v["tag_name"].as_str().ok_or(Why::NoVersion)?;
+    let version = Version::parse(tag).ok_or_else(|| Why::BadVersion(tag.to_owned()))?;
     let url = v["html_url"]
         .as_str()
         .filter(|u| u.starts_with(RELEASES) && !u.contains(char::is_whitespace))
@@ -294,19 +317,19 @@ pub fn agent() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
 }
 
 /// The check's request itself.
-fn fetch() -> Result<Release, String> {
+fn fetch() -> Result<Release, Why> {
     let agent = agent().timeout_global(Some(TIMEOUT)).build().new_agent();
     let mut response = agent
         .get(LATEST)
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Why::Request(e.to_string()))?;
     let body = response
         .body_mut()
         .with_config()
         .limit(ANSWER_LIMIT)
         .read_to_vec()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Why::Request(e.to_string()))?;
     read_release(&body)
 }
 
@@ -429,10 +452,10 @@ mod tests {
         assert_eq!(n(false, Ok(release(Version(1, 0, 9))), None), None);
         assert_eq!(n(true, Ok(release(current)), None), Some(Notice::UpToDate));
         // No network: silent, unless asked.
-        assert_eq!(n(false, Err("offline".into()), None), None);
+        assert_eq!(n(false, Err(Why::Request("offline".into())), None), None);
         assert_eq!(
-            n(true, Err("offline".into()), None),
-            Some(Notice::Failed("offline".into()))
+            n(true, Err(Why::Request("offline".into())), None),
+            Some(Notice::Failed(Why::Request("offline".into())))
         );
     }
 
@@ -492,7 +515,10 @@ mod tests {
         assert_eq!(pages, [r.url]);
         assert!(rect.left() >= 0.0 && rect.right() <= 480.0, "{rect:?}");
         // Nothing to open: up to date, and no answer.
-        for notice in [Notice::UpToDate, Notice::Failed("offline".into())] {
+        for notice in [
+            Notice::UpToDate,
+            Notice::Failed(Why::Request("offline".into())),
+        ] {
             assert!(click(&notice, 480.0).0.is_empty());
         }
     }

@@ -100,6 +100,7 @@ pub fn switches(ui: &mut Ui, lang: Lang, settings: &mut Settings) {
 
 /// Draws the pane. `font` is the text view's.
 pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
+    let lang = open.lang;
     let status = open.rules_text.as_ref().map(|text| {
         let now = std::time::Instant::now();
         if let Some(wait) = open.rules_status.update(text, &open.doc, now) {
@@ -109,19 +110,16 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     });
     let rules = match &open.references {
         None => {
-            ui.label(RichText::new("No reference rules for this file").strong());
-            ui.label(
-                "In File > Settings > References, switch a rules file on and fill in Use for \
-                 (REF-13). Rules say which elements and attributes are references.",
-            );
+            ui.label(RichText::new(lang.preview_no_rules()).strong());
+            ui.label(lang.preview_no_rules_help());
             return;
         }
         Some(Err((file, e))) => {
-            ui.label(RichText::new("The reference rules cannot be read").strong());
+            ui.label(RichText::new(lang.preview_unreadable()).strong());
             ui.label(format!("{}: {e}", file.display()));
             ui.horizontal_wrapped(|ui| {
-                let mut edit = ui.button("Edit rules…").clicked();
-                edit |= status.is_some_and(|status| status.show(ui));
+                let mut edit = ui.button(lang.preview_edit()).clicked();
+                edit |= status.is_some_and(|status| status.show(ui, lang));
                 if edit {
                     open.edit_rules = Some(file.clone());
                 }
@@ -131,35 +129,32 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         Some(Ok((file, rules))) => {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
             ui.horizontal(|ui| {
-                let mut edit = ui.small_button("Edit rules…").clicked();
+                let mut edit = ui.small_button(lang.preview_edit()).clicked();
                 // Before the name, which is cut to what is left.
-                edit |= status.is_some_and(|status| status.show(ui));
+                edit |= status.is_some_and(|status| status.show(ui, lang));
                 if edit {
                     open.edit_rules = Some(file.clone());
                 }
-                ui.add(Label::new(RichText::new(format!("Rules: {name}")).weak()).truncate())
+                ui.add(Label::new(RichText::new(lang.preview_rules(&name)).weak()).truncate())
                     .on_hover_text(file.display().to_string());
             });
             std::sync::Arc::clone(rules)
         }
     };
     let Some(element) = open.selected else {
-        ui.label("Select an element to see it with its references resolved.");
+        ui.label(lang.preview_select());
         return;
     };
     if open.doc.stale().is_some() {
-        ui.label("Waiting for the document to be read again…");
+        ui.label(lang.preview_waiting());
         return;
     }
-    choose_sections(ui, open, &rules, element);
+    choose_sections(ui, lang, open, &rules, element);
     if let Some(rule) = rules.repeat() {
         let mut on = open.expand_repeats.unwrap_or(rule.enabled);
         if ui
-            .checkbox(&mut on, "Expand repeats")
-            .on_hover_text(format!(
-                "Show an element with {} as that many numbered copies, as the program reads                  it (REF-11)",
-                rule.count
-            ))
+            .checkbox(&mut on, lang.preview_expand())
+            .on_hover_text(lang.preview_expand_tip(&rule.count))
             .changed()
         {
             open.expand_repeats = Some(on);
@@ -208,24 +203,21 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
     ui.add(Label::new(RichText::new(&c.path).strong()).truncate());
     let p = &c.preview;
     let mut summary = match p.references {
-        0 => "No references".to_string(),
-        1 => "1 reference".to_string(),
-        n => format!("{n} references"),
+        0 => lang.preview_no_references().to_string(),
+        n => lang.preview_references(n as u64),
     };
     if p.unresolved > 0 {
-        summary.push_str(&format!(", {} not resolved", p.unresolved));
+        summary = lang.preview_unresolved(&summary, &p.unresolved.to_string());
     }
     if p.cut {
-        summary.push_str(&format!(", cut after {} MiB", LIMIT / (1024 * 1024)));
+        summary = lang.preview_cut(&summary, &(LIMIT / (1024 * 1024)).to_string());
     }
     ui.horizontal(|ui| {
-        ui.label(RichText::new(summary).weak()).on_hover_text(
-            "Read-only. Imported lines are tinted; comments starting with \"XML Atlas:\" say \
-             what did not resolve, or where a looked-up context came from",
-        );
+        ui.label(RichText::new(summary).weak())
+            .on_hover_text(lang.preview_summary_tip());
         if ui
-            .small_button("Copy")
-            .on_hover_text("Copy the preview's text")
+            .small_button(lang.preview_copy())
+            .on_hover_text(lang.preview_copy_tip())
             .clicked()
         {
             ui.ctx().copy_text(c.preview.text.clone());
@@ -287,8 +279,9 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
 /// lines in the preview text and scrolls there.
 pub fn show_tree(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
     let attributes = open.tree.options.attributes;
+    let lang = open.lang;
     let Some(c) = open.reference_preview.as_mut() else {
-        ui.label("Select an element to see it resolved, as a tree.");
+        ui.label(lang.preview_tree_select());
         return;
     };
     let (doc, state) = c.tree.get_or_insert_with(|| {
@@ -305,8 +298,8 @@ pub fn show_tree(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
     let menu = |ui: &mut Ui, doc: &Document, row: Row| {
         let found = copied_from(preview, doc, row).is_some();
         let button = ui
-            .add_enabled(found, egui::Button::new("Show in the main tree"))
-            .on_disabled_hover_text("The preview wrote this itself: it is not in the file");
+            .add_enabled(found, egui::Button::new(lang.preview_show_main()))
+            .on_disabled_hover_text(lang.preview_written());
         button.clicked().then(|| {
             ui.close();
         })
@@ -494,7 +487,7 @@ pub fn choose(open: &mut Open, scope: NodeId, section: Option<NodeId>) {
 // Private helpers
 
 /// A list per `nearest` context around the selection: which section to resolve it from.
-fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId) {
+fn choose_sections(ui: &mut Ui, lang: Lang, open: &mut Open, rules: &Rules, element: NodeId) {
     // Finding the sections walks the whole scope: once per selection and change, not per
     // frame.
     let revision = open.doc.revision();
@@ -517,7 +510,7 @@ fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId)
         let doc = &open.doc;
         let label = |id: Option<NodeId>| match id {
             Some(id) => references::section_label(doc, id),
-            None => "the nearest that has it".to_string(),
+            None => lang.preview_nearest().to_string(),
         };
         let scope = references::element_label(doc, s.scope);
         let mut new = picked;
@@ -528,7 +521,7 @@ fn choose_sections(ui: &mut Ui, open: &mut Open, rules: &Rules, element: NodeId)
             let room = (ui.available_width() - combo - ui.spacing().item_spacing.x).max(0.0);
             ui.scope(|ui| {
                 ui.set_max_width(room);
-                ui.add(Label::new(format!("{} in {scope} from", s.context)).truncate());
+                ui.add(Label::new(lang.preview_section(&s.context, &scope)).truncate());
             });
             egui::ComboBox::from_id_salt(("reference-section", s.scope))
                 .selected_text(label(picked))

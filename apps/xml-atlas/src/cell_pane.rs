@@ -12,6 +12,7 @@ use xml_atlas_engine::xml::{NodeId, NodeKind};
 use xml_atlas_engine::{Document, NodesVersion};
 
 use crate::app::Open;
+use crate::lang::Lang;
 use crate::table;
 
 /// The table's columns before the element's own: the row number and the name.
@@ -20,9 +21,6 @@ const LEAD: usize = 2;
 const NAME_WIDTH: f32 = 90.0;
 const COLUMN_WIDTH: f32 = 110.0;
 const COLUMN_MIN: f32 = 40.0;
-
-/// The button beside the notice that a value is cut (GRID-16).
-const COPY_WHOLE: &str = "Copy whole value";
 
 /// What the pane shows, and for which click.
 pub struct CellPane {
@@ -56,9 +54,10 @@ impl CellPane {
 }
 
 pub fn show(ui: &mut Ui, open: &mut Open) {
+    let lang = open.lang;
     let Some(key) = key(open) else {
         open.cell_pane = None;
-        ui.label(RichText::new("Click a row or a cell in the grid to see it here.").weak());
+        ui.label(RichText::new(lang.cell_empty()).weak());
         return;
     };
     let stale = open.cell_pane.as_ref().is_none_or(|p| p.key != key);
@@ -77,14 +76,14 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
     let mut copy = false;
     match &pane.detail {
         Detail::Absent => {
-            ui.label(RichText::new("Nothing here: the row has no such value.").weak());
+            ui.label(RichText::new(lang.cell_absent()).weak());
         }
         Detail::Value { name, value, cut } => {
             ui.label(RichText::new(name).strong());
             if *cut {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(cut_notice()).weak());
-                    copy = ui.button(COPY_WHOLE).clicked();
+                    ui.label(RichText::new(cut_notice(lang)).weak());
+                    copy = ui.button(lang.cell_copy_whole()).clicked();
                 });
             }
             egui::ScrollArea::vertical()
@@ -103,10 +102,10 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
             crate::grid::path_line(
                 ui,
                 RichText::new(&grid.path).strong(),
-                &[format!("{} rows", grid.rows.len())],
+                &[lang.grid_rows(grid.rows.len() as u64)],
             );
             if matches!(&pane.detail, Detail::Element(_)) {
-                crate::attribute_table::show(ui, grid);
+                crate::attribute_table::show(ui, lang, grid);
             }
             let cells = &mut pane.cells;
             go = ui
@@ -115,7 +114,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                     egui::ScrollArea::horizontal()
                         .id_salt(("cell-pane-across", grid.parent))
                         .auto_shrink(false)
-                        .show(ui, |ui| table(ui, &open.doc, grid, cells))
+                        .show(ui, |ui| table(ui, lang, &open.doc, grid, cells))
                         .inner
                 })
                 .inner;
@@ -134,9 +133,9 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
 }
 
 /// What the pane says above a value it cuts.
-fn cut_notice() -> String {
-    let thousands = DETAIL_CHARS / 1000;
-    format!("Cut: the first {thousands},000 characters are shown.")
+fn cut_notice(lang: Lang) -> String {
+    let number = crate::diagram::grouped(lang, DETAIL_CHARS as u64);
+    lang.cell_cut(&number)
 }
 
 /// The row and column marked in the grid; `None` when nothing in it was clicked.
@@ -166,7 +165,13 @@ fn key(open: &Open) -> Option<Key> {
 }
 
 /// The rows of `grid`, read only. Returns the row double-clicked.
-fn table(ui: &mut Ui, doc: &Document, grid: &Grid, cells: &mut Cells) -> Option<NodeId> {
+fn table(
+    ui: &mut Ui,
+    lang: Lang,
+    doc: &Document,
+    grid: &Grid,
+    cells: &mut Cells,
+) -> Option<NodeId> {
     cells.begin(doc, grid);
     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let mut go = None;
@@ -184,7 +189,7 @@ fn table(ui: &mut Ui, doc: &Document, grid: &Grid, cells: &mut Cells) -> Option<
             while let Some(column) = row.next_column() {
                 let title = match column {
                     0 => "#".to_owned(),
-                    1 => "element".to_owned(),
+                    1 => lang.grid_column_element().to_owned(),
                     _ => crate::grid::column_name(&grid.columns[column - LEAD]),
                 };
                 row.col(|ui| {
@@ -324,7 +329,7 @@ mod value_tests {
         let (texts, _) = frame(ctx, open, vec![]);
         let pos = texts
             .iter()
-            .find(|(t, _)| t == COPY_WHOLE)
+            .find(|(t, _)| t == Lang::En.cell_copy_whole())
             .expect("a button")
             .1;
         let button = |pressed| Event::PointerButton {
@@ -348,8 +353,14 @@ mod value_tests {
         let mut open = clicked_cell(&format!("{body}&amp;\r\nthe end"));
         let ctx = egui::Context::default();
         let (texts, copied) = frame(&ctx, &mut open, vec![]);
-        assert_eq!(cut_notice(), "Cut: the first 100,000 characters are shown.");
-        assert!(texts.iter().any(|(t, _)| *t == cut_notice()), "no notice");
+        assert_eq!(
+            cut_notice(Lang::En),
+            "Cut: the first 100,000 characters are shown."
+        );
+        assert!(
+            texts.iter().any(|(t, _)| *t == cut_notice(Lang::En)),
+            "no notice"
+        );
         assert!(copied.is_empty(), "nothing is copied without a click");
         let longest = texts.iter().map(|(t, _)| t.chars().count()).max().unwrap();
         assert!(longest <= DETAIL_CHARS, "{longest} characters laid out");
@@ -381,7 +392,7 @@ mod value_tests {
         assert!(
             !texts
                 .iter()
-                .any(|(t, _)| *t == COPY_WHOLE || *t == cut_notice())
+                .any(|(t, _)| *t == Lang::En.cell_copy_whole() || *t == cut_notice(Lang::En))
         );
     }
 }

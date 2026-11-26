@@ -1078,11 +1078,7 @@ mod tests {
 
         bar.click("View");
         bar.point_at("Layout");
-        for entry in [
-            "Grid above text",
-            "Text above grid (as in XML Marker)",
-            "Reset layout",
-        ] {
+        for entry in ["Grid above text", "Text above grid", "Reset layout"] {
             bar.at(entry);
         }
         bar.click("Grid above text");

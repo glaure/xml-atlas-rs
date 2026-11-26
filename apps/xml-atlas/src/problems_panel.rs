@@ -11,9 +11,14 @@ const VISIBLE_ENTRIES: f32 = 5.0;
 pub fn show(ui: &mut Ui, open: &mut Open) {
     let errors = count(&open.problems, Severity::Error);
     let warnings = count(&open.problems, Severity::Warning);
+    let lang = open.lang;
     ui.horizontal(|ui| {
-        ui.strong("Problems");
-        ui.label(RichText::new(format!("{errors} error(s), {warnings} warning(s)")).weak());
+        ui.strong(lang.problems_title());
+        let counts = lang.editor_summary(
+            &lang.count_errors(errors as u64),
+            &lang.count_warnings(warnings as u64),
+        );
+        ui.label(RichText::new(counts).weak());
     });
     let row_h = ui
         .text_style_height(&egui::TextStyle::Body)
@@ -29,7 +34,11 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 let p = &open.problems[i];
                 let line = open.doc.line_of(p.offset);
                 let column = column_of(open, p.offset);
-                let text = format!("Line {}, column {}:  {}", line + 1, column + 1, p.message);
+                let text = lang.problems_entry(
+                    &(line + 1).to_string(),
+                    &(column + 1).to_string(),
+                    &p.message,
+                );
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(symbol(p.severity)).color(color(ui.visuals(), p.severity)),

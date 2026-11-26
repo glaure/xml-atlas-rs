@@ -15,6 +15,8 @@ use egui::{
 };
 use xml_atlas_engine::grid::Grid;
 
+use crate::lang::Lang;
+
 /// Rows shown before it scrolls.
 const ROWS: f32 = 6.0;
 /// Texts laid out to find a column's width: the widest by the advances of their characters,
@@ -39,16 +41,13 @@ struct Widths {
 }
 
 /// The attribute table of `grid`, which folds away.
-pub fn show(ui: &mut Ui, grid: &Grid) {
+pub fn show(ui: &mut Ui, lang: Lang, grid: &Grid) {
     let list = &grid.attributes;
     if list.is_empty() {
-        ui.label(RichText::new("No attributes").weak());
+        ui.label(RichText::new(lang.attributes_none()).weak());
         return;
     }
-    let title = match list.len() {
-        1 => "1 attribute".to_string(),
-        n => format!("{n} attributes"),
-    };
+    let title = lang.attributes_count(list.len() as u64);
     // One slot for each view, whatever element it shows.
     let slot = ui.scope_id().with("grid-attribute-widths");
     CollapsingHeader::new(title)
@@ -217,7 +216,7 @@ mod tests {
             };
             let mut out = self.ctx.run_ui(input, |ui| {
                 self.slot = Some(ui.scope_id().with("grid-attribute-widths"));
-                show(ui, grid);
+                show(ui, crate::lang::Lang::En, grid);
             });
             out.textures_delta.clear();
             let mut texts = Vec::new();
