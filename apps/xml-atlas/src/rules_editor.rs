@@ -1,6 +1,7 @@
 //! The editor of a rules file (`docs/spec/references.md`, REF-15; D39, D41): its text, the
 //! check beside it as one types, and Save. The file's form and the check are the engine's.
 
+use crate::lang::Lang;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -194,7 +195,7 @@ impl RulesEditor {
 
     /// Draws the window. `document`: the tab shown, to count matches in. True when the file
     /// was written.
-    pub fn show(&mut self, ctx: &egui::Context, document: Option<&Open>) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context, lang: Lang, document: Option<&Open>) -> bool {
         let Some(f) = &mut self.file else {
             return false;
         };
@@ -237,7 +238,7 @@ impl RulesEditor {
                         .add_enabled(can, egui::Button::new("Save"))
                         .on_hover_text(format!(
                             "{}, while the text has the keys",
-                            crate::keys::text(ui.ctx(), &SAVE)
+                            crate::keys::text(ui.ctx(), lang, &SAVE)
                         ))
                         .clicked();
                     if ui

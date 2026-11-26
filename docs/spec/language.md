@@ -1,7 +1,9 @@
 # Language
 
 The language of the window's texts: English and German now, French and Spanish later
-(`docs/decisions.md`, D45; issue #183). Nothing here is built.
+(`docs/decisions.md`, D45; issue #183). Step 2 of the order of work is built: German in the
+menus, the right-click menus, the toolbar and Settings. A rule that covers more than that
+stays `[planned]`.
 
 ## Rules
 
@@ -35,18 +37,18 @@ The language of the window's texts: English and German now, French and Spanish l
 
 ### Choosing the language
 
-- **LANG-6** `[planned]` Settings offers *System*, *English* and *Deutsch*, in the first
-  row of Settings > Appearance, with no menu entry. The row's label reads *Language /
-  Sprache* in every language, so that it is found by someone who cannot read the window.
+- **LANG-6** `[built]` Settings offers *System*, *English* and *Deutsch*, in a section of
+  its own, *Localization* (German *Lokalisierung*), listed after *Appearance*, with no
+  menu entry. The row's label reads *Language / Sprache* in every language, so that it is found by someone who cannot read the window.
   Each language is named in itself, whatever the window shows. The default is *English*. The choice is
   remembered with the other settings (WIN-3) as `system`, `english` or `german`; a value
   that cannot be read counts as the default. *Reset to defaults* of its section puts it
   back to *English* (WIN-11).
-- **LANG-7** `[planned]` *System* shows German when the system's language is German, of any
+- **LANG-7** `[done]` *System* shows German when the system's language is German, of any
   country (`de-DE`, `de-AT`, `de-CH`), and English for every other language and when the
   system's language cannot be read. It is read at the start; a change of the system's
   language counts from the next start.
-- **LANG-8** `[planned]` A change applies at once, without a restart, to every tab (WIN-11).
+- **LANG-8** `[built]` A change applies at once, without a restart, to every tab (WIN-11).
   Documents, their selection, undo history and unsaved changes, open bars and windows with
   their positions, and the panes' sizes stay as they are. A message already in the status
   bar may stay in the old language until the next one replaces it. Names of undo steps and
@@ -54,36 +56,37 @@ The language of the window's texts: English and German now, French and Spanish l
 
 ### Keys
 
-- **LANG-9** `[planned]` In German, keys are shown by their German names wherever keys are
+- **LANG-9** `[done]` In German, keys are shown by their German names wherever keys are
   shown (WIN-13): *Strg* for Ctrl, *Umschalt* for Shift, *Entf* for Delete; *Alt* and the
   letters and function keys stay. The other keys we show are *Eingabe* (Enter), *Esc*,
-  *Tab*, *Rücktaste* (Backspace), *Bild↑* and *Bild↓* (Page Up and Down), *Pos1* (Home),
+  *Tab*, *Rücktaste* (Backspace), *Bild auf* and *Bild ab* (Page Up and Down; the arrows
+  they are often written with are not in the program's fonts, LANG-15), *Pos1* (Home),
   *Ende* (End), and *Pfeil hoch*, *Pfeil runter*, *Pfeil links* and *Pfeil rechts* for the
   arrows. On macOS, Cmd and the system's symbols stay as in English. Which keys act does
   not change with the language.
 
 ### Texts and their files
 
-- **LANG-10** `[planned]` Each language has one file, `apps/xml-atlas/lang/<code>.toml`:
+- **LANG-10** `[done]` Each language has one file, `apps/xml-atlas/lang/<code>.toml`:
   `en.toml` and `de.toml`. A text has a name in lower case with underscores, which begins
   with the part of the window it belongs to (`menu_file_save`, `find_not_found`). A
   placeholder is written `{name}`, in lower case; a brace that is meant as such is written
   twice. A placeholder takes the text it is given: a number is made into text before, as
   LANG-17 says, the same way for every use.
-- **LANG-11** `[planned]` A text whose wording depends on a number gives its forms, `one`
+- **LANG-11** `[done]` A text whose wording depends on a number gives its forms, `one`
   and `other`, and takes the number as `{count}`. English and German use `one` for exactly
   1 and `other` for every other number, 0 included. French and Spanish get their own rule
   when they are added, and may give a form for whole millions.
-- **LANG-12** `[planned]` `en.toml` names every text and its placeholders. Where another
+- **LANG-12** `[done]` `en.toml` names every text and its placeholders. Where another
   file lacks a text, or a form the text needs, the English text is shown, whole: never a
   text's name, an empty place or a mix of two languages' forms. A text that is empty counts
   as lacking. The build succeeds and names what is lacking in a warning.
-- **LANG-13** `[planned]` The build fails, and says which file, which text and why, when a
+- **LANG-13** `[done]` The build fails, and says which file, which text and why, when a
   file cannot be read, has a text or a form that `en.toml` has not, or gives a text other
   placeholders than the English one. A placeholder may stand in another place in the
   sentence, and more than once. Every form of a plural may leave out `{count}`, as in *one
   file*.
-- **LANG-14** `[planned]` The texts are built into the program: no file is read or parsed at
+- **LANG-14** `[built]` The texts are built into the program: no file is read or parsed at
   run time, and the installed program needs no language files. A text without placeholders
   costs no allocation when it is shown. Opening a file and the cost of a frame do not
   change with the language (AGENTS.md, rules 1 and 2).
@@ -135,7 +138,11 @@ English texts.
 
 1. These rules.
 2. The language files and their build step, the setting, and menus, context menus, toolbar
-   and Settings in German (LANG-6 to LANG-14, and LANG-1 for those parts).
+   and Settings in German (LANG-6 to LANG-14, and LANG-1 for those parts). Built. In those
+   parts, the engine's texts (the names of undo steps, why a rules file cannot be used)
+   are English until step 4, and what the status bar says until step 3. Tests draw the
+   menus and every section of Settings in German and find nothing cut off (LANG-15); the
+   rest of the window is not looked at yet. macOS shows its keys the same in German.
 3. The window's other texts (the rest of LANG-1, LANG-4).
 4. The engine's messages made into values the window can translate, a part at a time
    (LANG-2). The engine's own texts stay as they are.
@@ -185,14 +192,18 @@ grouped today (LANG-17); the setting as the first row of Settings > Appearance, 
 words for the main terms (LANG-18). The list of what was added in writing, above, was put
 to the owner with these questions and not objected to.
 
+Changed after seeing step 2 in the window (owner, 2026-11-26): the setting has a section of
+its own, *Localization*, instead of the first row of Appearance (LANG-6).
+
 ## Decisions needed
 
 None.
 
 ## Questions
 
-- Does egui show texts of its own anywhere in the window, in English only? To look for in
-  step 2.
+- Does egui show texts of its own anywhere in the window, in English only? None was seen
+  in the German menus and Settings (their drawn texts, step 2); the rest of the window is
+  to look at in step 3.
 - Do the installers and the desktop entry get German texts too (`install.md`)? D45 speaks of
   the window only; nothing here changes them.
 - Who reads the German through before a release?

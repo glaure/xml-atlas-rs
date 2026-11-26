@@ -6,6 +6,7 @@
 //! document changes, and draws only the lines on screen. Beside it, the same text can be shown
 //! as a tree (REF-10, [`show_tree`]): indexed as a document of its own, once per preview.
 
+use crate::lang::Lang;
 use std::ops::Range;
 
 use crate::menu_keys::flip;
@@ -73,32 +74,26 @@ pub struct Cached {
 
 /// The switch for references (REF-12) and, under it, the preview's two panes, as View and
 /// Settings > Views show them.
-pub fn switches(ui: &mut Ui, settings: &mut Settings) {
+pub fn switches(ui: &mut Ui, lang: Lang, settings: &mut Settings) {
     let resolve = ui
-        .checkbox(&mut settings.references, "Resolve references")
-        .on_hover_text(
-            "Use the rules files of Settings > References: go to a reference's target (F12), \
-             list those that find nothing as problems, and allow the preview (REF-12)",
-        );
+        .checkbox(&mut settings.references, lang.switch_references())
+        .on_hover_text(lang.switch_references_hint());
     flip(&resolve, &mut settings.references);
     ui.indent("reference-switches", |ui| {
         let preview = ui
             .add_enabled(
                 settings.references,
-                egui::Checkbox::new(
-                    &mut settings.reference_preview,
-                    "Preview with references resolved",
-                ),
+                egui::Checkbox::new(&mut settings.reference_preview, lang.switch_preview()),
             )
-            .on_hover_text("A pane with the selected element as it reads resolved (REF-5)")
-            .on_disabled_hover_text("Turn on Resolve references first");
+            .on_hover_text(lang.switch_preview_hint())
+            .on_disabled_hover_text(lang.switch_preview_why());
         flip(&preview, &mut settings.reference_preview);
         let tree = ui
             .add_enabled(
                 settings.references && settings.reference_preview,
-                egui::Checkbox::new(&mut settings.preview_tree, "Preview tree"),
+                egui::Checkbox::new(&mut settings.preview_tree, lang.switch_preview_tree()),
             )
-            .on_hover_text("The preview as a tree, right of it (REF-10)");
+            .on_hover_text(lang.switch_preview_tree_hint());
         flip(&tree, &mut settings.preview_tree);
     });
 }
@@ -654,7 +649,7 @@ mod tests {
                     events,
                     ..Default::default()
                 };
-                let mut out = ctx.run_ui(input, |ui| switches(ui, settings));
+                let mut out = ctx.run_ui(input, |ui| switches(ui, crate::lang::Lang::En, settings));
                 out.textures_delta.clear();
                 for s in &out.shapes {
                     if let egui::Shape::Text(t) = &s.shape

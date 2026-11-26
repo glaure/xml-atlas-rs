@@ -5,6 +5,7 @@
 //! at any scale, and will show a theme the user wrote (D29) as well. Only the Settings window
 //! draws them.
 
+use crate::lang::Lang;
 use egui::{
     Align2, FontId, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
@@ -48,6 +49,7 @@ const SELECTED_LINES: usize = 3;
 /// above the radio button of `value`. A click on either chooses it.
 pub fn choice<T: PartialEq + Copy>(
     ui: &mut Ui,
+    lang: Lang,
     current: &mut T,
     value: T,
     label: &str,
@@ -61,7 +63,7 @@ pub fn choice<T: PartialEq + Copy>(
             for (i, theme) in themes.iter().enumerate() {
                 let left = rect.left() + width * i as f32;
                 let part = Rect::from_min_size(pos2(left, rect.top()), vec2(width, rect.height()));
-                paint(&ui.painter_at(part), rect, theme);
+                paint(&ui.painter_at(part), lang, rect, theme);
             }
             let visuals = ui.visuals();
             let border = if *current == value {
@@ -84,11 +86,11 @@ pub fn choice<T: PartialEq + Copy>(
 }
 
 /// The window in miniature, as the default layout has it (WIN-1).
-fn paint(painter: &Painter, window: Rect, theme: &Theme) {
+fn paint(painter: &Painter, lang: Lang, window: Rect, theme: &Theme) {
     let v = &theme.visuals;
     let font = FontId::proportional(FONT);
     let label = |x: f32, y: f32, text: &str, color| {
-        painter.text(pos2(x, y), Align2::LEFT_CENTER, text, font.clone(), color);
+        painter.text(pos2(x, y), Align2::LEFT_CENTER, text, font.clone(), color)
     };
     let separator = v.widgets.noninteractive.bg_stroke;
 
@@ -101,9 +103,19 @@ fn paint(painter: &Painter, window: Rect, theme: &Theme) {
 
     // Menu, toolbar and status bar.
     let y = window.top() + MENU / 2.0;
-    label(window.left() + 4.0, y, "File", v.text_color());
-    label(window.left() + 23.0, y, "Edit", v.text_color());
-    label(window.left() + 42.0, y, "View", v.text_color());
+    let mut x = window.left() + 4.0;
+    for name in [lang.menu_file(), lang.menu_edit(), lang.menu_view()] {
+        // As many names as the little window has room for: German ones are longer.
+        let font = font.clone();
+        let width = painter
+            .layout_no_wrap(name.to_owned(), font, v.text_color())
+            .size()
+            .x;
+        if x + width > window.right() - 2.0 {
+            break;
+        }
+        x = label(x, y, name, v.text_color()).right() + 5.0;
+    }
     for i in 0..4 {
         let at = pos2(
             window.left() + 4.0 + 12.0 * i as f32,
@@ -221,7 +233,7 @@ mod tests {
         };
         let mut rect = Rect::NOTHING;
         let mut out = ctx.run_ui(input, |ui| {
-            rect = choice(ui, current, 1, "Größe", themes).rect;
+            rect = choice(ui, crate::lang::Lang::En, current, 1, "Größe", themes).rect;
         });
         out.textures_delta.clear();
         let shapes = out

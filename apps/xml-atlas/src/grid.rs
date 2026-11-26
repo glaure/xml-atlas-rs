@@ -2,6 +2,7 @@
 //! in sight get cells (`crate::table`, D42). Cells are decoded only for visible rows, and once while a row stays on screen: what a frame needs of a cell comes
 //! from `grid_cells::Cells`, never from a walk over the document.
 
+use crate::lang::Lang;
 use egui::{Key, Rect, RichText, Stroke, StrokeKind, Ui, pos2, vec2};
 use xml_atlas_engine::command;
 use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
@@ -63,7 +64,7 @@ enum Header<'a> {
     Column(&'a Column),
 }
 
-pub fn show(ui: &mut Ui, open: &mut Open) {
+pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
     let Some(grid) = &open.grid else { return };
     let mut after = vec![format!("{} rows", grid.rows.len())];
     match grid.view().hidden.len() {
@@ -89,7 +90,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
         egui::ScrollArea::horizontal()
             .id_salt(("grid-across", parent))
             .auto_shrink(false)
-            .show(ui, |ui| table(ui, open, scroll, reveal))
+            .show(ui, |ui| table(ui, lang, open, scroll, reveal))
             .inner
     });
     if let Some(action) = action.inner {
@@ -189,21 +190,19 @@ fn start_edit(open: &mut Open, row: NodeId, column: usize) {
             });
         }
         None => {
-            open.note = Some(Note::refused(not_editable(&grid.cell(&open.doc, row, c))));
+            // The status bar's texts are not translated yet (D45, step 3).
+            let why = not_editable(Lang::En, &grid.cell(&open.doc, row, c));
+            open.note = Some(Note::refused(why));
         }
     }
 }
 
 /// Why a cell cannot be edited.
-fn not_editable(cell: &Cell) -> &'static str {
+fn not_editable(lang: Lang, cell: &Cell) -> &'static str {
     match cell {
-        Cell::Element(_) | Cell::Repeated { .. } => {
-            "This cell stands for child elements: open it (Enter) to edit them"
-        }
-        Cell::Absent => "There is no such child element to edit",
-        Cell::Value(_) => {
-            "Only text can be edited here: the element also holds comments or elements"
-        }
+        Cell::Element(_) | Cell::Repeated { .. } => lang.grid_why_elements(),
+        Cell::Absent => lang.grid_why_absent(),
+        Cell::Value(_) => lang.grid_why_mixed(),
     }
 }
 
@@ -242,7 +241,13 @@ pub(crate) fn path_line(ui: &mut Ui, path: RichText, after: &[String]) -> egui::
 
 /// The child table. Returns what a click asked for.
 /// `reveal`: scroll the marked cell into view sideways.
-fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> Option<Action> {
+fn table(
+    ui: &mut Ui,
+    lang: Lang,
+    open: &mut Open,
+    scroll: Option<usize>,
+    reveal: bool,
+) -> Option<Action> {
     let Open {
         grid,
         grid_cells,
@@ -296,7 +301,7 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                 let resp = row.col(|ui| {
                     ui.strong(header_text(grid, &header));
                 });
-                if let Some(a) = header_action(grid, &header, &resp) {
+                if let Some(a) = header_action(lang, grid, &header, &resp) {
                     action = Some(a);
                 }
             }
@@ -378,8 +383,8 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                     }
                     resp.context_menu(|ui| {
                         if let Some(child) = child {
-                            let button = egui::Button::new("Open")
-                                .shortcut_text(keys::text(ui.ctx(), &keys::ENTER));
+                            let button = egui::Button::new(lang.grid_open())
+                                .shortcut_text(keys::text(ui.ctx(), lang, &keys::ENTER));
                             if ui.add(button).clicked() {
                                 cell_action = Some(Action::Enter(child));
                             }
@@ -387,10 +392,10 @@ fn table(ui: &mut Ui, open: &mut Open, scroll: Option<usize>, reveal: bool) -> O
                             let button = ui
                                 .add_enabled(
                                     kept.editable,
-                                    egui::Button::new("Edit")
-                                        .shortcut_text(keys::text(ui.ctx(), &keys::EDIT)),
+                                    egui::Button::new(lang.grid_edit())
+                                        .shortcut_text(keys::text(ui.ctx(), lang, &keys::EDIT)),
                                 )
-                                .on_disabled_hover_text(not_editable(cell));
+                                .on_disabled_hover_text(not_editable(lang, cell));
                             if button.clicked() {
                                 cell_action = Some(Action::Edit {
                                     row: id,
@@ -451,7 +456,12 @@ pub(crate) fn column_name(column: &Column) -> String {
 
 /// A click on a header sorts by it, again reverses; on `#` it restores document order
 /// (GRID-14). Its menu sorts, hides and shows columns (GRID-15).
-fn header_action(grid: &Grid, header: &Header, resp: &egui::Response) -> Option<Action> {
+fn header_action(
+    lang: Lang,
+    grid: &Grid,
+    header: &Header,
+    resp: &egui::Response,
+) -> Option<Action> {
     let by = match header {
         Header::Number => None,
         Header::Name => Some(SortBy::Name),
@@ -467,7 +477,10 @@ fn header_action(grid: &Grid, header: &Header, resp: &egui::Response) -> Option<
     }
     resp.context_menu(|ui| {
         if let Some(by) = &by {
-            for (label, descending) in [("Sort ascending", false), ("Sort descending", true)] {
+            for (label, descending) in [
+                (lang.grid_sort_ascending(), false),
+                (lang.grid_sort_descending(), true),
+            ] {
                 if ui.button(label).clicked() {
                     action = Some(Action::Sort(Some(Sort {
                         by: by.clone(),
@@ -478,30 +491,30 @@ fn header_action(grid: &Grid, header: &Header, resp: &egui::Response) -> Option<
         }
         let sorted = current.is_some();
         if ui
-            .add_enabled(sorted, egui::Button::new("Document order"))
+            .add_enabled(sorted, egui::Button::new(lang.grid_document_order()))
             .clicked()
         {
             action = Some(Action::Sort(None));
         }
         ui.separator();
         if let Header::Column(c) = header
-            && ui.button("Hide column").clicked()
+            && ui.button(lang.grid_hide_column()).clicked()
         {
             action = Some(Action::Hide((*c).clone()));
         }
-        if ui.button("Hide empty columns").clicked() {
+        if ui.button(lang.grid_hide_empty()).clicked() {
             action = Some(Action::HideEmpty);
         }
         let hidden = &grid.view().hidden;
         ui.add_enabled_ui(!hidden.is_empty(), |ui| {
-            ui.menu_button("Show column", |ui| {
+            ui.menu_button(lang.grid_show_column(), |ui| {
                 for c in hidden {
                     if ui.button(column_name(c)).clicked() {
                         action = Some(Action::Show(Some(c.clone())));
                     }
                 }
                 ui.separator();
-                if ui.button("Show all").clicked() {
+                if ui.button(lang.grid_show_all()).clicked() {
                     action = Some(Action::Show(None));
                 }
             });
@@ -748,7 +761,7 @@ mod tests {
                 egui::Panel::right("pane")
                     .default_size(400.0)
                     .show(ui, |ui| crate::cell_pane::show(ui, open));
-                egui::CentralPanel::default().show(ui, |ui| show(ui, open));
+                egui::CentralPanel::default().show(ui, |ui| show(ui, open, crate::lang::Lang::En));
             });
             out.textures_delta.clear();
         };
@@ -787,7 +800,7 @@ mod tests {
                 screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(700.0, 400.0))),
                 ..Default::default()
             };
-            let mut out = ctx.run_ui(input, |ui| show(ui, &mut open));
+            let mut out = ctx.run_ui(input, |ui| show(ui, &mut open, crate::lang::Lang::En));
             out.textures_delta.clear();
             shapes = out.shapes;
         }
@@ -841,7 +854,7 @@ mod tests {
                     time: Some(time),
                     ..Default::default()
                 };
-                let mut out = ctx.run_ui(input, |ui| show(ui, &mut open));
+                let mut out = ctx.run_ui(input, |ui| show(ui, &mut open, crate::lang::Lang::En));
                 out.textures_delta.clear();
                 in_sight = out.shapes.iter().any(|s| match &s.shape {
                     egui::Shape::Text(t) => {

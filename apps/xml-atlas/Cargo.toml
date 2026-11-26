@@ -26,10 +26,15 @@ ureq = { version = "3.5.2", default-features = false, features = ["rustls", "pla
 # The SHA-256 of a downloaded update (installer.rs, PKG-8, D43); already in the build as rustls'
 # own cryptography.
 ring = { version = "0.17.14", default-features = false }
+# The system's language, for the System choice (LANG-7); already built through egui's
+# system fonts.
+sys-locale = "0.3.2"
 # Reads the update check's answer; already in the tree through the MCP server.
 serde_json = "1.0.154"
 
 [dev-dependencies]
+# The tests of the language files' generator.
+toml = "1.2.1"
 # egui's own fonts, as test data for the monospace check.
 epaint_default_fonts = "0.37"
 
@@ -47,6 +52,8 @@ undocumented_unsafe_blocks = "warn"
 # Puts the icon into xml-atlas.exe (build.rs), so Explorer shows it for the program file.
 [build-dependencies]
 embed-resource = "3.0.12"
+# Reads the language files (lang/generate.rs, LANG-10); already built for embed-resource.
+toml = "1.2.1"
 
 # The desktop's light or dark preference (system_theme.rs). Already in the build through the
 # accessibility support; its blocking API is part of its default features.

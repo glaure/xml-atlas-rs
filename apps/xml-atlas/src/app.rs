@@ -17,6 +17,7 @@ use xml_atlas_engine::{
 use crate::disk_watch::DiskWatch;
 use crate::installer::{self, Installer};
 use crate::keys;
+use crate::lang::Lang;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::sizes::Split;
 use crate::tabs::Tabs;
@@ -51,6 +52,8 @@ pub struct App {
     /// Settings remembered between sessions (WIN-3), and what was last written to disk.
     settings: Settings,
     saved: Settings,
+    /// The system's language, such as `de-DE`, as read at the start (LANG-7).
+    system_language: Option<String>,
     /// Follows the window's size for the settings (WIN-3).
     window: crate::sizes::Tracker,
     /// The panes as last shown, to notice Reset layout whenever it comes.
@@ -347,6 +350,7 @@ impl App {
         let mut find = crate::find_bar::FindBar::default();
         find.set_options(settings.find);
         let mut app = Self {
+            system_language: sys_locale::get_locale(),
             docs: Tabs::default(),
             next_id: 0,
             title: String::new(),
@@ -663,6 +667,13 @@ impl App {
         }
     }
 
+    /// The language the window's texts are in (LANG-6).
+    fn lang(&self) -> Lang {
+        self.settings
+            .language
+            .language(self.system_language.as_deref())
+    }
+
     fn save_settings(&mut self) {
         self.settings.find = self.find.options();
         if self.settings == self.saved {
@@ -876,6 +887,7 @@ impl App {
 
     /// The tabs, one per document (OPEN-5): click shows one, × or a middle click closes it.
     fn tab_bar(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         let mut show = None;
         let mut close = None;
         egui::ScrollArea::horizontal()
@@ -906,7 +918,12 @@ impl App {
                         }
                         let x = ui
                             .add(egui::Button::new(RichText::new("×").weak()).frame(false))
-                            .on_hover_text(keys::tip(ui.ctx(), "Close", &keys::CLOSE));
+                            .on_hover_text(keys::tip(
+                                ui.ctx(),
+                                lang,
+                                lang.tool_close_tab(),
+                                &keys::CLOSE,
+                            ));
                         if x.clicked() {
                             close = Some(open.id);
                         }
@@ -1101,6 +1118,7 @@ impl App {
 
     /// Tools > Format options: indent and attribute wrapping for this session.
     fn format_dialog(&mut self, ctx: &egui::Context) {
+        let lang = self.lang();
         let Some(mut edit) = self.format_dialog else {
             return;
         };
@@ -1114,7 +1132,7 @@ impl App {
             ui.set_width(380.0);
             ui.heading("Format options");
             ui.add_space(6.0);
-            crate::settings_window::format_options(ui, &mut edit);
+            crate::settings_window::format_options(ui, lang, &mut edit);
             if !overrides.is_empty() {
                 ui.add_space(6.0);
                 ui.label(
@@ -1318,7 +1336,8 @@ impl App {
         if let Some(path) = asked {
             self.rules_files.edit(&path);
         }
-        self.rules_files.show_editor(ctx, self.docs.active());
+        self.rules_files
+            .show_editor(ctx, self.lang(), self.docs.active());
         if self.rules_files.take_quit() {
             self.request(ctx, Action::Quit);
         } else if self.rules_files.take_quit_cancelled() {
@@ -1327,6 +1346,7 @@ impl App {
     }
 
     fn settings_window(&mut self, ctx: &egui::Context) {
+        let lang = self.lang();
         if !self.settings_window.open {
             return;
         }
@@ -1337,7 +1357,7 @@ impl App {
         };
         let request =
             self.settings_window
-                .show(ctx, &mut self.settings, rules, self.updates.running());
+                .show(ctx, &mut self.settings, rules, self.updates.running(), lang);
         if self.settings.tree_attributes != before.tree_attributes {
             // A view setting: for every tab, as View > Attributes in the tree does.
             for open in self.docs.iter_mut() {
@@ -1439,6 +1459,7 @@ impl App {
     /// The toolbar under the menu (WIN-5): the commands used most, as in XML Marker's (XM-58).
     fn toolbar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        let lang = self.lang();
         let active = self.docs.active();
         let open = active.is_some();
         let modified = active.is_some_and(|o| o.doc.is_modified());
@@ -1449,29 +1470,44 @@ impl App {
         let undo = history.is_some_and(|h| h.undo_label().is_some());
         let redo = history.is_some_and(|h| h.redo_label().is_some());
         ui.horizontal(|ui| {
-            if tool_icons::button(ui, true, Tool::New, &keys::tip(&ctx, "New", &keys::NEW)) {
+            if tool_icons::button(
+                ui,
+                true,
+                Tool::New,
+                &keys::tip(&ctx, lang, lang.tool_new(), &keys::NEW),
+            ) {
                 self.new_document();
             }
-            if tool_icons::button(ui, true, Tool::Open, &keys::tip(&ctx, "Open", &keys::OPEN)) {
+            if tool_icons::button(
+                ui,
+                true,
+                Tool::Open,
+                &keys::tip(&ctx, lang, lang.tool_open(), &keys::OPEN),
+            ) {
                 self.pick_file(&ctx);
             }
             if tool_icons::button(
                 ui,
                 modified,
                 Tool::Save,
-                &keys::tip(&ctx, "Save", &keys::SAVE),
+                &keys::tip(&ctx, lang, lang.tool_save(), &keys::SAVE),
             ) {
                 self.save();
             }
             ui.separator();
-            if tool_icons::button(ui, selected, Tool::Cut, &keys::tip(&ctx, "Cut", &keys::CUT)) {
+            if tool_icons::button(
+                ui,
+                selected,
+                Tool::Cut,
+                &keys::tip(&ctx, lang, lang.tool_cut(), &keys::CUT),
+            ) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCut));
             }
             if tool_icons::button(
                 ui,
                 selected,
                 Tool::Copy,
-                &keys::tip(&ctx, "Copy", &keys::COPY),
+                &keys::tip(&ctx, lang, lang.tool_copy(), &keys::COPY),
             ) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCopy));
             }
@@ -1479,22 +1515,32 @@ impl App {
                 ui,
                 open,
                 Tool::Paste,
-                &keys::tip(&ctx, "Paste", &keys::PASTE),
+                &keys::tip(&ctx, lang, lang.tool_paste(), &keys::PASTE),
             ) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestPaste));
             }
             ui.separator();
-            if tool_icons::button(ui, undo, Tool::Undo, &keys::tip(&ctx, "Undo", &keys::UNDO)) {
+            if tool_icons::button(
+                ui,
+                undo,
+                Tool::Undo,
+                &keys::tip(&ctx, lang, lang.tool_undo(), &keys::UNDO),
+            ) {
                 self.undo();
             }
-            if tool_icons::button(ui, redo, Tool::Redo, &keys::tip(&ctx, "Redo", &keys::REDO)) {
+            if tool_icons::button(
+                ui,
+                redo,
+                Tool::Redo,
+                &keys::tip(&ctx, lang, lang.tool_redo(), &keys::REDO),
+            ) {
                 self.redo();
             }
             if tool_icons::button(
                 ui,
                 open,
                 Tool::Find,
-                &keys::tip(&ctx, "Find", &crate::find_bar::OPEN),
+                &keys::tip(&ctx, lang, lang.tool_find(), &crate::find_bar::OPEN),
             ) {
                 self.find.open(self.docs.active_mut());
             }
@@ -1502,7 +1548,7 @@ impl App {
                 ui,
                 open,
                 Tool::XPath,
-                &keys::tip(&ctx, "XPath", &crate::xpath_bar::OPEN),
+                &keys::tip(&ctx, lang, lang.tool_xpath(), &crate::xpath_bar::OPEN),
             ) {
                 self.xpath.open();
             }
@@ -1511,7 +1557,7 @@ impl App {
                 ui,
                 open,
                 Tool::DrillUp,
-                &keys::tip(&ctx, "Drill Up", &keys::DRILL_UP),
+                &keys::tip(&ctx, lang, lang.tool_drill_up(), &keys::DRILL_UP),
             ) && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_up(open);
@@ -1520,7 +1566,7 @@ impl App {
                 ui,
                 open,
                 Tool::DrillDown,
-                &keys::tip(&ctx, "Drill Down", &keys::DRILL_DOWN),
+                &keys::tip(&ctx, lang, lang.tool_drill_down(), &keys::DRILL_DOWN),
             ) && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_down(open);
@@ -1529,7 +1575,7 @@ impl App {
                 ui,
                 open,
                 Tool::Format,
-                &keys::tip(&ctx, "Format", &keys::FORMAT),
+                &keys::tip(&ctx, lang, lang.tool_format(), &keys::FORMAT),
             ) {
                 self.format_document();
             }
@@ -1538,15 +1584,15 @@ impl App {
                 ui,
                 open,
                 Tool::Diagram,
-                &keys::tip(&ctx, "Diagram", &crate::diagram::TOGGLE),
+                &keys::tip(&ctx, lang, lang.tool_diagram(), &crate::diagram::TOGGLE),
             ) {
                 self.settings.show_diagram(!self.settings.diagram);
             }
             let expand = self.settings.expand_on_text_click;
             let tip = if expand {
-                "A click in the text expands the tree: on. Click to turn off"
+                lang.tool_expand_on()
             } else {
-                "A click in the text expands the tree: off. Click to turn on"
+                lang.tool_expand_off()
             };
             if tool_icons::toggle(ui, true, Tool::FollowText, expand, tip) {
                 self.settings.expand_on_text_click = !expand;
@@ -1615,7 +1661,7 @@ impl App {
                 return;
             }
             let Some(open) = self.docs.active_mut() else {
-                let key = keys::text(ui.ctx(), &keys::OPEN);
+                let key = keys::text(ui.ctx(), self.lang(), &keys::OPEN);
                 ui.label(format!("Open a file with {key} or drop it on the window."));
                 return;
             };
@@ -1677,6 +1723,7 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let lang = self.lang();
         let ctx = ui.ctx().clone();
         self.poll_loading();
         self.check_disk();
@@ -1828,7 +1875,7 @@ impl eframe::App for App {
         let Some(open) = self.docs.active_mut() else {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
-                    let key = keys::text(ui.ctx(), &keys::OPEN);
+                    let key = keys::text(ui.ctx(), self.lang(), &keys::OPEN);
                     ui.heading(format!("Drop an XML file here, or press {key}"));
                 });
             });
@@ -1845,7 +1892,7 @@ impl eframe::App for App {
         panes.show(ui, Split::Tree, Some(frame), |ui, _| {
             let id = open.id;
             crate::fonts::use_in_views(ui, view_font.as_ref());
-            ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref()));
+            ui.push_id(id, |ui| tree::show(ui, open, view_font.as_ref(), lang));
         });
         if std::mem::take(&mut open.find_requested) {
             self.find.open_within(open);
@@ -1871,7 +1918,7 @@ impl eframe::App for App {
                 let frame = theme.view_frame(ui.style(), false);
                 panes.show(ui, split, Some(frame), |ui, _| {
                     crate::fonts::use_in_views(ui, view_font.as_ref());
-                    ui.push_id(open.id, |ui| crate::diagram::show(ui, open));
+                    ui.push_id(open.id, |ui| crate::diagram::show(ui, open, lang));
                 });
             }
             if show_grid {
@@ -1892,7 +1939,7 @@ impl eframe::App for App {
                         }
                         egui::CentralPanel::default()
                             .frame(theme.view_frame(ui.style(), true))
-                            .show(ui, |ui| crate::grid::show(ui, open));
+                            .show(ui, |ui| crate::grid::show(ui, open, lang));
                     });
                 });
             }
@@ -1909,10 +1956,10 @@ impl eframe::App for App {
                 });
             }
             if self.find.visible {
-                egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open));
+                egui::Panel::top("find").show(ui, |ui| self.find.show(ui, open, lang));
             }
             if self.xpath.visible {
-                egui::Panel::top("xpath").show(ui, |ui| self.xpath.show(ui, open));
+                egui::Panel::top("xpath").show(ui, |ui| self.xpath.show(ui, open, lang));
             }
             if self.goto.visible {
                 egui::Panel::top("goto").show(ui, |ui| self.goto.show(ui, open));
