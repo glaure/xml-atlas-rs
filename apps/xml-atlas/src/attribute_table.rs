@@ -322,8 +322,11 @@ mod tests {
         let mut view = View { ctx, slot: None };
         let before = view.frame(&grid(&doc), vec![]).1;
         let at = doc.src.len() - "\">\r\n</r>".len();
-        doc.apply(Edit::new("Type").replace(at..at, " and now much wider than before"))
-            .unwrap();
+        doc.apply(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(at..at, " and now much wider than before"),
+        )
+        .unwrap();
         assert!(view.frame(&grid(&doc), vec![]).1 > before + 40.0);
         assert_eq!(view.measured(), 2);
     }

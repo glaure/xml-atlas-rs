@@ -2059,7 +2059,13 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   as values. Counts of errors and warnings are one pair of texts. Found: the program's
   fonts lack the ℹ of the minified notice, in English too; and a run of spaces in the
   tooltip of *Expand repeats*, now gone.
-- **Next:** step 4, the engine's messages.
+- **Built, step 4, first part:** undo step names and Format's summary. An edit's name is
+  `StepName`, a value whose own words (`Display`) are the English the CLI and the MCP tools
+  give; the history keeps the value. The window words it in `engine_words.rs`, where the
+  matches name every case, and a test holds its English to the engine's. Names a caller
+  makes up are `StepName::Other`, which only tests use. Format's summary is worded from the
+  options' fields, all of them named.
+- **Next:** step 4, refused edits and saves, Find and Go to line.
 
 ## Open questions
 

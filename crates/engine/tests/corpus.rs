@@ -302,8 +302,11 @@ fn encoded_files_save_as_they_were() {
         // `ä` typed at the start of the second line is one character, in the file's own
         // encoding: one byte in Latin-1 and Windows-1252, two in UTF-16 and UTF-8.
         let at = doc.line_starts[1] as usize;
-        doc.apply(Edit::new("Type").replace(at..at, "ä".as_bytes().to_vec()))
-            .unwrap();
+        doc.apply(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(at..at, "ä".as_bytes().to_vec()),
+        )
+        .unwrap();
         doc.save(&out).unwrap();
         let again = Document::open(&out).unwrap();
         assert_eq!(again.encoding(), doc.encoding(), "{file}");
@@ -333,8 +336,11 @@ fn a_character_latin1_cannot_hold_is_refused() {
     let original = std::fs::read(&out).unwrap();
     let mut doc = Document::open(&out).unwrap();
     let at = find_bytes(&doc.src, "Größe".as_bytes());
-    doc.apply(Edit::new("Type").replace(at..at, "日本 ".as_bytes().to_vec()))
-        .unwrap();
+    doc.apply(
+        Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+            .replace(at..at, "日本 ".as_bytes().to_vec()),
+    )
+    .unwrap();
     match doc.save(&out) {
         Err(SaveError::Encoding(Unencodable::Char { offset, ch, .. })) => {
             assert_eq!((offset, ch), (at, '日'));

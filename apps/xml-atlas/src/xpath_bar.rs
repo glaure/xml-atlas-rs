@@ -888,7 +888,7 @@ mod tests {
         let mut bar = XPathBar::default();
         run(&mut bar, &mut open, "//a");
         assert!(has_fresh_nodes(&open));
-        open.type_edit(Edit::new("Typing").replace(3..3, "<x/>"))
+        open.type_edit(Edit::new(xml_atlas_engine::StepName::Typing).replace(3..3, "<x/>"))
             .unwrap();
         assert!(!has_fresh_nodes(&open));
         open.selected = None;

@@ -14,7 +14,7 @@ use xml_atlas_xml::{Index, NodeId};
 use crate::format::newline_style;
 
 pub use disk::{DiskChange, FileStamp};
-pub use edit::{Edit, EditError, History, Splice, Typing};
+pub use edit::{DeletedNode, Edit, EditError, History, Splice, StepName, Typing};
 pub use encoding::{FileEncoding, Unencodable};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
@@ -246,7 +246,7 @@ impl Document {
             && !label.eq_ignore_ascii_case("utf-8")
         {
             let edit =
-                Edit::new("Convert to UTF-8").replace(at..at + label.len(), b"UTF-8".to_vec());
+                Edit::new(StepName::ConvertToUtf8).replace(at..at + label.len(), b"UTF-8".to_vec());
             if let Err(e) = self.apply(edit) {
                 log::warn!("declaration not changed: {e}");
             }
@@ -355,14 +355,14 @@ impl Document {
     }
 
     /// Undoes the last edit; returns its label.
-    pub fn undo(&mut self) -> Option<String> {
+    pub fn undo(&mut self) -> Option<StepName> {
         let (label, splice) = self.history.undo(Arc::make_mut(&mut self.src))?;
         self.reindex(splice, false);
         Some(label)
     }
 
     /// Redoes the last undone edit; returns its label.
-    pub fn redo(&mut self) -> Option<String> {
+    pub fn redo(&mut self) -> Option<StepName> {
         let (label, splice) = self.history.redo(Arc::make_mut(&mut self.src))?;
         self.reindex(splice, false);
         Some(label)
@@ -741,7 +741,7 @@ mod tests {
             let len = next(5).min(doc.src.len() - at);
             let bytes = snippets[next(snippets.len())];
             if doc
-                .apply(Edit::new("e").replace(at..at + len, bytes))
+                .apply(Edit::new(crate::StepName::Other("e".into())).replace(at..at + len, bytes))
                 .is_ok()
             {
                 steps += 1;
@@ -767,13 +767,15 @@ mod tests {
         let src = b"<r>\r\n  <a>1</a>\r\n</r>".to_vec();
         let mut doc = Document::from_bytes(src.clone());
         let a = doc.src.windows(8).position(|w| w == b"<a>1</a>").unwrap();
-        doc.apply(Edit::new("Add").replace(a + 8..a + 8, "\r\n  <b/>"))
-            .unwrap();
+        doc.apply(
+            Edit::new(crate::StepName::Other("Add".into())).replace(a + 8..a + 8, "\r\n  <b/>"),
+        )
+        .unwrap();
         assert!(doc.is_modified());
         assert_eq!(doc.index.element_count, 3);
         assert_eq!(doc.line_count(), 4);
         assert_eq!(doc.line(2), b"  <b/>");
-        assert_eq!(doc.undo().as_deref(), Some("Add"));
+        assert_eq!(doc.undo(), Some(StepName::Other("Add".into())));
         assert_eq!(*doc.src, src);
         assert_eq!(doc.index.element_count, 2);
         assert_eq!(doc.line_count(), 3);
@@ -850,7 +852,8 @@ mod tests {
         assert_eq!(doc.disk_change(), Some(DiskChange::Changed));
 
         // Reloading takes the new contents and forgets the old.
-        doc.apply(Edit::new("Edit").replace(3..3, "\n")).unwrap();
+        doc.apply(Edit::new(crate::StepName::Other("Edit".into())).replace(3..3, "\n"))
+            .unwrap();
         assert!(doc.is_modified());
         let revision = doc.revision();
         doc.reload_from(Document::open(&path).unwrap());
@@ -995,7 +998,7 @@ mod tests {
         assert_fresh(&doc, "redo");
         type_at(&mut doc, "/r>", "x");
         assert!(doc.stale().is_some());
-        doc.apply(Edit::new("Replace").replace(0..0, b" ".to_vec()))
+        doc.apply(Edit::new(crate::StepName::Replace).replace(0..0, b" ".to_vec()))
             .unwrap();
         assert_eq!(doc.stale(), None);
         assert_fresh(&doc, "a command");

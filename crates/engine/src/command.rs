@@ -11,7 +11,7 @@ use std::ops::Range;
 use xml_atlas_xml::{Folded, NodeId, NodeKind, ROOT};
 
 use crate::grid::CellTarget;
-use crate::{Document, Edit};
+use crate::{DeletedNode, Document, Edit, StepName};
 
 /// Why a command cannot be run. The document is unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -55,7 +55,9 @@ pub fn set_text(doc: &Document, id: NodeId, text: &str) -> Result<Edit, CommandE
     if !holds_only_text(doc, id) {
         return Err(CommandError::NotTextOnly(name(doc, id)));
     }
-    let label = format!("Edit <{}>", name(doc, id));
+    let label = StepName::EditText {
+        element: name(doc, id),
+    };
     let head_end = n.start as usize + n.head_len as usize;
     if head_end == n.end as usize {
         // `<a/>`: open it up, unless there is nothing to put in.
@@ -91,7 +93,10 @@ pub fn set_attribute(
 ) -> Result<Edit, CommandError> {
     let n = element(doc, id)?;
     check_name(attr)?;
-    let label = format!("Set {attr} of <{}>", name(doc, id));
+    let label = StepName::SetAttribute {
+        attribute: attr.to_owned(),
+        element: name(doc, id),
+    };
     if let Some(span) = attribute_span(doc, id, attr) {
         let raw = &doc.src[span.clone()];
         let quote = raw[raw.len() - 1];
@@ -155,7 +160,11 @@ pub fn remove_attribute(doc: &Document, id: NodeId, attr: &str) -> Result<Edit, 
     while start > 0 && is_space(doc.src[start - 1]) {
         start -= 1;
     }
-    Ok(Edit::new(format!("Remove {attr} of <{}>", name(doc, id))).replace(start..span.end, ""))
+    let label = StepName::RemoveAttribute {
+        attribute: attr.to_owned(),
+        element: name(doc, id),
+    };
+    Ok(Edit::new(label).replace(start..span.end, ""))
 }
 
 /// Renames an element, in its start tag and its end tag.
@@ -163,8 +172,11 @@ pub fn rename(doc: &Document, id: NodeId, new_name: &str) -> Result<Edit, Comman
     let n = element(doc, id)?;
     check_name(new_name)?;
     let old = name(doc, id);
-    let mut edit = Edit::new(format!("Rename <{old}> to <{new_name}>"))
-        .replace(n.name_span(), new_name.as_bytes());
+    let mut edit = Edit::new(StepName::Rename {
+        from: old.clone(),
+        to: new_name.to_owned(),
+    })
+    .replace(n.name_span(), new_name.as_bytes());
     if n.start as usize + (n.head_len as usize) < n.end as usize {
         let at = end_tag_start(doc, id) + 2;
         edit = edit.replace(at..at + n.name_len as usize, new_name.as_bytes());
@@ -183,7 +195,7 @@ pub fn delete(doc: &Document, id: NodeId) -> Result<Edit, CommandError> {
         return Err(CommandError::RootElement);
     }
     let range = own_lines(&doc.src, n.span()).map_or(n.span(), |l| l.lines);
-    Ok(Edit::new(format!("Delete {}", describe(doc, id))).replace(range, ""))
+    Ok(Edit::new(StepName::DeleteNode(describe(doc, id))).replace(range, ""))
 }
 
 /// Puts a copy of an element right after it, on its own lines with the same indentation when
@@ -194,7 +206,9 @@ pub fn duplicate(doc: &Document, id: NodeId) -> Result<Edit, CommandError> {
         return Err(CommandError::RootElement);
     }
     let src = &doc.src;
-    let label = format!("Duplicate <{}>", name(doc, id));
+    let label = StepName::Duplicate {
+        element: name(doc, id),
+    };
     let edit = match own_lines(src, n.span()) {
         Some(l) if l.ends_with_newline => {
             let copy = src[l.lines.clone()].to_vec();
@@ -250,15 +264,11 @@ pub fn move_element(
     bytes.extend_from_slice(&src[b.clone()]);
     bytes.extend_from_slice(&src[a.end..b.start]);
     bytes.extend_from_slice(&src[a.clone()]);
-    let label = format!(
-        "Move <{}> {}",
-        name(doc, id),
-        if direction == Direction::Up {
-            "up"
-        } else {
-            "down"
-        }
-    );
+    let element = name(doc, id);
+    let label = match direction {
+        Direction::Up => StepName::MoveUp { element },
+        Direction::Down => StepName::MoveDown { element },
+    };
     Ok(Edit::new(label).replace(a.start..b.end, bytes))
 }
 
@@ -357,14 +367,14 @@ fn name(doc: &Document, id: NodeId) -> String {
     String::from_utf8_lossy(doc.index.name(&doc.src, id)).into_owned()
 }
 
-/// `<name>` for an element, the kind for other nodes: for undo labels.
-fn describe(doc: &Document, id: NodeId) -> String {
+/// An element by its name, another node by its kind: for the step's name.
+fn describe(doc: &Document, id: NodeId) -> DeletedNode {
     match doc.index.node(id).kind {
-        NodeKind::Element => format!("<{}>", name(doc, id)),
-        NodeKind::Comment => "comment".into(),
-        NodeKind::ProcessingInstruction => "processing instruction".into(),
-        NodeKind::CData => "CDATA".into(),
-        _ => "text".into(),
+        NodeKind::Element => DeletedNode::Element(name(doc, id)),
+        NodeKind::Comment => DeletedNode::Comment,
+        NodeKind::ProcessingInstruction => DeletedNode::ProcessingInstruction,
+        NodeKind::CData => DeletedNode::CData,
+        _ => DeletedNode::Text,
     }
 }
 

@@ -152,8 +152,12 @@ impl App {
     fn edit_menu(&mut self, ui: &mut Ui, sub: &mut bool) {
         let lang = self.lang();
         let history = self.docs.active().map(|o| &o.doc.history);
-        let undo = history.and_then(|h| h.undo_label()).map(str::to_owned);
-        let redo = history.and_then(|h| h.redo_label()).map(str::to_owned);
+        let undo = history
+            .and_then(|h| h.undo_label())
+            .map(|step| crate::engine_words::step_name(lang, step));
+        let redo = history
+            .and_then(|h| h.redo_label())
+            .map(|step| crate::engine_words::step_name(lang, step));
         let undo_text = match &undo {
             Some(step) => lang.menu_edit_undo_step(step),
             None => lang.menu_edit_undo().to_owned(),
@@ -1209,8 +1213,10 @@ mod tests {
     fn a_new_language_applies_at_once_and_changes_nothing_else() {
         let mut bar = with_document();
         let open = bar.app.docs.active_mut().unwrap();
-        open.type_edit(Edit::new("Type").replace(3..3, " "))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(3..3, " "),
+        )
+        .unwrap();
         let before = open.doc.src.to_vec();
         bar.settle();
         bar.at("File");
@@ -1221,7 +1227,8 @@ mod tests {
         let open = bar.app.docs.active().unwrap();
         assert_eq!(open.doc.src.to_vec(), before);
         assert!(open.doc.is_modified());
-        assert_eq!(open.doc.history.undo_label(), Some("Type"));
+        let step = open.doc.history.undo_label().map(ToString::to_string);
+        assert_eq!(step.as_deref(), Some("Type"));
         // The step's own name is the engine's, still in English (D45, step 4).
         bar.click("Bearbeiten");
         bar.at("Rückgängig: Type");

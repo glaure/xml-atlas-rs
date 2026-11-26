@@ -270,7 +270,7 @@ mod tests {
         cells.end();
 
         let at = src.find('1').unwrap();
-        d.apply(Edit::new("Type").replace(at..at + 1, "Größe"))
+        d.apply(Edit::new(crate::StepName::Other("Type".into())).replace(at..at + 1, "Größe"))
             .unwrap();
         cells.begin(&d, &grid);
         assert_eq!(
@@ -293,10 +293,10 @@ mod tests {
         let grid = Grid::build(&d, d.index.root_element().unwrap());
         let at = src.find("</k>").unwrap();
         let part = "<![CDATA[hi";
-        d.apply_typed(Edit::new("Type").replace(at..at, part))
+        d.apply_typed(Edit::new(crate::StepName::Other("Type".into())).replace(at..at, part))
             .unwrap();
         let end = at + part.len();
-        d.apply_typed(Edit::new("Type").replace(end..end, "]]>"))
+        d.apply_typed(Edit::new(crate::StepName::Other("Type".into())).replace(end..end, "]]>"))
             .unwrap();
         assert!(d.stale().is_some());
         let mut cells = Cells::default();

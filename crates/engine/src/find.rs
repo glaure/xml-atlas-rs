@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use regex::bytes::{Regex, RegexBuilder};
 
-use crate::Edit;
+use crate::{Edit, StepName};
 
 /// How far back a backward search first looks. The window grows until it finds a match or
 /// reaches the start.
@@ -194,7 +194,7 @@ fn is_word(c: char) -> bool {
 pub fn replace(finder: &Finder, src: &[u8], range: Range<usize>, with: &str) -> Option<Edit> {
     finder
         .is_match(src, range.clone())
-        .then(|| Edit::new("Replace").replace(range, with.as_bytes()))
+        .then(|| Edit::new(StepName::Replace).replace(range, with.as_bytes()))
 }
 
 /// Replace All (TEXT-14): one edit, so one undo step, that replaces every match inside
@@ -210,13 +210,11 @@ pub fn replace_all(
         return None;
     }
     let count = matches.len();
-    let label = match count {
-        1 => "Replace All (1 match)".to_string(),
-        n => format!("Replace All ({n} matches)"),
-    };
     let edit = matches
         .into_iter()
-        .fold(Edit::new(label), |e, m| e.replace(m, with.as_bytes()));
+        .fold(Edit::new(StepName::ReplaceAll(count)), |e, m| {
+            e.replace(m, with.as_bytes())
+        });
     Some((edit, count))
 }
 
@@ -380,7 +378,7 @@ mod tests {
         let finder = Finder::new("söhne", WORD).unwrap();
         let (edit, count) = replace_all(&finder, &doc.src, 0..doc.src.len(), "Töchter").unwrap();
         assert_eq!(count, 3);
-        assert_eq!(edit.label(), "Replace All (3 matches)");
+        assert_eq!(edit.label().to_string(), "Replace All (3 matches)");
         let revision = doc.revision();
         doc.apply(edit).unwrap();
         assert!(doc.revision() > revision);

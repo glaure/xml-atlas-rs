@@ -14,6 +14,7 @@ mod cell_pane;
 mod diagram;
 mod diagram_svg;
 mod disk_watch;
+mod engine_words;
 mod find_bar;
 mod fonts;
 mod goto_bar;

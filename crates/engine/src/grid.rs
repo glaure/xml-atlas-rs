@@ -1090,7 +1090,7 @@ mod tests {
         let before = Arc::clone(&g.attributes);
         // Between the children: the grid follows. In the start tag it is built again.
         let at = d.src.len() - "</r>".len();
-        d.apply_typed(crate::Edit::new("Type").replace(at..at, " "))
+        d.apply_typed(crate::Edit::new(crate::StepName::Other("Type".into())).replace(at..at, " "))
             .unwrap();
         let ns = d.node_splice().expect("a local change");
         assert!(g.follow(&d, &ns));
@@ -1768,7 +1768,9 @@ mod value_tests {
             let at = crate::text::snap(&doc.src, below(doc.src.len()));
             let typed = ["x", "<", "\"", "]]>", "\r", "&"][below(6)];
             if doc
-                .apply_typed(crate::Edit::new("Type").replace(at..at, typed))
+                .apply_typed(
+                    crate::Edit::new(crate::StepName::Other("Type".into())).replace(at..at, typed),
+                )
                 .is_ok()
             {
                 seen += check(&doc, &format!("round {round}, typed"));
