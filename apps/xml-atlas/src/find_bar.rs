@@ -15,14 +15,15 @@ use xml_atlas_engine::text::Selection;
 use xml_atlas_engine::{Edit, EditError};
 
 use crate::app::{Note, Open};
+use crate::keys;
 
 /// Matches counted at most, so a very common query does not stall typing.
 const COUNT_LIMIT: usize = 1_000_000;
 
-const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
-const OPEN_WITHIN: KeyboardShortcut =
+pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+pub const OPEN_WITHIN: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
-const OPEN_REPLACE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
+pub const OPEN_REPLACE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
 const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
 const PREVIOUS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::SHIFT, Key::F3);
 
@@ -185,7 +186,7 @@ impl FindBar {
             }
             if ui
                 .button("⬆")
-                .on_hover_text("Previous (Shift+F3)")
+                .on_hover_text(format!("Previous ({})", keys::text(ui.ctx(), &PREVIOUS)))
                 .clicked()
             {
                 direction = Some(Direction::Backward);
@@ -209,7 +210,8 @@ impl FindBar {
                 } else {
                     "Replace…"
                 };
-                if ui.button(toggle).on_hover_text("Ctrl+H").clicked() {
+                let key = keys::text(ui.ctx(), &OPEN_REPLACE);
+                if ui.button(toggle).on_hover_text(key).clicked() {
                     self.replacing = !self.replacing;
                     self.focus_with = self.replacing;
                 }
@@ -478,7 +480,7 @@ fn apply(open: &mut Open, edit: Edit, done: String) {
     open.note = Some(match open.edit(|doc| doc.apply(edit).map(|()| true)) {
         Ok(_) => match (&open.doc.index.error, was_broken) {
             (Some(e), false) => Note::refused(format!(
-                "{done}; the document is no longer well-formed ({e}). Ctrl+Z undoes it"
+                "{done}; the document is no longer well-formed ({e}). Undo takes it back"
             )),
             _ => Note::info(done),
         },

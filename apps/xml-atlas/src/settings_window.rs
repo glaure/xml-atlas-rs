@@ -8,14 +8,13 @@
 use egui::{Context, RichText, Ui};
 use xml_atlas_engine::FormatOptions;
 
+use crate::keys;
 use crate::rules_files::RulesFiles;
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::theme::Theme;
 use crate::theme_preview::choice;
 
 /// Under the Views section.
-const VIEWS_NOTE: &str = "The View menu switches these too. Alt+Z switches word wrap for the \
-                          open tab alone.";
 /// Under the Format section.
 const FORMAT_NOTE: &str = "Edit > Format options… changes the same settings. A file's own \
                            settings comment comes first.";
@@ -109,6 +108,7 @@ impl Section {
                 settings.grid = d.grid;
                 settings.cell_pane = d.cell_pane;
                 settings.diagram = d.diagram;
+                settings.grid_behind_diagram = d.grid_behind_diagram;
                 settings.word_wrap = d.word_wrap;
             }
             // The switches only: the files and their list are the user's.
@@ -274,21 +274,36 @@ fn section(
                             &mut s.expand_on_text_click,
                             "Expand the tree on a click in the text",
                         );
-                        ui.checkbox(&mut s.grid, "Grid");
+                        let mut grid = s.grid;
+                        if ui.checkbox(&mut grid, "Grid").changed() {
+                            s.show_grid(grid);
+                        }
                         ui.add_enabled(
                             s.grid,
                             egui::Checkbox::new(
                                 &mut s.cell_pane,
                                 "Cell pane beside the grid (experiment)",
                             ),
-                        );
-                        ui.checkbox(&mut s.diagram, "Diagram, in the grid's place");
-                        ui.checkbox(&mut s.word_wrap, "Word wrap");
+                        )
+                        .on_disabled_hover_text("Show the grid first");
+                        let mut diagram = s.diagram;
+                        if ui
+                            .checkbox(&mut diagram, "Diagram, in the grid's place")
+                            .changed()
+                        {
+                            s.show_diagram(diagram);
+                        }
+                        ui.checkbox(&mut s.word_wrap, "Word wrap in every tab");
                     });
                     ui.end_row();
                 });
             ui.add_space(6.0);
-            ui.label(RichText::new(VIEWS_NOTE).weak());
+            let wrap = keys::text(ui.ctx(), &keys::WORD_WRAP);
+            let note = format!(
+                "The View menu switches these too. A minified file's tab has a word wrap of its \
+                 own, which View > Word wrap and {wrap} switch."
+            );
+            ui.label(RichText::new(note).weak());
         }
         Section::References => {
             crate::ref_preview::switches(ui, s);
@@ -390,6 +405,7 @@ mod tests {
             grid: false,
             cell_pane: false,
             diagram: true,
+            grid_behind_diagram: true,
             word_wrap: true,
             toolbar: false,
             references: true,

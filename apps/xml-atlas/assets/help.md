@@ -113,7 +113,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 
 ## Formatting
 
-- Edit > Format indents the document; it changes only whitespace between tags. Text, mixed
+- Edit > Format (Ctrl+I) indents the document; it changes only whitespace between tags. Text, mixed
   content and `xml:space="preserve"` stay as they are.
 - Edit > Compact puts the document on one line.
 - Edit > Format options sets the indent, tabs, attributes per line, and whether to remove
@@ -130,9 +130,9 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 
 ## Keyboard
 
-- Ctrl+N new, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab
+- Ctrl+N new, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab, Ctrl+Q quit
 - Ctrl+Tab and Ctrl+Shift+Tab next and previous tab
-- Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo
+- Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo, Ctrl+I format
 - Ctrl+F find, Ctrl+H replace, F3 and Shift+F3 next and previous match
 - Ctrl+Shift+X XPath; with its bar open, F3 and Shift+F3 step through its results
 - Ctrl+Shift+D diagram; after a click on a box, F3 goes to its next element

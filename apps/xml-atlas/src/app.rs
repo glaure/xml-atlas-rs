@@ -16,6 +16,7 @@ use xml_atlas_engine::{
 
 use crate::disk_watch::DiskWatch;
 use crate::installer::{self, Installer};
+use crate::keys;
 use crate::menu_keys::{MenuPick, choose, flip};
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::sizes::Split;
@@ -904,7 +905,7 @@ impl App {
                         }
                         let x = ui
                             .add(egui::Button::new(RichText::new("×").weak()).frame(false))
-                            .on_hover_text("Close    Ctrl+W");
+                            .on_hover_text(keys::tip(ui.ctx(), "Close", &keys::CLOSE));
                         if x.clicked() {
                             close = Some(open.id);
                         }
@@ -930,7 +931,7 @@ impl App {
             ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
         };
         let back = Modifiers::COMMAND | Modifiers::SHIFT;
-        if pressed(Modifiers::COMMAND, Key::W) {
+        if keys::consume(ctx, &keys::CLOSE) {
             self.close_tab(ctx);
         } else if pressed(back, Key::Tab) || pressed(Modifiers::COMMAND, Key::PageUp) {
             self.docs.cycle(true);
@@ -1344,14 +1345,14 @@ impl App {
         egui::MenuBar::new().ui(ui, |ui| {
             let file = ui.menu_button("File", |ui| {
                 if ui
-                    .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
+                    .add(egui::Button::new("New").shortcut_text(keys::text(&ctx, &keys::NEW)))
                     .picked()
                 {
                     ui.close();
                     self.new_document();
                 }
                 if ui
-                    .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
+                    .add(egui::Button::new("Open…").shortcut_text(keys::text(&ctx, &keys::OPEN)))
                     .picked()
                 {
                     ui.close();
@@ -1360,7 +1361,10 @@ impl App {
                 in_submenu = self.recent_menu(ui, &ctx);
                 let can_save = self.docs.active().is_some_and(|o| o.doc.is_modified());
                 if ui
-                    .add_enabled(can_save, egui::Button::new("Save").shortcut_text("Ctrl+S"))
+                    .add_enabled(
+                        can_save,
+                        egui::Button::new("Save").shortcut_text(keys::text(&ctx, &keys::SAVE)),
+                    )
                     .picked()
                 {
                     ui.close();
@@ -1369,7 +1373,8 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("Save As…").shortcut_text("Ctrl+Shift+S"),
+                        egui::Button::new("Save As…")
+                            .shortcut_text(keys::text(&ctx, &keys::SAVE_AS)),
                     )
                     .picked()
                 {
@@ -1388,7 +1393,7 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("Close").shortcut_text("Ctrl+W"),
+                        egui::Button::new("Close").shortcut_text(keys::text(&ctx, &keys::CLOSE)),
                     )
                     .picked()
                 {
@@ -1397,14 +1402,20 @@ impl App {
                 }
                 ui.separator();
                 if ui
-                    .add(egui::Button::new("Settings…").shortcut_text("Ctrl+,"))
+                    .add(
+                        egui::Button::new("Settings…")
+                            .shortcut_text(keys::text(&ctx, &keys::SETTINGS)),
+                    )
                     .picked()
                 {
                     ui.close();
                     self.settings_window.open = true;
                 }
                 ui.separator();
-                if ui.button("Quit").picked() {
+                if ui
+                    .add(egui::Button::new("Quit").shortcut_text(keys::text(&ctx, &keys::QUIT)))
+                    .picked()
+                {
                     ui.close();
                     self.request(&ctx, Action::Quit);
                 }
@@ -1420,7 +1431,8 @@ impl App {
                 if ui
                     .add_enabled(
                         undo.is_some(),
-                        egui::Button::new(text("Undo", &undo)).shortcut_text("Ctrl+Z"),
+                        egui::Button::new(text("Undo", &undo))
+                            .shortcut_text(keys::text(&ctx, &keys::UNDO)),
                     )
                     .picked()
                 {
@@ -1430,7 +1442,8 @@ impl App {
                 if ui
                     .add_enabled(
                         redo.is_some(),
-                        egui::Button::new(text("Redo", &redo)).shortcut_text("Ctrl+Y"),
+                        egui::Button::new(text("Redo", &redo))
+                            .shortcut_text(keys::text(&ctx, &keys::REDO)),
                     )
                     .picked()
                 {
@@ -1443,7 +1456,8 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("Find…").shortcut_text("Ctrl+F"),
+                        egui::Button::new("Find…")
+                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN)),
                     )
                     .picked()
                 {
@@ -1454,7 +1468,8 @@ impl App {
                 if ui
                     .add_enabled(
                         selected,
-                        egui::Button::new("Find in element…").shortcut_text("Ctrl+Shift+F"),
+                        egui::Button::new("Find in element…")
+                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN_WITHIN)),
                     )
                     .on_hover_text("Find only inside the element selected in tree or grid")
                     .picked()
@@ -1467,7 +1482,8 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("Go to line…").shortcut_text("Ctrl+G"),
+                        egui::Button::new("Go to line…")
+                            .shortcut_text(keys::text(&ctx, &crate::goto_bar::OPEN)),
                     )
                     .picked()
                 {
@@ -1477,7 +1493,8 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("Replace…").shortcut_text("Ctrl+H"),
+                        egui::Button::new("Replace…")
+                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN_REPLACE)),
                     )
                     .picked()
                 {
@@ -1487,7 +1504,8 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.docs.is_empty(),
-                        egui::Button::new("XPath…").shortcut_text("Ctrl+Shift+X"),
+                        egui::Button::new("XPath…")
+                            .shortcut_text(keys::text(&ctx, &crate::xpath_bar::OPEN)),
                     )
                     .on_hover_text("Select nodes with an XPath 1.0 expression")
                     .picked()
@@ -1496,7 +1514,10 @@ impl App {
                     self.xpath.open();
                 }
                 if ui
-                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Format"))
+                    .add_enabled(
+                        !self.docs.is_empty(),
+                        egui::Button::new("Format").shortcut_text(keys::text(&ctx, &keys::FORMAT)),
+                    )
                     .picked()
                 {
                     ui.close();
@@ -1532,34 +1553,36 @@ impl App {
                         }
                     }
                 });
-                let grid = ui
-                    .add_enabled(
-                        !self.settings.diagram,
-                        egui::Checkbox::new(&mut self.settings.grid, "Grid"),
-                    )
+                let mut grid = self.settings.grid;
+                let grid_check = ui
+                    .checkbox(&mut grid, "Grid")
                     .on_hover_text("Hidden, the text and the reference preview take its place");
-                flip(&grid, &mut self.settings.grid);
-                let diagram = ui
+                if grid_check.changed() | flip(&grid_check, &mut grid) {
+                    self.settings.show_grid(grid);
+                }
+                let mut diagram = self.settings.diagram;
+                let key = keys::text(ui.ctx(), &crate::diagram::TOGGLE);
+                let diagram_check = ui
                     .add(egui::Checkbox::new(
-                        &mut self.settings.diagram,
-                        (
-                            "Diagram",
-                            egui::Atom::grow(),
-                            RichText::new("Ctrl+Shift+D").weak(),
-                        ),
+                        &mut diagram,
+                        ("Diagram", egui::Atom::grow(), RichText::new(key).weak()),
                     ))
                     .on_hover_text(
                         "The structure of the document in the grid's place: one box per path \
                          of element names, with how many there are (D36)",
                     );
-                flip(&diagram, &mut self.settings.diagram);
-                let cell_pane = ui.add_enabled(
-                    self.settings.grid && !self.settings.diagram,
-                    egui::Checkbox::new(
-                        &mut self.settings.cell_pane,
-                        "Cell pane beside the grid (experiment)",
-                    ),
-                );
+                if diagram_check.changed() | flip(&diagram_check, &mut diagram) {
+                    self.settings.show_diagram(diagram);
+                }
+                let cell_pane = ui
+                    .add_enabled(
+                        self.settings.grid,
+                        egui::Checkbox::new(
+                            &mut self.settings.cell_pane,
+                            "Cell pane beside the grid (experiment)",
+                        ),
+                    )
+                    .on_disabled_hover_text("Show the grid first");
                 flip(&cell_pane, &mut self.settings.cell_pane);
                 let toolbar = ui.checkbox(&mut self.settings.toolbar, "Toolbar");
                 flip(&toolbar, &mut self.settings.toolbar);
@@ -1581,13 +1604,18 @@ impl App {
                 }
                 let setting = self.settings.word_wrap;
                 let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
+                // A tab with a choice of its own (a minified file, TEXT-23) is named so:
+                // the entry then switches that tab alone.
+                let own = self.docs.active().is_some_and(|o| o.wrap.is_some());
+                let label = if own {
+                    "Word wrap in this tab"
+                } else {
+                    "Word wrap"
+                };
+                let key = keys::text(ui.ctx(), &keys::WORD_WRAP);
                 let wrap_check = ui.add(egui::Checkbox::new(
                     &mut wrap,
-                    (
-                        "Word wrap",
-                        egui::Atom::grow(),
-                        RichText::new("Alt+Z").weak(),
-                    ),
+                    (label, egui::Atom::grow(), RichText::new(key).weak()),
                 ));
                 if wrap_check.changed() || wrap_check.released_over() {
                     self.toggle_wrap();
@@ -1623,7 +1651,10 @@ impl App {
             let navigate = ui.menu_button("Navigate", |ui| self.navigate_menu(ui));
             let help = ui.menu_button("Help", |ui| {
                 if ui
-                    .add(egui::Button::new("XML Atlas Help").shortcut_text("F1"))
+                    .add(
+                        egui::Button::new("XML Atlas Help")
+                            .shortcut_text(keys::text(&ctx, &keys::HELP)),
+                    )
                     .picked()
                 {
                     ui.close();
@@ -1686,10 +1717,10 @@ impl App {
                 crate::bookmarks::clear,
             ),
         ];
-        for (label, keys, enabled, run) in items {
+        for (label, shortcut, enabled, run) in items {
             let mut button = egui::Button::new(label);
-            if let Some(keys) = keys {
-                button = button.shortcut_text(ui.ctx().format_shortcut(&keys));
+            if let Some(shortcut) = shortcut {
+                button = button.shortcut_text(keys::text(ui.ctx(), &shortcut));
             }
             let button = ui.add_enabled(enabled, button);
             if button.picked() {
@@ -1710,24 +1741,25 @@ impl App {
         let open = !self.docs.is_empty();
         let items = [
             (
-                ("Cut", "Ctrl+X"),
+                ("Cut", keys::CUT),
                 selected,
                 Some(egui::ViewportCommand::RequestCut),
             ),
             (
-                ("Copy", "Ctrl+C"),
+                ("Copy", keys::COPY),
                 selected,
                 Some(egui::ViewportCommand::RequestCopy),
             ),
             (
-                ("Paste", "Ctrl+V"),
+                ("Paste", keys::PASTE),
                 open,
                 Some(egui::ViewportCommand::RequestPaste),
             ),
-            (("Select All", "Ctrl+A"), open, None),
+            (("Select All", keys::SELECT_ALL), open, None),
         ];
-        for ((label, keys), enabled, command) in items {
-            let button = egui::Button::new(label).shortcut_text(keys);
+        for ((label, shortcut), enabled, command) in items {
+            let text = keys::text(ui.ctx(), &shortcut);
+            let button = egui::Button::new(label).shortcut_text(text);
             if !ui.add_enabled(enabled, button).picked() {
                 continue;
             }
@@ -1892,55 +1924,98 @@ impl App {
         let undo = history.is_some_and(|h| h.undo_label().is_some());
         let redo = history.is_some_and(|h| h.redo_label().is_some());
         ui.horizontal(|ui| {
-            if tool_icons::button(ui, true, Tool::New, "New    Ctrl+N") {
+            if tool_icons::button(ui, true, Tool::New, &keys::tip(&ctx, "New", &keys::NEW)) {
                 self.new_document();
             }
-            if tool_icons::button(ui, true, Tool::Open, "Open    Ctrl+O") {
+            if tool_icons::button(ui, true, Tool::Open, &keys::tip(&ctx, "Open", &keys::OPEN)) {
                 self.pick_file(&ctx);
             }
-            if tool_icons::button(ui, modified, Tool::Save, "Save    Ctrl+S") {
+            if tool_icons::button(
+                ui,
+                modified,
+                Tool::Save,
+                &keys::tip(&ctx, "Save", &keys::SAVE),
+            ) {
                 self.save();
             }
             ui.separator();
-            if tool_icons::button(ui, selected, Tool::Cut, "Cut    Ctrl+X") {
+            if tool_icons::button(ui, selected, Tool::Cut, &keys::tip(&ctx, "Cut", &keys::CUT)) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCut));
             }
-            if tool_icons::button(ui, selected, Tool::Copy, "Copy    Ctrl+C") {
+            if tool_icons::button(
+                ui,
+                selected,
+                Tool::Copy,
+                &keys::tip(&ctx, "Copy", &keys::COPY),
+            ) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestCopy));
             }
-            if tool_icons::button(ui, open, Tool::Paste, "Paste    Ctrl+V") {
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::Paste,
+                &keys::tip(&ctx, "Paste", &keys::PASTE),
+            ) {
                 self.clipboard(&ctx, Some(egui::ViewportCommand::RequestPaste));
             }
             ui.separator();
-            if tool_icons::button(ui, undo, Tool::Undo, "Undo    Ctrl+Z") {
+            if tool_icons::button(ui, undo, Tool::Undo, &keys::tip(&ctx, "Undo", &keys::UNDO)) {
                 self.undo();
             }
-            if tool_icons::button(ui, redo, Tool::Redo, "Redo    Ctrl+Y") {
+            if tool_icons::button(ui, redo, Tool::Redo, &keys::tip(&ctx, "Redo", &keys::REDO)) {
                 self.redo();
             }
-            if tool_icons::button(ui, open, Tool::Find, "Find    Ctrl+F") {
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::Find,
+                &keys::tip(&ctx, "Find", &crate::find_bar::OPEN),
+            ) {
                 self.find.open(self.docs.active_mut());
             }
-            if tool_icons::button(ui, open, Tool::XPath, "XPath    Ctrl+Shift+X") {
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::XPath,
+                &keys::tip(&ctx, "XPath", &crate::xpath_bar::OPEN),
+            ) {
                 self.xpath.open();
             }
             ui.separator();
-            if tool_icons::button(ui, open, Tool::DrillUp, "Drill Up    Alt+Up")
-                && let Some(open) = self.docs.active_mut()
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::DrillUp,
+                &keys::tip(&ctx, "Drill Up", &keys::DRILL_UP),
+            ) && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_up(open);
             }
-            if tool_icons::button(ui, open, Tool::DrillDown, "Drill Down    Alt+Down")
-                && let Some(open) = self.docs.active_mut()
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::DrillDown,
+                &keys::tip(&ctx, "Drill Down", &keys::DRILL_DOWN),
+            ) && let Some(open) = self.docs.active_mut()
             {
                 crate::nav::drill_down(open);
             }
-            if tool_icons::button(ui, open, Tool::Format, "Format") {
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::Format,
+                &keys::tip(&ctx, "Format", &keys::FORMAT),
+            ) {
                 self.format_document();
             }
             ui.separator();
-            if tool_icons::button(ui, open, Tool::Diagram, "Diagram    Ctrl+Shift+D") {
-                self.settings.diagram = !self.settings.diagram;
+            if tool_icons::button(
+                ui,
+                open,
+                Tool::Diagram,
+                &keys::tip(&ctx, "Diagram", &crate::diagram::TOGGLE),
+            ) {
+                self.settings.show_diagram(!self.settings.diagram);
             }
             let expand = self.settings.expand_on_text_click;
             let tip = if expand {
@@ -2015,7 +2090,8 @@ impl App {
                 return;
             }
             let Some(open) = self.docs.active_mut() else {
-                ui.label("Open a file with Ctrl+O or drop it on the window.");
+                let key = keys::text(ui.ctx(), &keys::OPEN);
+                ui.label(format!("Open a file with {key} or drop it on the window."));
                 return;
             };
             let s = open.doc.stats();
@@ -2098,16 +2174,14 @@ impl eframe::App for App {
         }
         self.open_requested(&ctx);
         self.serve_agents(&ctx);
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
-        {
+        if keys::consume(&ctx, &keys::OPEN) {
             self.pick_file(&ctx);
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::N)))
-        {
+        if keys::consume(&ctx, &keys::NEW) {
             self.new_document();
         }
         if ctx.input_mut(|i| {
-            let pressed = i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::Z));
+            let pressed = i.consume_shortcut(&keys::WORD_WRAP);
             if pressed {
                 // On Linux the key also comes as the letter, which would be typed.
                 i.events
@@ -2134,46 +2208,35 @@ impl eframe::App for App {
         self.confirm_dialog(ui);
         self.encoding_dialog(ui);
         self.format_dialog(&ctx);
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) {
+        if keys::consume(&ctx, &keys::HELP) {
             self.help.guide = true;
         }
         crate::help::show(&ctx, &mut self.help);
         self.font_dialog(&ctx);
-        if ctx.input_mut(|i| {
-            i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma))
-        }) {
+        if keys::consume(&ctx, &keys::SETTINGS) {
             self.settings_window.open = true;
         }
         self.settings_window(&ctx);
         self.rules_editor(&ctx);
         // Ctrl+Shift+S first: Ctrl+S would match it too.
-        if ctx.input_mut(|i| {
-            i.consume_shortcut(&KeyboardShortcut::new(
-                Modifiers::COMMAND | Modifiers::SHIFT,
-                Key::S,
-            ))
-        }) {
+        if keys::consume(&ctx, &keys::SAVE_AS) {
             self.save_as();
-        } else if ctx
-            .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
-        {
+        } else if keys::consume(&ctx, &keys::SAVE) {
             self.save();
         }
         // A focused text field (Find) has its own undo.
         if !ctx.text_edit_focused() && self.confirm.is_none() {
-            let redo = ctx.input_mut(|i| {
-                i.consume_shortcut(&KeyboardShortcut::new(
-                    Modifiers::COMMAND | Modifiers::SHIFT,
-                    Key::Z,
-                )) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
-            });
-            if redo {
+            // Redo first: Ctrl+Z would match Ctrl+Shift+Z too.
+            if keys::consume(&ctx, &keys::REDO_ALSO) || keys::consume(&ctx, &keys::REDO) {
                 self.redo();
-            } else if ctx.input_mut(|i| {
-                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z))
-            }) {
+            } else if keys::consume(&ctx, &keys::UNDO) {
                 self.undo();
+            } else if !self.docs.is_empty() && keys::consume(&ctx, &keys::FORMAT) {
+                self.format_document();
             }
+        }
+        if self.confirm.is_none() && keys::consume(&ctx, &keys::QUIT) {
+            self.request(&ctx, Action::Quit);
         }
 
         // Typing broke the text of a document: read it again after a pause (D19).
@@ -2185,7 +2248,7 @@ impl eframe::App for App {
         }
         // Before Ctrl+D (Duplicate), which would match it too.
         if !self.docs.is_empty() && ctx.input_mut(|i| i.consume_shortcut(&crate::diagram::TOGGLE)) {
-            self.settings.diagram = !self.settings.diagram;
+            self.settings.show_diagram(!self.settings.diagram);
         }
         // Before Find's: F3 steps through the XPath results while their bar is open, and
         // through a diagram box's elements while the find bar is closed.
@@ -2202,7 +2265,7 @@ impl eframe::App for App {
             && let Some(open) = self.docs.active_mut()
         {
             // A hidden grid takes no keys: they go to the tree.
-            let grid_shown = self.settings.grid && !self.settings.diagram;
+            let grid_shown = self.settings.grid;
             if !grid_shown && open.keys == Pane::Grid {
                 open.keys = Pane::Tree;
             }
@@ -2240,7 +2303,8 @@ impl eframe::App for App {
         let Some(open) = self.docs.active_mut() else {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
-                    ui.heading("Drop an XML file here, or press Ctrl+O");
+                    let key = keys::text(ui.ctx(), &keys::OPEN);
+                    ui.heading(format!("Drop an XML file here, or press {key}"));
                 });
             });
             return;
@@ -2267,7 +2331,7 @@ impl eframe::App for App {
         let reference_preview = self.settings.shows_preview();
         let preview_tree = self.settings.shows_preview_tree();
         let show_diagram = self.settings.diagram;
-        let show_grid = self.settings.grid && !show_diagram;
+        let show_grid = self.settings.grid;
         let wrap = open.wraps(self.settings.word_wrap);
         let expand_on_click = self.settings.expand_on_text_click;
         let text_font = self.settings.text_font.font_id();

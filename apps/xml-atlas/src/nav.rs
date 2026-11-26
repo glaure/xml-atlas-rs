@@ -11,6 +11,7 @@ use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, ROOT};
 
 use crate::app::{Open, Pane};
 use crate::grid::{self, GridKey};
+use crate::keys;
 use crate::tree::{self, TreeCommand, TreeKey};
 
 const TREE_KEYS: [(Key, TreeKey); 8] = [
@@ -48,27 +49,26 @@ pub fn handle(ctx: &egui::Context, open: &mut Open) {
     let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
     // Most modifiers first: Alt+arrow would also match Alt+Shift+arrow, and a plain arrow
     // both.
-    let alt_shift = Modifiers::ALT | Modifiers::SHIFT;
-    for (key, direction) in [
-        (Key::ArrowUp, Direction::Up),
-        (Key::ArrowDown, Direction::Down),
+    for (shortcut, direction) in [
+        (keys::MOVE_UP, Direction::Up),
+        (keys::MOVE_DOWN, Direction::Down),
     ] {
-        if pressed(alt_shift, key) {
+        if keys::consume(ctx, &shortcut) {
             if open.keys == Pane::Tree {
                 tree_command(open, TreeCommand::Move(direction));
             }
             return;
         }
     }
-    if pressed(Modifiers::ALT, Key::ArrowUp) {
+    if keys::consume(ctx, &keys::DRILL_UP) {
         drill_up(open);
         return;
     }
-    if pressed(Modifiers::ALT, Key::ArrowDown) {
+    if keys::consume(ctx, &keys::DRILL_DOWN) {
         drill_down(open);
         return;
     }
-    if pressed(Modifiers::NONE, Key::F12) {
+    if keys::consume(ctx, &keys::GO_TO_REFERENCE) {
         crate::ref_preview::go_to_target(open);
         return;
     }
@@ -80,13 +80,13 @@ pub fn handle(ctx: &egui::Context, open: &mut Open) {
     }
     match open.keys {
         Pane::Tree => {
-            if pressed(Modifiers::COMMAND, Key::D) {
+            if keys::consume(ctx, &keys::DUPLICATE) {
                 tree_command(open, TreeCommand::Duplicate);
             }
-            if pressed(Modifiers::NONE, Key::F2) {
+            if keys::consume(ctx, &keys::EDIT) {
                 tree_command(open, TreeCommand::Rename);
             }
-            if pressed(Modifiers::NONE, Key::Delete) {
+            if keys::consume(ctx, &keys::DELETE) {
                 tree_command(open, TreeCommand::Delete);
             }
             for (k, tk) in TREE_KEYS {

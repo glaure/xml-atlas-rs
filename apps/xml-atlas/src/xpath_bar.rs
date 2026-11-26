@@ -16,6 +16,7 @@ use xml_atlas_engine::xml::Index;
 use xml_atlas_engine::xpath::{Item, ItemKind, Value, XPath, XPathError};
 
 use crate::app::Open;
+use crate::keys;
 
 pub const OPEN: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::X);
@@ -230,7 +231,7 @@ impl XPathBar {
             if has_fresh_nodes(open) {
                 if ui
                     .button("⬆")
-                    .on_hover_text("Previous (Shift+F3)")
+                    .on_hover_text(format!("Previous ({})", keys::text(ui.ctx(), &PREVIOUS)))
                     .clicked()
                 {
                     step(open, false);
