@@ -895,7 +895,8 @@ impl App {
             return;
         };
         if let Err(e) = open.edit(|doc| Ok(doc.convert_to_utf8())) {
-            let message = self.lang().status_cannot_utf8(&e.to_string());
+            let why = crate::engine_words::edit_error(self.lang(), &e);
+            let message = self.lang().status_cannot_utf8(&why);
             self.message = Some(message);
             return;
         }
@@ -1127,11 +1128,15 @@ impl App {
                     Err(EditError::Empty) => self.notice = Some(Note::info(notice(options))),
                     Err(e) => {
                         let step = crate::engine_words::step_name(lang, &step);
-                        self.message = Some(lang.status_cannot_step(&step, &e.to_string()));
+                        let why = crate::engine_words::edit_error(lang, &e);
+                        self.message = Some(lang.status_cannot_step(&step, &why));
                     }
                 }
             }
-            Err(e) => self.message = Some(lang.status_cannot_format(&e.to_string())),
+            Err(e) => {
+                let why = crate::engine_words::format_error(lang, &e);
+                self.message = Some(lang.status_cannot_format(&why));
+            }
         }
     }
 
@@ -2257,14 +2262,15 @@ impl Open {
         let lang = self.lang;
         let refused = |why: &str| Note::refused(lang.status_refused(what.cannot(lang), why));
         if let Some(e) = &self.doc.index.error {
-            self.note = Some(refused(&lang.status_not_well_formed(&e.to_string())));
+            let why = crate::engine_words::parse_error(lang, e);
+            self.note = Some(refused(&lang.status_not_well_formed(&why)));
             return;
         }
         let edit = match make(&self.doc) {
             Ok(Some(edit)) => edit,
             Ok(None) => return,
             Err(e) => {
-                self.note = Some(refused(&e.to_string()));
+                self.note = Some(refused(&crate::engine_words::command_error(lang, &e)));
                 return;
             }
         };
@@ -2282,7 +2288,7 @@ impl Open {
                     }
                     Note::info(lang.status_nothing_to_change(&label))
                 }
-                Err(e) => refused(&e.to_string()),
+                Err(e) => refused(&crate::engine_words::edit_error(lang, &e)),
             },
         );
     }
@@ -3624,5 +3630,54 @@ mod tests {
             app.notice.as_ref().unwrap().text,
             "Rückgängig gemacht: Formatieren"
         );
+    }
+
+    /// LANG-2 and LANG-5: what the window refuses is said in German, with the document's
+    /// names, and leaves its bytes.
+    #[test]
+    fn refusals_are_said_in_the_windows_language() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.settings = Settings {
+            language: crate::lang::LanguageChoice::German,
+            ..Default::default()
+        };
+        let src = "\u{feff}<r>\r\n  <Größe a=\"ü\"><Maß/></Größe>\r\n</r>\r\n";
+        app.add_document(Document::from_bytes(src.as_bytes().to_vec()));
+        let open = app.docs.active_mut().unwrap();
+        open.lang = Lang::De;
+        let element = xml_atlas_engine::command::resolve(&open.doc, "/r/Größe").unwrap();
+        open.command(
+            What::Rename,
+            |d| xml_atlas_engine::command::rename(d, element, "ß ö").map(Some),
+            Shift::None,
+        );
+        assert_eq!(
+            open.note.take().unwrap().text,
+            "Umbenennen nicht möglich: „ß ö“ ist kein gültiger XML-Name"
+        );
+        assert_eq!(*open.doc.src, src.as_bytes());
+
+        // A broken document refuses every command, and cannot be formatted.
+        let end = src.find("</Größe>").unwrap();
+        open.type_edit(Edit::new(StepName::Typing).replace(end..end, "<x>"))
+            .unwrap();
+        open.settle();
+        let broken = open.doc.src.to_vec();
+        open.command(What::Delete, |_| unreachable!(), Shift::None);
+        let said = open.note.take().unwrap().text;
+        assert!(
+            said.starts_with("Löschen nicht möglich: das Dokument ist nicht wohlgeformt ("),
+            "{said}"
+        );
+        assert!(said.contains("(bei Byte "), "{said}");
+        app.format_document();
+        let said = app.message.clone().unwrap();
+        assert!(
+            said.starts_with("Formatieren nicht möglich: das Dokument ist nicht wohlgeformt: "),
+            "{said}"
+        );
+        assert_eq!(*app.docs.active().unwrap().doc.src, broken);
     }
 }

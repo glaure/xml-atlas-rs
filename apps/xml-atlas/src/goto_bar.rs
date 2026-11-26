@@ -8,7 +8,7 @@
 use crate::lang::Lang;
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::problems::Severity;
-use xml_atlas_engine::text::{self, Selection};
+use xml_atlas_engine::text::{self, GoToError, Selection};
 
 use crate::app::Open;
 
@@ -21,7 +21,7 @@ pub struct GoToBar {
     text: String,
     focus_field: bool,
     /// Why the last Enter did nothing; cleared by typing.
-    error: Option<String>,
+    error: Option<GoToError>,
 }
 
 impl GoToBar {
@@ -87,7 +87,8 @@ impl GoToBar {
             }
             ui.label(RichText::new(lang.goto_of(&lines.to_string())).weak());
             if let Some(e) = &self.error {
-                ui.colored_label(ui.visuals().error_fg_color, e);
+                let why = crate::engine_words::goto_error(lang, e);
+                ui.colored_label(ui.visuals().error_fg_color, why);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let hint = lang.bar_close(lang.key_escape());
@@ -119,7 +120,7 @@ impl GoToBar {
                 self.error = None;
                 self.close(Some(open));
             }
-            Err(e) => self.error = Some(e.to_string()),
+            Err(e) => self.error = Some(e),
         }
     }
 }

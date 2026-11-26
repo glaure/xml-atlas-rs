@@ -981,7 +981,8 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
         }
         Err(e) => {
             let step = crate::engine_words::step_name(open.lang, &step);
-            let note = open.lang.status_cannot_step(&step, &e.to_string());
+            let why = crate::engine_words::edit_error(open.lang, &e);
+            let note = open.lang.status_cannot_step(&step, &why);
             open.note = Some(Note::refused(note));
         }
     }
