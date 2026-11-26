@@ -126,6 +126,10 @@ marked *after 1.0* (D20): all of 0.4 and the macOS package.
 - [x] Themes: an example of each in Settings > Appearance (WIN-12)
 - [ ] Themes: style next to mode, theme files the user can change and share, a native look
       with the system's accent colour (D29, WIN-9, WIN-10)
+- [ ] Text: split view, with Split Up, Down, Left and Right, up to 4 views of the document
+      (D44, #182); needs rules in `docs/spec/` first
+- [ ] UI localization: English (default) and German (D45, #183); needs a decision on how
+      translations are stored, and rules in `docs/spec/`, first
 
 Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`):
 

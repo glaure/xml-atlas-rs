@@ -1903,11 +1903,47 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **App Center:** builds before October 2026 greyed out *Install* for a newer local `.deb`
   (ubuntu/app-center#2190); later ones compare the versions.
 
+## D44: Split view for the text (#182)
+
+- **Problem:** the text view shows one place of a document at a time.
+- **Decided (owner, 2026-11-26):**
+  - Split Up, Down, Left and Right. Every view shows the tab's own document.
+  - Up to 4 views; any view can be split again, in any direction.
+  - The commands are a *Split* submenu under View and in the text's right-click menu. With
+    more than one view, each has a close button. No new keys.
+  - The tree, the grid, Find and Go to line act on the view last typed or clicked in, which
+    is marked.
+  - Not remembered after quitting; each tab keeps its split while the program runs.
+- **Assumed, not yet asked:** the direction is where the new view appears.
+- **Next:** rules in `docs/spec/`. Not built.
+
+## D45: UI localization, English and German (#183)
+
+- **Problem:** the window's texts are English only.
+- **Decided (owner, 2026-11-26):**
+  - English and German. Settings offers *System*, *English* and *Deutsch*; English is the
+    default.
+  - The built-in guide is translated too.
+  - In German, keys have their German names (*Strg*, *Umschalt*, *Entf*); macOS keeps its
+    symbols and Cmd.
+  - The CLI, the MCP tools and the logs stay English.
+  - For how translations are stored, the comparison favours a check at build time: a
+    missing or misspelled text fails the build or the tests, with little or no new
+    dependency and fast lookup. Adding a language may take a code change.
+- **Open:** the method itself. It is compared and proposed here before work starts.
+- **Next:** that proposal, then rules in `docs/spec/`. Not built.
+
 ## Open questions
 
 None.
 
 ## Answered questions
+
+About D44 and D45, split view and localization (owner, 2026-11-26), asked one by one, all
+as proposed: one document in at most 4 views, menus and close buttons without keys, the last
+used view, no memory of the split; a language setting with English as the default, the guide
+translated, German key names, the CLI, MCP and logs in English, translations checked at
+build time.
 
 About D41 (owner, 2026-11-22), replacing D40: rules files in the configuration folder, each
 switched on and off, with a *Use for* pattern; the search beside and above the document is
