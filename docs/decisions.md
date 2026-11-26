@@ -2038,7 +2038,7 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   Found in writing them: `sys-locale` is built for Linux, Windows and macOS already, through
   egui's system fonts (`cargo tree`); windows whose id egui takes from their title need an
   id of their own, or a new language would forget their state.
-- **Built, step 2:** `lang/en.toml` and `de.toml` (231 texts), the generator
+- **Built, step 2:** `lang/en.toml` and `de.toml` (232 texts), the generator
   `lang/generate.rs`, run by the build script and tested, `src/lang.rs`, and the setting.
   `toml` and `sys-locale` are named as dependencies; `Cargo.lock` gains no crate. Found:
   the program's fonts have no ↑ and ↓, so *Bild auf* and *Bild ab* (LANG-9), and the
