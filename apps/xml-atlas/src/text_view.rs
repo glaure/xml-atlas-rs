@@ -979,7 +979,10 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
             open.scroll_text_to = None;
             open.tree.keep_scroll();
         }
-        Err(e) => open.note = Some(Note::refused(format!("Cannot {label}: {e}"))),
+        Err(e) => {
+            let note = open.lang.status_cannot_step(&label, &e.to_string());
+            open.note = Some(Note::refused(note));
+        }
     }
 }
 

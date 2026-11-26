@@ -121,19 +121,12 @@ impl Install {
 
 impl Notice {
     /// The status bar's words.
-    pub fn text(&self) -> String {
+    pub fn text(&self, lang: Lang) -> String {
         match self {
-            Notice::Newer(r, Install::Download) => format!(
-                "XML Atlas {} is available: open the download page",
-                r.version
-            ),
-            Notice::Newer(r, Install::Flatpak) => format!(
-                "XML Atlas {} is available: update it with your software centre or \
-                 `flatpak update`",
-                r.version
-            ),
-            Notice::UpToDate => format!("XML Atlas {CURRENT} is the latest version"),
-            Notice::Failed(e) => format!("Cannot check for updates: {e}"),
+            Notice::Newer(r, Install::Download) => lang.update_newer(&r.version.to_string()),
+            Notice::Newer(r, Install::Flatpak) => lang.update_newer_flatpak(&r.version.to_string()),
+            Notice::UpToDate => lang.update_latest(CURRENT),
+            Notice::Failed(e) => lang.update_failed(e),
         }
     }
 
@@ -146,13 +139,13 @@ impl Notice {
     }
 
     /// The notice in the status bar, a link where there is a page to open.
-    pub fn show(&self, ui: &mut egui::Ui) -> egui::Response {
+    pub fn show(&self, ui: &mut egui::Ui, lang: Lang) -> egui::Response {
         match self.link() {
-            Some(url) => ui.hyperlink_to(self.text(), url).on_hover_text(url),
+            Some(url) => ui.hyperlink_to(self.text(lang), url).on_hover_text(url),
             None if matches!(self, Notice::Failed(_)) => {
-                ui.colored_label(ui.visuals().warn_fg_color, self.text())
+                ui.colored_label(ui.visuals().warn_fg_color, self.text(lang))
             }
-            None => ui.label(self.text()),
+            None => ui.label(self.text(lang)),
         }
     }
 }
@@ -447,7 +440,7 @@ mod tests {
     fn the_flatpak_is_updated_by_flatpak() {
         assert_eq!(Install::of(true), Install::Flatpak);
         let n = Notice::Newer(release(Version(1, 2, 0)), Install::Flatpak);
-        assert!(n.text().contains("flatpak update"));
+        assert!(n.text(Lang::En).contains("flatpak update"));
         assert_eq!(n.link(), None);
     }
 
@@ -464,7 +457,7 @@ mod tests {
             let mut rect = egui::Rect::NOTHING;
             let mut out = ctx.run_ui(input, |ui| {
                 let layout = egui::Layout::right_to_left(egui::Align::Center);
-                ui.with_layout(layout, |ui| rect = notice.show(ui).rect);
+                ui.with_layout(layout, |ui| rect = notice.show(ui, Lang::En).rect);
             });
             out.textures_delta.clear();
             (out.platform_output.commands, rect)
@@ -494,7 +487,7 @@ mod tests {
     fn a_click_on_the_notice_opens_the_release() {
         let r = release(Version(1, 3, 0));
         let notice = Notice::Newer(r.clone(), Install::of(false));
-        assert!(notice.text().contains("download page"));
+        assert!(notice.text(Lang::En).contains("download page"));
         let (pages, rect) = click(&notice, 480.0);
         assert_eq!(pages, [r.url]);
         assert!(rect.left() >= 0.0 && rect.right() <= 480.0, "{rect:?}");

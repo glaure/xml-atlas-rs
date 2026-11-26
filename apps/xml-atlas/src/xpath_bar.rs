@@ -60,6 +60,16 @@ struct Problem {
     at: Option<usize>,
 }
 
+impl Problem {
+    /// The message under the bar, with the position where it is known.
+    fn words(self, lang: Lang) -> String {
+        match self.at {
+            Some(at) => lang.xpath_error_at(&self.message, &at.to_string()),
+            None => self.message,
+        }
+    }
+}
+
 /// One tab's query and what it gave.
 pub struct Results {
     expr: String,
@@ -83,7 +93,25 @@ enum State {
         value: Value,
         took: Duration,
     },
-    Failed(String),
+    Failed(Failure),
+}
+
+/// Why a query gave nothing, worded when drawn.
+enum Failure {
+    /// The engine's words, as it gives them.
+    Engine(String),
+    CannotStart(String),
+    Stopped,
+}
+
+impl Failure {
+    fn text(&self, lang: Lang) -> String {
+        match self {
+            Failure::Engine(why) => why.clone(),
+            Failure::CannotStart(error) => lang.xpath_cannot_start(error),
+            Failure::Stopped => lang.xpath_stopped().into(),
+        }
+    }
 }
 
 impl Results {
@@ -177,17 +205,19 @@ impl XPathBar {
                 self.take_example(ui.ctx(), field.id);
             }
             if empty {
-                field.clone().on_hover_text("Tab takes the example");
+                field
+                    .clone()
+                    .on_hover_text(lang.xpath_example_tip(lang.key_tab()));
             }
             let problem = self.check(open);
             valid = problem.is_none() && !self.text.trim().is_empty();
             if let Some(p) = &problem {
                 show_problem(ui, &output, p);
             } else if valid {
-                ui.label(RichText::new("valid").weak())
-                    .on_hover_text("A valid XPath 1.0 expression");
+                ui.label(RichText::new(lang.xpath_valid()).weak())
+                    .on_hover_text(lang.xpath_valid_tip());
             }
-            message = problem.map(|p| p.message);
+            message = problem.map(|p| p.words(lang));
             if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 // A wrong expression is not run: its message is already shown.
                 run = valid;
@@ -209,22 +239,22 @@ impl XPathBar {
                     }
                 })
                 .response
-                .on_hover_text("Expressions run before");
+                .on_hover_text(lang.xpath_history());
             });
             let running = matches!(
                 open.xpath.as_ref().map(|r| &r.state),
                 Some(State::Running { .. })
             );
             if running {
-                if ui.button("Stop").clicked()
+                if ui.button(lang.xpath_stop()).clicked()
                     && let Some(r) = &open.xpath
                 {
                     r.stop();
                 }
             } else if ui
-                .add_enabled(valid, egui::Button::new("Run"))
-                .on_hover_text("Enter")
-                .on_disabled_hover_text("Write a valid XPath 1.0 expression first")
+                .add_enabled(valid, egui::Button::new(lang.xpath_run()))
+                .on_hover_text(lang.key_enter())
+                .on_disabled_hover_text(lang.xpath_why_run())
                 .clicked()
             {
                 run = true;
@@ -232,21 +262,20 @@ impl XPathBar {
             if has_fresh_nodes(open) {
                 if ui
                     .button("⬆")
-                    .on_hover_text(format!(
-                        "Previous ({})",
-                        keys::text(ui.ctx(), lang, &PREVIOUS)
-                    ))
+                    .on_hover_text(keys::tip(ui.ctx(), lang, lang.bar_previous(), &PREVIOUS))
                     .clicked()
                 {
                     step(open, false);
                 }
-                if ui.button("⬇").on_hover_text("Next (F3)").clicked() {
+                let next = keys::tip(ui.ctx(), lang, lang.bar_next(), &NEXT);
+                if ui.button("⬇").on_hover_text(next).clicked() {
                     step(open, true);
                 }
             }
-            status(ui, open);
+            status(ui, open, lang);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✕").on_hover_text("Close (Escape)").clicked() {
+                let hint = lang.bar_close(lang.key_escape());
+                if ui.button("✕").on_hover_text(hint).clicked() {
                     close = true;
                 }
             });
@@ -291,7 +320,7 @@ impl XPathBar {
             } else {
                 match XPath::parse(&self.text) {
                     Err(XPathError::Syntax { message, at }) => Some(Problem {
-                        message: format!("{message} at {at}"),
+                        message: message.to_string(),
                         at: Some(at),
                     }),
                     Err(e) => Some(Problem {
@@ -330,7 +359,7 @@ impl XPathBar {
         let index = Arc::clone(&open.doc.index);
         let weak = Arc::downgrade(&index);
         let state = match XPath::parse(&text) {
-            Err(e) => State::Failed(e.to_string()),
+            Err(e) => State::Failed(Failure::Engine(e.to_string())),
             Ok(query) => {
                 let src = Arc::clone(&open.doc.src);
                 let stop = Arc::new(AtomicBool::new(false));
@@ -351,7 +380,7 @@ impl XPathBar {
                         stop,
                         started: Instant::now(),
                     },
-                    Err(e) => State::Failed(format!("cannot start the query: {e}")),
+                    Err(e) => State::Failed(Failure::CannotStart(e.to_string())),
                 }
             }
         };
@@ -439,6 +468,7 @@ pub fn result_items(open: &Open) -> Option<&[Item]> {
 
 /// The results panel at the bottom: one row per node, its line, path and value.
 pub fn show_results(ui: &mut Ui, open: &mut Open) {
+    let lang = open.lang;
     let Some(r) = &open.xpath else {
         return;
     };
@@ -447,17 +477,12 @@ pub fn show_results(ui: &mut Ui, open: &mut Open) {
     };
     let count = nodes.len();
     ui.horizontal(|ui| {
-        ui.strong("XPath results");
-        ui.label(RichText::new(format!("{}  ·  {}", count_text(count), r.expr)).weak());
+        ui.strong(lang.xpath_results());
+        let count = count_text(lang, count);
+        ui.label(RichText::new(format!("{count}  ·  {}", r.expr)).weak());
     });
     if !r.fresh(open) {
-        ui.label(
-            RichText::new(
-                "The document has changed since the query ran. Press Enter in the XPath bar \
-                 to run it again.",
-            )
-            .weak(),
-        );
+        ui.label(RichText::new(lang.xpath_changed(lang.key_enter())).weak());
         return;
     }
     let row_h = ui
@@ -574,8 +599,8 @@ fn poll(open: &mut Open) {
     r.state = match rx.try_recv() {
         Err(TryRecvError::Empty) => return,
         Ok(Ok(value)) => State::Done { value, took },
-        Ok(Err(e)) => State::Failed(e.to_string()),
-        Err(TryRecvError::Disconnected) => State::Failed("the query stopped".into()),
+        Ok(Err(e)) => State::Failed(Failure::Engine(e.to_string())),
+        Err(TryRecvError::Disconnected) => State::Failed(Failure::Stopped),
     };
     if r.nodes().is_some_and(|n| !n.is_empty()) {
         go_to(open, 0, true);
@@ -583,55 +608,53 @@ fn poll(open: &mut Open) {
 }
 
 /// What the query gave, after the buttons.
-fn status(ui: &mut Ui, open: &Open) {
+fn status(ui: &mut Ui, open: &Open, lang: Lang) {
     let Some(r) = &open.xpath else {
         return;
     };
     match &r.state {
         State::Running { started, .. } => {
             ui.spinner();
-            ui.label(
-                RichText::new(format!("running, {:.1} s", started.elapsed().as_secs_f64())).weak(),
-            );
+            let seconds = lang.decimal(started.elapsed().as_secs_f64(), 1);
+            ui.label(RichText::new(lang.xpath_running(&seconds)).weak());
             // The time counts up while it runs.
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
         State::Failed(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e);
+            ui.colored_label(ui.visuals().error_fg_color, e.text(lang));
         }
         State::Done { value, took } => {
             let ms = format!("{:.0} ms", took.as_secs_f64() * 1000.0);
             match value {
                 Value::Nodes(n) => {
-                    let at = r
-                        .current
-                        .filter(|_| r.fresh(open))
-                        .map(|i| format!("{} of ", i + 1))
-                        .unwrap_or_default();
-                    ui.label(RichText::new(format!("{at}{}  ·  {ms}", count_text(n.len()))).weak());
+                    let count = count_text(lang, n.len());
+                    let count = match r.current.filter(|_| r.fresh(open)) {
+                        Some(i) => lang.xpath_position(&(i + 1).to_string(), &count),
+                        None => count,
+                    };
+                    ui.label(RichText::new(format!("{count}  ·  {ms}")).weak());
                 }
                 other => {
                     let kind = match other {
-                        Value::Number(_) => "a number",
-                        Value::String(_) => "a string",
-                        _ => "a boolean",
+                        Value::Number(_) => lang.xpath_a_number(),
+                        Value::String(_) => lang.xpath_a_string(),
+                        _ => lang.xpath_a_boolean(),
                     };
                     ui.label(RichText::new(other.to_text().unwrap_or_default()).strong());
                     ui.label(RichText::new(format!("{kind}  ·  {ms}")).weak());
                 }
             }
             if !r.fresh(open) {
-                ui.label(RichText::new("out of date: Enter runs it again").weak());
+                ui.label(RichText::new(lang.xpath_stale(lang.key_enter())).weak());
             }
         }
     }
 }
 
-fn count_text(n: usize) -> String {
+fn count_text(lang: Lang, n: usize) -> String {
     match n {
-        0 => "no nodes".into(),
-        1 => "1 node".into(),
-        n => format!("{n} nodes"),
+        0 => lang.xpath_no_nodes().into(),
+        n => lang.xpath_nodes(n as u64),
     }
 }
 
@@ -775,13 +798,12 @@ mod tests {
         };
         assert_eq!(check(&mut bar, &open, "  "), None);
         assert_eq!(check(&mut bar, &open, "//p:a[@x = 'größe']"), None);
-        assert_eq!(
-            check(&mut bar, &open, "//p:a["),
-            Some(Problem {
-                message: "expected an expression, found the end at 7".into(),
-                at: Some(7),
-            })
-        );
+        let problem = check(&mut bar, &open, "//p:a[").unwrap();
+        assert_eq!(problem.at, Some(7));
+        // The engine's words, with our position after them in either language.
+        let engine = "expected an expression, found the end";
+        assert_eq!(problem.clone().words(Lang::En), format!("{engine} at 7"));
+        assert_eq!(problem.words(Lang::De), format!("{engine} an Position 7"));
         assert_eq!(
             check(&mut bar, &open, "//q:a"),
             Some(Problem {
@@ -846,7 +868,7 @@ mod tests {
         run(&mut bar, &mut open, "//a[");
         let r = open.xpath.as_ref().unwrap();
         assert!(
-            matches!(&r.state, State::Failed(e) if e == "expected an expression, found the end at 5"),
+            matches!(&r.state, State::Failed(e) if e.text(Lang::En) == "expected an expression, found the end at 5"),
         );
         // Drawing the bar with each state changes nothing in the document.
         let ctx = egui::Context::default();
@@ -901,7 +923,7 @@ mod tests {
             match &open.xpath.as_ref().unwrap().state {
                 State::Running { .. } => {}
                 State::Failed(e) => {
-                    assert_eq!(e, "the query was stopped");
+                    assert_eq!(e.text(Lang::En), "the query was stopped");
                     break;
                 }
                 State::Done { .. } => panic!("the query ran to its end"),

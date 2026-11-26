@@ -380,15 +380,11 @@ fn mark(c: &mut Cached, row: Row) {
 /// selected reference finds, or says the value it stands for, or why it finds nothing.
 pub fn go_to_target(open: &mut Open) {
     if !open.resolves_references() {
-        open.note = Some(Note::refused(
-            "References are off: turn on Tools > References > Resolve references",
-        ));
+        open.note = Some(Note::refused(open.lang.status_references_off()));
         return;
     }
     let Some(rules) = open.rules().cloned() else {
-        open.note = Some(Note::refused(
-            "No reference rules for this file: see File > Settings > References",
-        ));
+        open.note = Some(Note::refused(open.lang.status_no_rules()));
         return;
     };
     let Some(site) = open.selected else {
@@ -404,34 +400,37 @@ pub fn go_to_target(open: &mut Open) {
         _ => references::include_at(doc, &rules, site),
     };
     let Some(r) = reference else {
-        open.note = Some(Note::refused(
-            "The selection is not a reference: select one, or one of its attribute rows",
-        ));
+        open.note = Some(Note::refused(open.lang.status_not_reference()));
         return;
     };
     let choices = chosen(open);
     let doc = &open.doc;
     let resolved = references::resolve_with(doc, &rules, &r, r.site, &choices);
-    let via = resolved
-        .via
-        .map(|v| format!(", from {}", doc.index.path(&doc.src, v)))
-        .unwrap_or_default();
+    let lang = open.lang;
+    let via = resolved.via.map(|v| doc.index.path(&doc.src, v));
+    let from = |result: String| match &via {
+        Some(path) => lang.status_reference_via(&result, path),
+        None => result,
+    };
     open.note = Some(match resolved.resolution {
         Resolution::Nodes(nodes) => {
             let first = nodes[0];
             let path = doc.index.path(&doc.src, first);
             let what = match nodes.len() {
-                1 => format!("{} goes to {path}{via}", r.expr),
-                n => format!("{} finds {n} elements; the first is {path}{via}", r.expr),
+                1 => lang.status_reference_goes(&r.expr, &path),
+                n => lang.status_reference_finds(&r.expr, &n.to_string(), &path),
             };
+            let what = from(what);
             open.select(first);
             Note::info(what)
         }
         Resolution::Value(v) => {
             let v: String = v.chars().take(200).collect();
-            Note::info(format!("{} is the value {v:?}{via}", r.expr))
+            Note::info(from(
+                lang.status_reference_value(&r.expr, &format!("{v:?}")),
+            ))
         }
-        Resolution::Skipped => Note::info(format!("{} is left as it is (the rules)", r.expr)),
+        Resolution::Skipped => Note::info(lang.status_reference_skipped(&r.expr)),
         Resolution::Runtime(why) | Resolution::Elsewhere(why) | Resolution::Unresolved(why) => {
             Note::refused(format!("{}: {why}", r.expr))
         }
@@ -1011,7 +1010,7 @@ mod tests {
             let id = command::resolve(&o.doc, path).unwrap();
             let pos = o.doc.index.element_position(id);
             o.command(
-                "delete",
+                crate::app::What::Delete,
                 |d| command::delete(d, id).map(Some),
                 crate::app::Shift::Remove(pos),
             );

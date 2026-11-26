@@ -51,11 +51,11 @@ pub fn toggle(open: &mut Open) {
     let id = open.element_or_parent(id);
     let start = open.doc.index.node(id).start as usize;
     let marked = open.doc.bookmarks.toggle(start);
-    let count = open.doc.bookmarks.len();
+    let total = open.doc.bookmarks.len().to_string();
     open.note = Some(Note::info(if marked {
-        format!("Bookmark set ({count} in all)")
+        open.lang.status_bookmark_set(&total)
     } else {
-        format!("Bookmark removed ({count} left)")
+        open.lang.status_bookmark_removed(&total)
     }));
 }
 
@@ -74,18 +74,19 @@ pub fn step(open: &mut Open, forward: bool) {
     };
     let count = marks.len();
     let Some((number, start)) = found else {
-        open.note = Some(Note::info("No bookmarks"));
+        open.note = Some(Note::info(open.lang.status_no_bookmarks()));
         return;
     };
     match xml_atlas_engine::bookmarks::element_starting_at(&open.doc.index, start) {
         Some(id) => {
             open.select(id);
-            open.note = Some(Note::info(format!("Bookmark {number} of {count}")));
+            let note = open
+                .lang
+                .status_bookmark_at(&number.to_string(), &count.to_string());
+            open.note = Some(Note::info(note));
         }
         None => {
-            open.note = Some(Note::refused(
-                "The bookmark's element is not well-formed at the moment",
-            ));
+            open.note = Some(Note::refused(open.lang.status_bookmark_broken()));
         }
     }
 }
@@ -95,9 +96,8 @@ pub fn clear(open: &mut Open) {
     let count = open.doc.bookmarks.len();
     open.doc.bookmarks.clear();
     open.note = Some(Note::info(match count {
-        0 => "No bookmarks".to_owned(),
-        1 => "1 bookmark cleared".to_owned(),
-        n => format!("{n} bookmarks cleared"),
+        0 => open.lang.status_no_bookmarks().to_owned(),
+        n => open.lang.status_bookmarks_cleared(n as u64),
     }));
 }
 
@@ -195,7 +195,7 @@ mod tests {
         let mut q = p.clone();
         *q.last_mut().unwrap() -= 1;
         open.command(
-            "move",
+            crate::app::What::Move,
             |d| command::move_element(d, b, Direction::Up).map(Some),
             Shift::Swap(p, q),
         );

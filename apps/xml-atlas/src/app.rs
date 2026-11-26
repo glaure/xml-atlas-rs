@@ -133,6 +133,9 @@ struct Loading {
 
 /// A document plus everything the views remember about it.
 pub struct Open {
+    /// The window's language, for what a command says in the status bar; the app sets it
+    /// every frame.
+    pub lang: Lang,
     pub doc: Document,
     /// The tab's number for agents (D28); 0 until the tab is added.
     pub number: u64,
@@ -313,6 +316,33 @@ pub struct Note {
     pub refused: bool,
 }
 
+/// A structured edit, as a refusal names it.
+#[derive(Clone, Copy, Debug)]
+pub enum What {
+    EditCell,
+    RemoveAttribute,
+    DeleteText,
+    Delete,
+    Duplicate,
+    Move,
+    Rename,
+}
+
+impl What {
+    /// "Cannot rename", before the reason.
+    fn cannot(self, lang: Lang) -> &'static str {
+        match self {
+            What::EditCell => lang.status_cannot_edit_cell(),
+            What::RemoveAttribute => lang.status_cannot_remove_attribute(),
+            What::DeleteText => lang.status_cannot_delete_text(),
+            What::Delete => lang.status_cannot_delete(),
+            What::Duplicate => lang.status_cannot_duplicate(),
+            What::Move => lang.status_cannot_move(),
+            What::Rename => lang.status_cannot_rename(),
+        }
+    }
+}
+
 impl Note {
     pub fn info(text: impl Into<String>) -> Self {
         Self {
@@ -422,7 +452,8 @@ impl App {
             self.docs.select(i);
             self.settings.add_recent(&path);
             self.message = None;
-            self.notice = Some(Note::info(format!("{} is open already", file_name(&path))));
+            let note = self.lang().status_open_already(&file_name(&path));
+            self.notice = Some(Note::info(note));
             return;
         }
         if self.loading.iter().any(|l| same(&l.path)) {
@@ -503,6 +534,7 @@ impl App {
     /// The document with `id` takes the contents its file has now. The selection and the
     /// expanded rows stay where they were, as far as the elements are still there.
     fn reloaded(&mut self, id: egui::Id, path: &Path, result: std::io::Result<Document>) {
+        let lang = self.lang();
         let Some(i) = self.docs.position(|o| o.id == id) else {
             return;
         };
@@ -516,15 +548,20 @@ impl App {
                     // It may have changed again while it was being read.
                     open.disk = open.doc.disk_change();
                 }
-                self.notice = Some(Note::info(format!("Reloaded {}", file_name(path))));
+                self.notice = Some(Note::info(lang.status_reloaded(&file_name(path))));
             }
             Err(e) => {
-                self.message = Some(format!("Could not reload {}: {e}", path.display()));
+                let path = path.display().to_string();
+                self.message = Some(lang.status_cannot_reload(&path, &e.to_string()));
             }
         }
     }
 
     fn loaded(&mut self, path: PathBuf, result: std::io::Result<Document>) {
+        let lang = self.lang();
+        let cannot = |e: &std::io::Error| {
+            lang.status_cannot_open(&path.display().to_string(), &e.to_string())
+        };
         match result {
             Ok(doc) => {
                 self.add_document(doc);
@@ -534,14 +571,14 @@ impl App {
                 // A file that is gone leaves the recent list (OPEN-12).
                 let listed = self.settings.recent.len();
                 self.settings.recent.retain(|p| p != &path);
-                let note = if self.settings.recent.len() < listed {
-                    "; removed from recent files"
+                let message = cannot(&e);
+                self.message = Some(if self.settings.recent.len() < listed {
+                    lang.status_removed_recent(&message)
                 } else {
-                    ""
-                };
-                self.message = Some(format!("Could not open {}: {e}{note}", path.display()));
+                    message
+                });
             }
-            Err(e) => self.message = Some(format!("Could not open {}: {e}", path.display())),
+            Err(e) => self.message = Some(cannot(&e)),
         }
     }
 
@@ -567,11 +604,12 @@ impl App {
     /// Lets agents in while Settings > Allow AI agents (MCP) is on, and runs their calls on the
     /// tabs (D28).
     fn serve_agents(&mut self, ctx: &egui::Context) {
+        let lang = self.lang();
         if self.settings.agents != self.agent.is_some() {
             self.agent = None;
             if self.settings.agents {
                 let started = xml_atlas_mcp::bridge::endpoint_file()
-                    .ok_or_else(|| "there is no folder for the settings".to_string())
+                    .ok_or_else(|| lang.status_no_settings_folder().to_string())
                     .and_then(|file| {
                         let ctx = ctx.clone();
                         xml_atlas_mcp::bridge::Listener::start(file, move || ctx.request_repaint())
@@ -580,7 +618,7 @@ impl App {
                 match started {
                     Ok(listener) => self.agent = Some(listener),
                     Err(e) => {
-                        self.message = Some(format!("Cannot let agents in: {e}"));
+                        self.message = Some(lang.status_cannot_agents(&e));
                         self.settings.agents = false;
                     }
                 }
@@ -854,14 +892,16 @@ impl App {
             return;
         };
         if let Err(e) = open.edit(|doc| Ok(doc.convert_to_utf8())) {
-            self.message = Some(format!("Cannot convert to UTF-8: {e}"));
+            let message = self.lang().status_cannot_utf8(&e.to_string());
+            self.message = Some(message);
             return;
         }
         let path = path.or_else(|| open.doc.path.clone());
         match path {
             Some(p) => {
                 if self.save_to(p) {
-                    self.notice = Some(Note::info("Saved as UTF-8".to_string()));
+                    let note = self.lang().status_saved_utf8();
+                    self.notice = Some(Note::info(note));
                 }
             }
             None => {
@@ -1001,19 +1041,17 @@ impl App {
             return;
         };
         let chosen = open.doc.format_options(self.settings.format);
+        let lang = self.lang();
         self.replace_with(
             "Format",
             open.doc.format(&chosen.options),
             |options| {
-                let source = if chosen.from_document.is_empty() {
-                    String::new()
+                let done = lang.status_formatted(&options.to_string());
+                if chosen.from_document.is_empty() {
+                    done
                 } else {
-                    format!(
-                        " (from the file's settings comment: {})",
-                        chosen.from_document.join(", ")
-                    )
-                };
-                format!("Formatted: {options}{source}")
+                    lang.status_from_comment(&done, &chosen.from_document.join(", "))
+                }
             },
             chosen.options,
         );
@@ -1043,16 +1081,17 @@ impl App {
         };
         let options = self.settings.format;
         let result = open.doc.compact(&options);
+        let lang = self.lang();
         self.replace_with(
             "Compact",
             result,
             |o| {
-                let mut s = "Compacted".to_string();
+                let mut s = lang.status_compacted().to_string();
                 if o.remove_comments {
-                    s.push_str(", comments removed");
+                    s = lang.status_comments_removed(&s);
                 }
                 if o.trim_text {
-                    s.push_str(", text trimmed");
+                    s = lang.status_text_trimmed(&s);
                 }
                 s
             },
@@ -1069,6 +1108,7 @@ impl App {
         notice: impl FnOnce(FormatOptions) -> String,
         options: FormatOptions,
     ) {
+        let lang = self.lang();
         let Some(open) = self.docs.active_mut() else {
             return;
         };
@@ -1079,15 +1119,16 @@ impl App {
                     Ok(_) => self.notice = Some(Note::info(notice(options))),
                     // Already formatted: the edit changes nothing.
                     Err(EditError::Empty) => self.notice = Some(Note::info(notice(options))),
-                    Err(e) => self.message = Some(format!("Cannot {label}: {e}")),
+                    Err(e) => self.message = Some(lang.status_cannot_step(label, &e.to_string())),
                 }
             }
-            Err(e) => self.message = Some(format!("Cannot format: {e}")),
+            Err(e) => self.message = Some(lang.status_cannot_format(&e.to_string())),
         }
     }
 
     /// Edit > Undo.
     fn undo(&mut self) {
+        let lang = self.lang();
         let Some(open) = self.docs.active_mut() else {
             return;
         };
@@ -1097,12 +1138,13 @@ impl App {
             Ok(label.is_some())
         }) {
             open.cursor_to_change();
-            self.notice = label.map(|l| Note::info(format!("Undid {l}")));
+            self.notice = label.map(|l| Note::info(lang.status_undid(&l)));
         }
     }
 
     /// Edit > Redo.
     fn redo(&mut self) {
+        let lang = self.lang();
         let Some(open) = self.docs.active_mut() else {
             return;
         };
@@ -1112,7 +1154,7 @@ impl App {
             Ok(label.is_some())
         }) {
             open.cursor_to_change();
-            self.notice = label.map(|l| Note::info(format!("Redid {l}")));
+            self.notice = label.map(|l| Note::info(lang.status_redid(&l)));
         }
     }
 
@@ -1221,7 +1263,9 @@ impl App {
                 false
             }
             Err(e) => {
-                self.message = Some(format!("Could not save {}: {e}", path.display()));
+                let path = path.display().to_string();
+                let message = self.lang().status_cannot_save(&path, &e.to_string());
+                self.message = Some(message);
                 false
             }
         }
@@ -1370,7 +1414,7 @@ impl App {
             match crate::fonts::apply(ctx, &mut font) {
                 Ok(()) => self.settings.text_font = font,
                 Err(e) => {
-                    self.message = Some(format!("Cannot use the font: {e}"));
+                    self.message = Some(self.lang().status_cannot_font(&e.to_string()));
                     self.settings.text_font = before.text_font;
                 }
             }
@@ -1444,7 +1488,10 @@ impl App {
                 self.font_dialog = None;
                 match crate::fonts::apply(ctx, &mut font) {
                     Ok(()) => self.settings.text_font = font,
-                    Err(e) => self.message = Some(format!("Cannot use the font: {e}")),
+                    Err(e) => {
+                        let message = self.lang().status_cannot_font(&e.to_string());
+                        self.message = Some(message);
+                    }
                 }
             }
         }
@@ -1619,11 +1666,12 @@ impl App {
 
     /// The update notice, right to left: its close button, the installer's, then its text.
     fn update_notice(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         let close = ui
             .small_button("×")
-            .on_hover_text("Close this notice")
+            .on_hover_text(lang.update_close())
             .clicked();
-        let request = self.installer.show(ui, self.update_notice.as_ref());
+        let request = self.installer.show(ui, self.update_notice.as_ref(), lang);
         if close {
             self.update_notice = None;
             self.installer.dismiss();
@@ -1645,15 +1693,16 @@ impl App {
     }
 
     fn status_text(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         ui.horizontal(|ui| {
             if let Some(l) = self.loading.first() {
                 ui.spinner();
-                let doing = if l.reload.is_some() {
-                    "Reloading"
+                let path = l.path.display().to_string();
+                ui.label(if l.reload.is_some() {
+                    lang.status_reloading(&path)
                 } else {
-                    "Opening"
-                };
-                ui.label(format!("{doing} {}…", l.path.display()));
+                    lang.status_opening(&path)
+                });
                 return;
             }
             if let Some(m) = &self.message {
@@ -1661,8 +1710,8 @@ impl App {
                 return;
             }
             let Some(open) = self.docs.active_mut() else {
-                let key = keys::text(ui.ctx(), self.lang(), &keys::OPEN);
-                ui.label(format!("Open a file with {key} or drop it on the window."));
+                let key = keys::text(ui.ctx(), lang, &keys::OPEN);
+                ui.label(lang.status_empty(&key));
                 return;
             };
             let s = open.doc.stats();
@@ -1673,20 +1722,22 @@ impl App {
                 .encoding()
                 .map(|e| format!("  ·  {}", e.label))
                 .unwrap_or_default();
+            let name = if open.doc.is_modified() {
+                lang.status_modified(&name)
+            } else {
+                name
+            };
+            let size = lang.decimal(s.bytes as f64 / 1048576.0, 1);
+            let time = lang.decimal(s.timings.total().as_secs_f64() * 1000.0, 0);
             ui.label(format!(
-                "{name}{}{encoding}  ·  {:.1} MiB  ·  {} lines  ·  {} elements  ·  opened in {:.0} ms",
-                if open.doc.is_modified() {
-                    " (modified)"
-                } else {
-                    ""
-                },
-                s.bytes as f64 / 1048576.0,
-                s.lines,
-                s.elements,
-                s.timings.total().as_secs_f64() * 1000.0,
+                "{name}{encoding}  ·  {size} MiB  ·  {}  ·  {}  ·  {}",
+                lang.status_lines(s.lines),
+                lang.status_elements(s.elements),
+                lang.status_opened_in(&time),
             ));
             if self.agent.as_ref().is_some_and(|a| a.connected() > 0) {
-                ui.label(RichText::new("  ·  Agent connected").strong());
+                let connected = format!("  ·  {}", lang.status_agent_connected());
+                ui.label(RichText::new(connected).strong());
             }
             if let Some(n) = &self.notice {
                 let text = RichText::new(format!("  ·  {}", n.text));
@@ -1705,7 +1756,11 @@ impl App {
                 let text = format!("  {} {}", problems_panel::symbol(p.severity), p.message);
                 let text =
                     RichText::new(text).color(problems_panel::color(ui.visuals(), p.severity));
-                if ui.link(text).on_hover_text("Go to the error").clicked() {
+                if ui
+                    .link(text)
+                    .on_hover_text(lang.status_go_to_error())
+                    .clicked()
+                {
                     problems_panel::go_to(open, i);
                 }
             }
@@ -1726,6 +1781,9 @@ impl eframe::App for App {
         let lang = self.lang();
         let ctx = ui.ctx().clone();
         self.poll_loading();
+        for open in self.docs.iter_mut() {
+            open.lang = lang;
+        }
         self.check_disk();
         self.apply_theme(&ctx);
         self.check_for_updates(&ctx);
@@ -1968,7 +2026,7 @@ impl eframe::App for App {
                 egui::Panel::top("xpath").show(ui, |ui| self.xpath.show(ui, open, lang));
             }
             if self.goto.visible {
-                egui::Panel::top("goto").show(ui, |ui| self.goto.show(ui, open));
+                egui::Panel::top("goto").show(ui, |ui| self.goto.show(ui, open, lang));
             }
             if preview_tree {
                 // Added first, so it is the rightmost: main tree | text | preview | its tree.
@@ -2008,6 +2066,7 @@ impl Open {
         let minified = doc.is_minified();
         log::debug!("minified check: {minified} in {:?}", started.elapsed());
         let mut open = Open {
+            lang: Lang::En,
             tree: tree::TreeState::new(&doc),
             number: 0,
             doc,
@@ -2182,23 +2241,23 @@ impl Open {
     /// the selection and the expanded rows follow.
     pub fn command(
         &mut self,
-        what: &str,
+        what: What,
         make: impl FnOnce(&Document) -> Result<Option<Edit>, CommandError>,
         shift: Shift,
     ) {
         // Typing may have left the index behind the text: read it first (D19).
         self.settle();
+        let lang = self.lang;
+        let refused = |why: &str| Note::refused(lang.status_refused(what.cannot(lang), why));
         if let Some(e) = &self.doc.index.error {
-            self.note = Some(Note::refused(format!(
-                "Cannot {what}: the document is not well-formed ({e})"
-            )));
+            self.note = Some(refused(&lang.status_not_well_formed(&e.to_string())));
             return;
         }
         let edit = match make(&self.doc) {
             Ok(Some(edit)) => edit,
             Ok(None) => return,
             Err(e) => {
-                self.note = Some(Note::refused(format!("Cannot {what}: {e}")));
+                self.note = Some(refused(&e.to_string()));
                 return;
             }
         };
@@ -2214,9 +2273,9 @@ impl Open {
                     {
                         self.select(id);
                     }
-                    Note::info(format!("{label}: nothing to change"))
+                    Note::info(lang.status_nothing_to_change(&label))
                 }
-                Err(e) => Note::refused(format!("Cannot {what}: {e}")),
+                Err(e) => refused(&e.to_string()),
             },
         );
     }
@@ -3060,11 +3119,17 @@ mod tests {
     fn the_status_text_stays_clear_of_the_update_notice() {
         let offered = Installer::offered_for_test;
         let ready = Installer::ready_for_test;
-        for installer in [Installer::default, offered, ready] {
+        use crate::lang::LanguageChoice::{English, German};
+        let installers = [Installer::default, offered, ready];
+        for (language, installer) in installers.iter().flat_map(|i| [(English, i), (German, i)]) {
             for width in [700.0, 900.0, 1280.0] {
                 let ctx = egui::Context::default();
                 let cc = eframe::CreationContext::_new_kittest(ctx.clone());
                 let mut app = App::new(&cc, Vec::new(), None);
+                app.settings = Settings {
+                    language,
+                    ..Default::default()
+                };
                 let mut doc = Document::untitled();
                 let name = "Bestellungen-Größe-und-Lieferungen-2026.xml";
                 doc.path = Some(std::env::temp_dir().join(name));
@@ -3102,9 +3167,123 @@ mod tests {
                 texts.sort_by(|a, b| a.left().total_cmp(&b.left()));
                 assert!(texts.len() >= 3, "{texts:?}");
                 for pair in texts.windows(2) {
-                    assert!(pair[0].right() <= pair[1].left(), "{width}: {pair:?}");
+                    assert!(
+                        pair[0].right() <= pair[1].left(),
+                        "{language:?} {width}: {pair:?}"
+                    );
                 }
             }
         }
+    }
+
+    /// The status bar of an app set to German, as the texts it draws.
+    fn german_status(app: &mut App, ctx: &egui::Context) -> Vec<String> {
+        let mut texts = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 300.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::Panel::bottom("status").show(ui, |ui| app.status_bar(ui));
+            });
+            out.textures_delta.clear();
+            texts = out
+                .shapes
+                .into_iter()
+                .filter_map(|s| match s.shape {
+                    egui::Shape::Text(t) => {
+                        let right = t.pos.x + t.galley.rect.right();
+                        assert!(right <= 1280.0, "{:?} ends at {right}", t.galley.text());
+                        Some(t.galley.text().to_owned())
+                    }
+                    _ => None,
+                })
+                .collect();
+        }
+        texts
+    }
+
+    /// LANG-1 and LANG-17: the status bar and what the commands put in it, in German, for a
+    /// file with a byte order mark, CRLF line endings and non-ASCII text.
+    #[test]
+    fn the_status_bar_is_german() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.settings = Settings {
+            language: crate::lang::LanguageChoice::German,
+            ..Default::default()
+        };
+        let shows = |texts: &[String], part: &str| texts.iter().any(|t| t.contains(part));
+        let texts = german_status(&mut app, &ctx);
+        assert!(shows(&texts, "oder auf das Fenster ziehen"), "{texts:?}");
+
+        let src = "\u{feff}<r>\r\n  <a>Größe</a>\r\n</r>\r\n";
+        app.add_document(Document::from_bytes(src.as_bytes().to_vec()));
+        app.docs.active_mut().unwrap().lang = app.lang();
+        app.format_document();
+        let texts = german_status(&mut app, &ctx);
+        for part in [
+            "0,0 MiB",
+            "Zeilen",
+            "2 Elemente",
+            "geöffnet in",
+            "Formatiert: ",
+        ] {
+            assert!(shows(&texts, part), "{part}: {texts:?}");
+        }
+
+        app.docs
+            .active_mut()
+            .unwrap()
+            .type_edit(Edit::new("Type").replace(3..3, " "))
+            .unwrap();
+        app.undo();
+        app.redo();
+        let texts = german_status(&mut app, &ctx);
+        assert!(shows(&texts, "(geändert)"), "{texts:?}");
+        assert!(shows(&texts, "Wiederholt: Type"), "{texts:?}");
+
+        let gone = std::env::temp_dir().join("xml-atlas-nicht-da-Größe.xml");
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+        app.loaded(gone, Err(error));
+        let texts = german_status(&mut app, &ctx);
+        assert!(shows(&texts, "konnte nicht geöffnet werden: "), "{texts:?}");
+    }
+
+    /// What element commands and bookmarks say takes the tab's language.
+    #[test]
+    fn commands_report_in_the_tabs_language() {
+        let doc = Document::from_bytes("\u{feff}<r>\r\n  <a>Größe</a>\r\n</r>".as_bytes().to_vec());
+        let mut open = Open::new(doc, egui::Id::unique("german-notes"));
+        open.lang = Lang::De;
+        let note = |open: &mut Open| open.note.take().unwrap().text;
+        let root = xml_atlas_engine::command::resolve(&open.doc, "/r").unwrap();
+        open.select(root);
+        crate::bookmarks::toggle(&mut open);
+        assert_eq!(note(&mut open), "Lesezeichen gesetzt (1 insgesamt)");
+        crate::bookmarks::clear(&mut open);
+        assert_eq!(note(&mut open), "1 Lesezeichen entfernt");
+        open.command(
+            What::Rename,
+            |d| xml_atlas_engine::command::rename(d, root, "a b").map(Some),
+            Shift::None,
+        );
+        let text = note(&mut open);
+        // The reason is the engine's, in English until its messages are translated.
+        assert!(text.starts_with("Umbenennen nicht möglich: "), "{text}");
+        let end = open.doc.src.len();
+        open.type_edit(Edit::new("Type").replace(end - 4..end, ""))
+            .unwrap();
+        open.command(What::Delete, |_| Ok(None), Shift::None);
+        let text = note(&mut open);
+        assert!(
+            text.starts_with("Löschen nicht möglich: das Dokument ist nicht wohlgeformt ("),
+            "{text}"
+        );
     }
 }

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
+use crate::lang::Lang;
 use crate::update::{self, Notice, RELEASES, Release, Version};
 
 /// The largest package taken; the DMG, the largest, has 22 MiB.
@@ -86,7 +87,7 @@ enum Done {
 }
 
 struct Failure {
-    why: String,
+    why: Why,
     /// The system has nothing that installs it: the page opens by itself.
     open_page: bool,
 }
@@ -106,7 +107,7 @@ enum State {
     Downloading(Download),
     Ready(Package, PathBuf),
     Opened(Package),
-    Failed(Package, String),
+    Failed(Package, Why),
 }
 
 /// The update on its way to the system's installer.
@@ -232,67 +233,59 @@ impl Installer {
     }
 
     /// The status bar's update notice, right to left.
-    pub fn show(&self, ui: &mut egui::Ui, notice: Option<&Notice>) -> Option<Request> {
+    pub fn show(&self, ui: &mut egui::Ui, notice: Option<&Notice>, lang: Lang) -> Option<Request> {
         let mut request = None;
         match &self.state {
             State::Idle => {
                 if let Some(notice) = notice {
-                    notice.show(ui);
+                    notice.show(ui, lang);
                 }
             }
             State::Offered(package) => {
                 let notice = notice?;
                 if matches!(notice, Notice::Newer(..))
                     && ui
-                        .small_button("Download and install…")
-                        .on_hover_text(format!(
-                            "Download {} ({:.1} MiB), check it and open it with the system's \
-                             installer",
-                            package.name,
-                            package.size as f64 / 1_048_576.0
+                        .small_button(lang.install_start())
+                        .on_hover_text(lang.install_start_tip(
+                            &package.name,
+                            &lang.decimal(package.size as f64 / 1_048_576.0, 1),
                         ))
                         .clicked()
                 {
                     request = Some(Request::Start);
                 }
-                notice.show(ui);
+                notice.show(ui, lang);
             }
             State::Downloading(d) => {
-                if ui.small_button("Cancel").clicked() {
+                if ui.small_button(lang.install_cancel()).clicked() {
                     request = Some(Request::Cancel);
                 }
                 let percent = d.got.load(Ordering::Relaxed) * 100 / d.package.size;
-                ui.label(format!(
-                    "Downloading XML Atlas {}: {percent}%",
-                    d.package.version
-                ));
+                ui.label(
+                    lang.install_downloading(&d.package.version.to_string(), &percent.to_string()),
+                );
             }
             State::Ready(package, path) => {
                 if ui
-                    .small_button("Close and install…")
-                    .on_hover_text(
-                        "Close XML Atlas, asking about unsaved changes, and open the installer",
-                    )
+                    .small_button(lang.install_close())
+                    .on_hover_text(lang.install_close_tip())
                     .clicked()
                 {
                     request = Some(Request::CloseAndInstall);
                 }
-                ui.label(format!("XML Atlas {} is downloaded", package.version))
+                ui.label(lang.install_downloaded(&package.version.to_string()))
                     .on_hover_text(path.display().to_string());
             }
             State::Opened(package) => {
-                ui.label(format!(
-                    "Installer opened for XML Atlas {}: restart XML Atlas afterwards",
-                    package.version
-                ));
+                ui.label(lang.install_opened(&package.version.to_string()));
             }
             State::Failed(package, why) => {
-                ui.hyperlink_to("Open the download page", &package.page);
+                ui.hyperlink_to(lang.install_page(), &package.page);
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!("Cannot install XML Atlas {}", package.version),
+                    lang.install_failed(&package.version.to_string()),
                 )
-                .on_hover_text(why);
+                .on_hover_text(why.text(lang));
             }
         }
         request
@@ -331,7 +324,7 @@ impl Installer {
                 got,
                 cancel,
             }),
-            Err(e) => State::Failed(package, format!("Cannot start the download: {e}")),
+            Err(e) => State::Failed(package, Why::CannotStart(e.to_string())),
         };
     }
 
@@ -344,7 +337,7 @@ impl Installer {
         let result = match d.rx.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
-            Err(TryRecvError::Disconnected) => Err(failed("The download stopped".into())),
+            Err(TryRecvError::Disconnected) => Err(failed(Why::Stopped)),
         };
         let package = d.package.clone();
         let mut page = None;
@@ -352,7 +345,8 @@ impl Installer {
             Ok(Done::Opened) => State::Opened(package),
             Ok(Done::Ready(path)) => State::Ready(package, path),
             Err(failure) => {
-                log::warn!("update: {}", failure.why);
+                // Logs are in English (LANG-3).
+                log::warn!("update: {}", failure.why.text(Lang::En));
                 page = failure.open_page.then(|| package.page.clone());
                 State::Failed(package, failure.why)
             }
@@ -393,12 +387,49 @@ impl Installer {
         if let Some((kind, path)) = self.take_for_exit(quitting)
             && let Err(e) = open(kind, &path)
         {
-            log::error!("update: {e}");
+            log::error!("update: {}", e.text(Lang::En));
         }
     }
 
     fn take_for_exit(&mut self, quitting: bool) -> Option<(Kind, PathBuf)> {
         self.closing.take().filter(|_| quitting)
+    }
+}
+
+/// Why a download or the installer failed: made on the download's thread, worded when
+/// shown or logged.
+#[derive(Debug, PartialEq)]
+enum Why {
+    NoInstaller(String),
+    Stopped,
+    NoFolder,
+    CannotWrite(PathBuf, String),
+    Cancelled,
+    /// The request's own words.
+    Request(String),
+    BrokeOff(String),
+    Differs,
+    CannotMark(String),
+    CannotOpen(PathBuf, String),
+    CannotStart(String),
+}
+
+impl Why {
+    fn text(&self, lang: Lang) -> String {
+        let at = |path: &Path| path.display().to_string();
+        match self {
+            Why::NoInstaller(file) => lang.install_why_no_installer(file),
+            Why::Stopped => lang.install_why_stopped().into(),
+            Why::NoFolder => lang.install_why_no_folder().into(),
+            Why::CannotWrite(path, e) => lang.install_why_write(&at(path), e),
+            Why::Cancelled => lang.install_why_cancelled().into(),
+            Why::Request(why) => why.clone(),
+            Why::BrokeOff(e) => lang.install_why_broke_off(e),
+            Why::Differs => lang.install_why_differs().into(),
+            Why::CannotMark(e) => lang.install_why_mark(e),
+            Why::CannotOpen(path, e) => lang.install_why_open(&at(path), e),
+            Why::CannotStart(e) => lang.install_why_start(e),
+        }
     }
 }
 
@@ -413,21 +444,18 @@ fn hand_over(
         let handler = output_of("xdg-mime", &["query", "default", mime]).unwrap_or_default();
         if !is_installer(&handler) {
             return Err(Failure {
-                why: format!(
-                    "Found no installer here for {}, so the download page was opened",
-                    package.name
-                ),
+                why: Why::NoInstaller(package.name.clone()),
                 open_page: true,
             });
         }
     }
     let bytes = fetch(package, cancel, progress).map_err(failed)?;
-    let folder = downloads().ok_or_else(|| failed("No folder for downloads".into()))?;
+    let folder = downloads().ok_or_else(|| failed(Why::NoFolder))?;
     let path = keep(&folder, &package.name, &bytes)
-        .map_err(|e| failed(format!("Cannot write to {}: {e}", folder.display())))?;
+        .map_err(|e| failed(Why::CannotWrite(folder.clone(), e.to_string())))?;
     mark_downloaded(package.kind, &path).map_err(failed)?;
     if cancel.load(Ordering::Relaxed) {
-        return Err(failed("Cancelled".into()));
+        return Err(failed(Why::Cancelled));
     }
     if package.kind.closes_first() {
         return Ok(Done::Ready(path));
@@ -441,7 +469,7 @@ fn hand_over(
     }
 }
 
-fn failed(why: String) -> Failure {
+fn failed(why: Why) -> Failure {
     Failure {
         why,
         open_page: false,
@@ -459,7 +487,7 @@ fn fetch(
     package: &Package,
     cancel: &AtomicBool,
     progress: impl FnMut(u64),
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, Why> {
     let agent = update::agent()
         .https_only(true)
         .timeout_connect(Some(CONNECT_TIMEOUT))
@@ -467,7 +495,10 @@ fn fetch(
         .timeout_recv_body(Some(BODY_TIMEOUT))
         .build()
         .new_agent();
-    let response = agent.get(package.url()).call().map_err(|e| e.to_string())?;
+    let response = agent
+        .get(package.url())
+        .call()
+        .map_err(|e| Why::Request(e.to_string()))?;
     read_checked(
         response.into_body().into_reader(),
         package,
@@ -482,14 +513,14 @@ fn read_checked(
     package: &Package,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64),
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, Why> {
     // One byte more shows a file that is too long, without reading all of it.
     let mut from = from.take(package.size + 1);
     let mut bytes = Vec::new();
     let mut chunk = vec![0; CHUNK];
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return Err("Cancelled".into());
+            return Err(Why::Cancelled);
         }
         match from.read(&mut chunk) {
             Ok(0) => break,
@@ -498,11 +529,11 @@ fn read_checked(
                 progress((bytes.len() as u64).min(package.size));
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(format!("The download broke off: {e}")),
+            Err(e) => return Err(Why::BrokeOff(e.to_string())),
         }
     }
     if bytes.len() as u64 != package.size || sha256(&bytes) != package.sha256 {
-        return Err("The download differs from what GitHub lists for it; nothing was saved".into());
+        return Err(Why::Differs);
     }
     Ok(bytes)
 }
@@ -572,8 +603,8 @@ fn keep(folder: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
 
 /// Says that the file came from the internet, as a browser does. Without it SmartScreen and
 /// Gatekeeper would not look at it, and our files are unsigned (PKG-13, PKG-21).
-fn mark_downloaded(kind: Kind, path: &Path) -> Result<(), String> {
-    let cannot = |e: String| format!("Cannot mark the file as downloaded: {e}");
+fn mark_downloaded(kind: Kind, path: &Path) -> Result<(), Why> {
+    let cannot = Why::CannotMark;
     match kind {
         Kind::Deb | Kind::Rpm => Ok(()),
         Kind::Msi => {
@@ -598,7 +629,7 @@ fn mark_downloaded(kind: Kind, path: &Path) -> Result<(), String> {
 }
 
 /// Opens `path` as a double click does: with the installer, which asks for what it needs.
-fn open(kind: Kind, path: &Path) -> Result<(), String> {
+fn open(kind: Kind, path: &Path) -> Result<(), Why> {
     let mut command = match kind {
         Kind::Deb | Kind::Rpm => {
             let mut command = Command::new("xdg-open");
@@ -616,7 +647,7 @@ fn open(kind: Kind, path: &Path) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let cannot = |e: String| format!("Cannot open the installer for {}: {e}", path.display());
+    let cannot = |e: String| Why::CannotOpen(path.to_owned(), e);
     let mut child = command.spawn().map_err(|e| cannot(e.to_string()))?;
     if kind.closes_first() {
         // The program is ending, and Explorer's exit code says nothing.
@@ -958,7 +989,7 @@ mod tests {
             let mut request = None;
             let mut out = ctx.run_ui(input, |ui| {
                 let layout = egui::Layout::right_to_left(egui::Align::Center);
-                ui.with_layout(layout, |ui| request = installer.show(ui, notice));
+                ui.with_layout(layout, |ui| request = installer.show(ui, notice, Lang::En));
             });
             out.textures_delta.clear();
             (request, out.shapes)
@@ -1023,7 +1054,10 @@ mod tests {
             click(&ready, None, "Close and install…"),
             Some(Request::CloseAndInstall)
         );
-        for state in [State::Opened(p.clone()), State::Failed(p, "offline".into())] {
+        for state in [
+            State::Opened(p.clone()),
+            State::Failed(p, Why::Request("offline".into())),
+        ] {
             assert_eq!(click(&with(state), None, ""), None);
         }
     }
@@ -1065,7 +1099,7 @@ mod tests {
                 }),
                 closing: None,
             };
-            let why = "no".to_owned();
+            let why = Why::Request("no".into());
             assert!(tx.send(Err(Failure { why, open_page })).is_ok());
             assert_eq!(installer.poll(), open_page.then_some(p.page));
             assert!(installer.is_active());
