@@ -32,6 +32,8 @@ struct Drag {
     active: bool,
     /// Where the button was let go this frame, when a drag ended.
     release: Option<egui::Pos2>,
+    /// The name the press opened a menu on: that menu's id and where the name is.
+    from: Option<(egui::Id, egui::Rect)>,
 }
 
 impl Drag {
@@ -130,6 +132,16 @@ impl MenuKeys {
         if drag.active && released {
             drag.release = pos;
             drag.active = false;
+            // Let go on the name the press opened the menu on. egui takes that as the click
+            // that toggles the menu: closed here, before the bar is drawn, the toggle opens
+            // it again at once. Left open, it would be closed for this frame and laid out
+            // unseen anew once reopened, which flickers.
+            if let Some((id, name)) = drag.from
+                && pos.is_some_and(|p| name.contains(p))
+                && ctx.input(|i| i.pointer.primary_clicked())
+            {
+                egui::Popup::close_id(ctx, id);
+            }
         } else if !down {
             drag.active = false;
         }
@@ -226,6 +238,7 @@ impl MenuKeys {
                 // Pressed on a menu that is not open: open it now and follow the pointer.
                 Popup::open_id(ctx, ids[j]);
                 drag.active = true;
+                drag.from = Some((ids[j], bar[j].rect));
             } else if drag.active
                 && down
                 && let Some(j) = over(pos)
