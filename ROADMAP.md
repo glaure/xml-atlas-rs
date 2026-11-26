@@ -185,6 +185,9 @@ latest release, 2013) on 2026-11-21; the entries it adds to 1.x are below:
       `docs/decisions.md`: own index or convert; one root only in XML Marker). 2.2 shows a
       tree of name = value with every value as a string, errors with a marker, and Indent for
       JSON (XM-70)
+- [ ] TOML: browse and edit TOML files, another document kind besides XML (needs a decision
+      in `docs/decisions.md`, best made together with JSON's; edits keep comments and every
+      other byte, AGENTS.md rule 7)
 - [ ] Plain text mode: the editor without highlighting or navigation (low priority; XM-69:
       no tree, no checks)
 
