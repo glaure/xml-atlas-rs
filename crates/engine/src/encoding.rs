@@ -41,9 +41,19 @@ pub struct FileEncoding {
 pub struct Opened {
     /// `None` for a UTF-8 file, which is kept as it is.
     pub encoding: Option<FileEncoding>,
-    /// A declared encoding that is not used, and why: unknown, or UTF-16 in a file that is
-    /// not UTF-16. Shown as a warning (OPEN-13).
-    pub ignored: Option<String>,
+    /// A declared encoding that is not used, and why. Shown as a warning (OPEN-13).
+    pub ignored: Option<IgnoredEncoding>,
+}
+
+/// Why the encoding a file declares is not used.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum IgnoredEncoding {
+    #[error("The file declares encoding {label}, but it is not UTF-16: it is read as UTF-8")]
+    NotUtf16 { label: String },
+    #[error(
+        "The file declares encoding {label}, which XML Atlas does not know: it is read as UTF-8, so characters outside ASCII may be wrong"
+    )]
+    Unknown { label: String },
 }
 
 /// Why the document cannot be written in its file's encoding.
@@ -138,7 +148,12 @@ pub fn encode<'a>(src: &'a [u8], enc: Option<&FileEncoding>) -> Result<Cow<'a, [
 /// The encoding of `file` when it is not UTF-8, its label and the length of its byte order
 /// mark; and a declared encoding that is not used, with why.
 #[allow(clippy::type_complexity)]
-fn detect(file: &[u8]) -> (Option<(&'static Encoding, String, usize)>, Option<String>) {
+fn detect(
+    file: &[u8],
+) -> (
+    Option<(&'static Encoding, String, usize)>,
+    Option<IgnoredEncoding>,
+) {
     if file.starts_with(UTF8_BOM) {
         return (None, None);
     }
@@ -160,23 +175,14 @@ fn detect(file: &[u8]) -> (Option<(&'static Encoding, String, usize)>, Option<St
     };
     match Encoding::for_label(label.as_bytes()) {
         Some(e) if e == encoding_rs::UTF_8 => (None, None),
-        Some(e) if e == UTF_16LE || e == UTF_16BE => (
-            None,
-            Some(format!(
-                "The file declares encoding {label}, but it is not UTF-16: it is read as UTF-8"
-            )),
-        ),
+        Some(e) if e == UTF_16LE || e == UTF_16BE => {
+            (None, Some(IgnoredEncoding::NotUtf16 { label }))
+        }
         // Labels the Encoding Standard maps to nothing usable.
-        Some(e) if e.output_encoding() != e => (None, Some(unknown(&label))),
+        Some(e) if e.output_encoding() != e => (None, Some(IgnoredEncoding::Unknown { label })),
         Some(e) => (Some((e, label, 0)), None),
-        None => (None, Some(unknown(&label))),
+        None => (None, Some(IgnoredEncoding::Unknown { label })),
     }
-}
-
-fn unknown(label: &str) -> String {
-    format!(
-        "The file declares encoding {label}, which XML Atlas does not know: it is read as UTF-8, so characters outside ASCII may be wrong"
-    )
 }
 
 /// The value of `encoding` in the XML declaration, and the byte where it starts. Reads only
@@ -415,10 +421,10 @@ mod tests {
     fn declarations_that_are_not_used() {
         let (src, opened) = decode(b"<?xml version=\"1.0\" encoding=\"klingon\"?><r/>".to_vec());
         assert_eq!(opened.encoding, None);
-        assert!(opened.ignored.unwrap().contains("klingon"));
+        assert!(opened.ignored.unwrap().to_string().contains("klingon"));
         assert_eq!(src, b"<?xml version=\"1.0\" encoding=\"klingon\"?><r/>");
         let (_, opened) = decode(b"<?xml version=\"1.0\" encoding=\"UTF-16\"?><r/>".to_vec());
         assert_eq!(opened.encoding, None);
-        assert!(opened.ignored.unwrap().contains("not UTF-16"));
+        assert!(opened.ignored.unwrap().to_string().contains("not UTF-16"));
     }
 }

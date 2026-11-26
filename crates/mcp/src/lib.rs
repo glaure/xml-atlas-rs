@@ -462,7 +462,7 @@ pub fn call(
                         "severity": if p.severity == Severity::Error { "error" } else { "warning" },
                         "line": line,
                         "column": column,
-                        "message": p.message,
+                        "message": p.message.to_string(),
                     })
                 })
                 .collect();

@@ -37,7 +37,7 @@ pub fn show(ui: &mut Ui, open: &mut Open) {
                 let text = lang.problems_entry(
                     &(line + 1).to_string(),
                     &(column + 1).to_string(),
-                    &p.message,
+                    &crate::engine_words::problem(lang, &p.message),
                 );
                 ui.horizontal(|ui| {
                     ui.label(

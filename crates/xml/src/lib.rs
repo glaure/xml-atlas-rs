@@ -11,11 +11,14 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::Range;
+use std::str::Utf8Error;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use quick_xml::Reader;
 use quick_xml::encoding::EncodingError;
+pub use quick_xml::errors::{IllFormedError, SyntaxError};
 use quick_xml::events::{BytesStart, Event};
 
 mod decode;
@@ -117,10 +120,49 @@ impl Node {
 
 /// Where and why parsing stopped.
 #[derive(Clone, Debug, thiserror::Error)]
-#[error("{message} (at byte {offset})")]
+#[error("{reason} (at byte {offset})")]
 pub struct ParseError {
     pub offset: u64,
-    pub message: String,
+    pub reason: ParseReason,
+}
+
+/// What is wrong with text that is not well-formed. Its words (`Display`) are the English
+/// the CLI and the MCP tools give; the window words each case in its own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParseReason {
+    /// The element of this name is still open where it should have been closed.
+    NotClosed(String),
+    /// An end tag of this name matches no open element.
+    NoOpenElement(String),
+    /// An element's name is longer than `max` bytes.
+    NameTooLong {
+        max: usize,
+    },
+    NotUtf8(Utf8Error),
+    Syntax(SyntaxError),
+    IllFormed(IllFormedError),
+    /// Any other error of the XML parser library, in its own words.
+    Library(String),
+}
+
+impl fmt::Display for ParseReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The library's own errors are worded by the library.
+        let library = match self {
+            Self::NotClosed(name) => return write!(f, "element <{name}> is not closed"),
+            Self::NoOpenElement(name) => {
+                return write!(f, "end tag </{name}> matches no open element");
+            }
+            Self::NameTooLong { max } => {
+                return write!(f, "element name longer than {max} bytes");
+            }
+            Self::Library(message) => return f.write_str(message),
+            Self::NotUtf8(e) => quick_xml::Error::Encoding(EncodingError::Utf8(*e)),
+            Self::Syntax(e) => quick_xml::Error::Syntax(*e),
+            Self::IllFormed(e) => quick_xml::Error::IllFormed(e.clone()),
+        };
+        library.fmt(f)
+    }
 }
 
 /// Which node ids the last local change replaced (`Index::update`, `Index::keep_stale`):
@@ -1291,7 +1333,7 @@ impl<'s> Builder<'s> {
         let name = String::from_utf8_lossy(&self.src[n.name_span()]);
         ParseError {
             offset: n.start,
-            message: format!("element <{name}> is not closed"),
+            reason: ParseReason::NotClosed(name.into_owned()),
         }
     }
 
@@ -1365,7 +1407,7 @@ impl<'s> Builder<'s> {
 fn name_too_long(offset: u64) -> ParseError {
     ParseError {
         offset,
-        message: format!("element name longer than {MAX_NAME_LEN} bytes"),
+        reason: ParseReason::NameTooLong { max: MAX_NAME_LEN },
     }
 }
 
@@ -1375,10 +1417,7 @@ fn name_too_long(offset: u64) -> ParseError {
 fn unexpected_end(offset: u64, name: &[u8]) -> ParseError {
     ParseError {
         offset,
-        message: format!(
-            "end tag </{}> matches no open element",
-            String::from_utf8_lossy(name)
-        ),
+        reason: ParseReason::NoOpenElement(String::from_utf8_lossy(name).into_owned()),
     }
 }
 
@@ -1402,11 +1441,14 @@ fn parse_error(e: quick_xml::Error, start: u64, position: u64) -> Failed {
         }
         _ => (position, false),
     };
+    let reason = match e {
+        quick_xml::Error::Encoding(EncodingError::Utf8(u)) => ParseReason::NotUtf8(u),
+        quick_xml::Error::Syntax(e) => ParseReason::Syntax(e),
+        quick_xml::Error::IllFormed(e) => ParseReason::IllFormed(e),
+        other => ParseReason::Library(other.to_string()),
+    };
     Failed {
-        error: ParseError {
-            offset,
-            message: e.to_string(),
-        },
+        error: ParseError { offset, reason },
         not_utf8,
         offset,
     }
@@ -1459,7 +1501,7 @@ mod tests {
         idx.error
             .iter()
             .chain(&idx.more_errors)
-            .map(|e| (e.offset, e.message.clone()))
+            .map(|e| (e.offset, e.reason.to_string()))
             .collect()
     }
 
@@ -1483,7 +1525,14 @@ mod tests {
         );
         assert_eq!(errors(&idx).len(), 1);
         assert_eq!(idx.error.as_ref().unwrap().offset, at("<ö>"));
-        assert!(idx.error.as_ref().unwrap().message.contains("<ö>"));
+        assert!(
+            idx.error
+                .as_ref()
+                .unwrap()
+                .reason
+                .to_string()
+                .contains("<ö>")
+        );
         assert_eq!(idx.node(o).end, at("</ä>"));
         assert_eq!(idx.node(u).parent, o);
         assert_eq!(idx.node(a).end, at("</ä>") + "</ä>".len() as u64);
@@ -1501,7 +1550,7 @@ mod tests {
         assert_eq!(errors(&idx).len(), 1);
         let e = idx.error.as_ref().unwrap();
         assert_eq!(e.offset, 7);
-        assert!(e.message.contains("</x>"), "{e}");
+        assert!(e.reason.to_string().contains("</x>"), "{e}");
         assert_eq!(
             idx.node(named(&idx, src, "b")).parent,
             named(&idx, src, "r")
@@ -2022,7 +2071,7 @@ mod tests {
         let idx = index(long.as_bytes());
         let err = idx.error.as_ref().expect("too long");
         assert_eq!(err.offset, 3);
-        assert!(err.message.contains("longer than"));
+        assert!(err.reason.to_string().contains("longer than"));
         // The tree up to the error is kept.
         assert_eq!(idx.name(long.as_bytes(), idx.root_element().unwrap()), b"r");
     }
@@ -2420,6 +2469,6 @@ mod tests {
     #[test]
     fn reports_unclosed_element() {
         let idx = index(b"<a><b></b>");
-        assert!(idx.error.unwrap().message.contains("<a>"));
+        assert!(idx.error.unwrap().reason.to_string().contains("<a>"));
     }
 }

@@ -895,7 +895,11 @@ mod tests {
     fn rules_next_to_the_file_list_what_finds_nothing() {
         let (open, dir) = opened("ref-problems");
         assert!(open.rules().is_some());
-        let warnings: Vec<&str> = open.problems.iter().map(|p| p.message.as_str()).collect();
+        let warnings: Vec<String> = open
+            .problems
+            .iter()
+            .map(|p| p.message.to_string())
+            .collect();
         assert_eq!(warnings, ["Reference \"Shared:Fehlt\" finds nothing"]);
         std::fs::remove_dir_all(dir).unwrap();
     }

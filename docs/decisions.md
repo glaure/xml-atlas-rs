@@ -2072,7 +2072,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   never shows the engine's reason, only that it cannot search.
 - **Decided (owner, 2026-11-26):** the XML parser library's errors that XML Atlas knows
   are translated; LANG-4 showed all of them as they come. Others still come as they are.
-- **Next:** step 4, XML problems and the warnings about encodings.
+- **Built, step 4, third part:** XML problems and the warnings about encodings. What the
+  parser finds is a `ParseReason` and a problem's message a `problems::Message`; their own
+  words are the English they were. For the library's errors those words still come from the
+  library. The window matches the library's `SyntaxError` and `IllFormedError` by case, so
+  an update that adds one does not build until it is worded.
+- **Next:** step 4, XPath.
 
 ## Open questions
 

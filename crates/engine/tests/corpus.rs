@@ -206,7 +206,7 @@ fn malformed_file_keeps_what_came_before_the_error() {
     let doc = open("malformed_unclosed.xml");
     let error = doc.index.error.as_ref().expect("an error");
     assert_eq!(doc.line_of(error.offset), 4, "{error}");
-    assert!(error.message.contains("<order>"), "{error}");
+    assert!(error.reason.to_string().contains("<order>"), "{error}");
     assert_eq!(
         &element_names(&doc)[..4],
         ["shop", "owner", "orders", "order"]

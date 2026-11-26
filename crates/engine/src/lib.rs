@@ -15,7 +15,7 @@ use crate::format::newline_style;
 
 pub use disk::{DiskChange, FileStamp};
 pub use edit::{DeletedNode, Edit, EditError, History, Splice, StepName, Typing};
-pub use encoding::{FileEncoding, Unencodable};
+pub use encoding::{FileEncoding, IgnoredEncoding, Unencodable};
 pub use format::{
     DocumentOptions, FormatError, FormatOptions, compact, compact_indexed, format, format_indexed,
 };
@@ -110,7 +110,7 @@ pub struct Document {
     /// and saving converts it back (OPEN-8).
     encoding: Option<FileEncoding>,
     /// A declared encoding that is not used, and why (OPEN-13).
-    encoding_note: Option<String>,
+    encoding_note: Option<IgnoredEncoding>,
 }
 
 /// Why a document could not be saved.
@@ -260,8 +260,8 @@ impl Document {
     }
 
     /// A declared encoding that is not used, and why.
-    pub fn encoding_note(&self) -> Option<&str> {
-        self.encoding_note.as_deref()
+    pub fn encoding_note(&self) -> Option<&IgnoredEncoding> {
+        self.encoding_note.as_ref()
     }
 
     /// Applies `edit` as one undo step and indexes the document again. On error nothing
@@ -714,12 +714,12 @@ mod tests {
             doc.index
                 .error
                 .as_ref()
-                .map(|e| (e.offset, e.message.clone())),
+                .map(|e| (e.offset, e.reason.clone())),
             fresh
                 .index
                 .error
                 .as_ref()
-                .map(|e| (e.offset, e.message.clone())),
+                .map(|e| (e.offset, e.reason.clone())),
             "{what}"
         );
         assert_eq!(doc.line_starts, fresh.line_starts, "{what}");
