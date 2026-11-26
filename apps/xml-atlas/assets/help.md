@@ -176,7 +176,7 @@ references, format options, updates and AI agents. A change applies at once. App
 each theme; click one to use it.
 
 *Language / Sprache*, under Localization, chooses English (the default), Deutsch or
-the system's language. German is not complete yet: this guide is still in English.
+the system's language.
 
 ## Updates
 

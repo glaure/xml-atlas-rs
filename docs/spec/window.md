@@ -48,8 +48,9 @@ How the views are laid out, and how the window looks.
 - **WIN-4** `[built]` A Help menu. *XML Atlas Help* (also F1) opens a window with a short
   guide: opening files, the tree, the grid, the text, Find and Replace, formatting, undo and
   saving, the keys, and where the settings are. The guide is built into the program, so it
-  works offline; its text is `apps/xml-atlas/assets/help.md`, kept up to date with the
-  features. *About XML Atlas* opens a card in the middle of the window (owner, 2026-11-26):
+  works offline; its text is `apps/xml-atlas/assets/help.md`, and in German `help.de.md`
+  (LANG-16), both kept up to date with the features. *About XML Atlas* opens a card in the
+  middle of the window (owner, 2026-11-26):
   the program's icon, drawn as shapes so that it is sharp at every scale, the name, the
   version, what the program is, buttons that open the project page and the releases, *Copy
   version info* (the version, operating system and processor, for a bug report; it then

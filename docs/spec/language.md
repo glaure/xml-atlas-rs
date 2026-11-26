@@ -1,9 +1,9 @@
 # Language
 
 The language of the window's texts: English and German now, French and Spanish later
-(`docs/decisions.md`, D45; issue #183). Steps 2 to 4 of the order of
-work are built: German in the window's own texts and in what the engine says. The guide
-(step 5) is still English. A rule that is not built yet stays `[planned]`.
+(`docs/decisions.md`, D45; issue #183). The order of work is built: German in the window's
+own texts, in what the engine says and in the guide. A rule that is not built yet stays
+`[planned]`.
 
 ## Rules
 
@@ -101,7 +101,7 @@ work are built: German in the window's own texts and in what the engine says. Th
 
 ### The guide
 
-- **LANG-16** `[planned]` The built-in guide (WIN-4) is shown in the window's language:
+- **LANG-16** `[built]` The built-in guide (WIN-4) is shown in the window's language:
   `help.md` in English, `help.de.md` in German, with the same sections in the same order.
   It names menus, entries and keys as the window shows them in that language. A language
   without a guide shows the English one.
@@ -134,8 +134,7 @@ work are built: German in the window's own texts and in what the engine says. Th
 
 ## Order of work
 
-From D45; each step is a pull request or more. Until step 5 is done, German shows the
-guide in English.
+From D45; each step is a pull request or more.
 
 1. These rules.
 2. The language files and their build step, the setting, and menus, context menus, toolbar
@@ -197,7 +196,9 @@ guide in English.
          in its header. The names of a rules file's keys stay (LANG-3). A test gets the
          check's findings from the engine and holds the window's English to its. The JSON
          library's message has a German lead and no English one.
-5. The German guide (LANG-16).
+5. The German guide (LANG-16). Built. Tests hold it to the English guide's sections, list
+   items, paragraphs and `code`, look for the German window's names of menus, entries and
+   buttons in it, and draw it in a small window. No one has proofread its German yet.
 
 ## Acceptance tests
 

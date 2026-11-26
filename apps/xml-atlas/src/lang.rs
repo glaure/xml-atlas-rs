@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(LanguageChoice::German.language(Some("en-US")), Lang::De);
     }
 
-    /// LANG-15: the program's fonts have every character of the German texts.
+    /// LANG-15: the program's fonts have every character of the German texts and guide.
     #[test]
     fn the_fonts_have_every_german_character() {
         let ctx = egui::Context::default();
@@ -189,6 +189,8 @@ mod tests {
             let source = include_str!("../lang/de.toml");
             let texts: toml::Table = source.parse().unwrap();
             let mut characters = std::collections::BTreeSet::new();
+            let guide = include_str!("../assets/help.de.md");
+            characters.extend(guide.chars().filter(|c| !c.is_control()));
             for value in texts.values() {
                 characters.extend(value.to_string().chars().filter(|c| !c.is_control()));
             }
