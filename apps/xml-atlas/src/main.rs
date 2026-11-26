@@ -5,6 +5,7 @@
 // it is redirected.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod about;
 mod agent;
 mod app;
 mod attribute_table;

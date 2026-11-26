@@ -49,8 +49,13 @@ How the views are laid out, and how the window looks.
   guide: opening files, the tree, the grid, the text, Find and Replace, formatting, undo and
   saving, the keys, and where the settings are. The guide is built into the program, so it
   works offline; its text is `apps/xml-atlas/assets/help.md`, kept up to date with the
-  features. *About XML Atlas* shows the version, what the program is, its licenses (and
-  where the libraries' licenses are), and links to the project page and the releases.
+  features. *About XML Atlas* opens a card in the middle of the window (owner, 2026-11-26):
+  the program's icon, drawn as shapes so that it is sharp at every scale, the name, the
+  version, what the program is, buttons that open the project page and the releases, *Copy
+  version info* (the version, operating system and processor, for a bug report; it then
+  says *Copied*) and *Check for updates now* (PKG-7, greyed out while a check runs; what
+  it finds is told in the status bar), and below them its licenses and where the
+  libraries' licenses are. It is in the window's language (LANG-1).
   *Check for updates now* asks for a newer version at once (PKG-7, D30).
 - **WIN-5** `[built]` A toolbar under the menu, after XML Marker's (XM-58): New, Open, Save |
   Cut, Copy, Paste | Undo, Redo, Find, XPath | Drill Up, Drill Down, Format | Diagram (D36,

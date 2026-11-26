@@ -1424,7 +1424,7 @@ impl App {
         }
     }
 
-    /// Help > Check for updates now, and *Check now* in Settings: asks at once, also when the
+    /// Help > Check for updates now, *Check now* in Settings and About's button: asks at once, also when the
     /// daily check is off, and says what it found.
     fn check_for_updates_now(&mut self, ctx: &egui::Context) {
         self.settings.update_last = Some(update::now());
@@ -1784,6 +1784,12 @@ impl eframe::App for App {
             self.help.guide = true;
         }
         crate::help::show(&ctx, &mut self.help);
+        let checking = self.updates.running();
+        if let Some(crate::about::Request::CheckForUpdates) =
+            self.help.about.show(&ctx, lang, checking)
+        {
+            self.check_for_updates_now(&ctx);
+        }
         self.font_dialog(&ctx);
         if keys::consume(&ctx, &keys::SETTINGS) {
             self.settings_window.open = true;
