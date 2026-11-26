@@ -11,6 +11,8 @@ use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::references::check::{Report, check};
 use xml_atlas_engine::rules_text::{RulesText, TextError};
 
+use crate::engine_words::{remark, rule_name, text_error};
+
 use crate::app::Open;
 
 /// The check waits for this pause in typing, and after an edit of the document.
@@ -79,7 +81,7 @@ pub struct RulesEditor {
     quit: bool,
     /// The answer stopped quitting; the app takes that too.
     quit_cancelled: bool,
-    error: Option<String>,
+    error: Option<TextError>,
     raise: bool,
 }
 
@@ -272,7 +274,7 @@ impl RulesEditor {
                     });
                 }
                 if let Some(e) = &self.error {
-                    ui.colored_label(red, e.as_str());
+                    ui.colored_label(red, text_error(lang, e));
                 }
                 ui.separator();
                 let height = (ui.available_height() - CHECK_HEIGHT - 20.0).max(60.0);
@@ -303,12 +305,12 @@ impl RulesEditor {
                 self.file = Some(Editing::new(disk));
                 self.error = None;
             }
-            Err(e) => self.error = Some(e.to_string()),
+            Err(e) => self.error = Some(e),
         }
     }
 
     /// An error from opening, when there is no window to show it.
-    pub fn take_open_error(&mut self) -> Option<String> {
+    pub fn take_open_error(&mut self) -> Option<TextError> {
         if self.file.is_some() {
             return None;
         }
@@ -330,7 +332,7 @@ impl RulesEditor {
                 false
             }
             Err(e) => {
-                self.error = Some(e.to_string());
+                self.error = Some(e);
                 false
             }
         }
@@ -507,8 +509,9 @@ impl Editing {
                         Severity::Error => ui.visuals().error_fg_color,
                         Severity::Warning => ui.visuals().warn_fg_color,
                     };
+                    let message = remark(lang, &f.message);
                     let text =
-                        lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &f.message);
+                        lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &message);
                     if ui.link(RichText::new(text).color(colour)).clicked() {
                         go = Some((f.line, f.column));
                     }
@@ -517,7 +520,7 @@ impl Editing {
                     ui.label(RichText::new(lang.editor_places()).weak());
                 }
                 for c in &report.counts {
-                    let text = format!("{}: {}", c.rule, c.places);
+                    let text = format!("{}: {}", rule_name(lang, &c.rule), c.places);
                     ui.label(if c.places == 0 {
                         RichText::new(text).color(ui.visuals().warn_fg_color)
                     } else {

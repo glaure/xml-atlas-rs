@@ -1,9 +1,9 @@
 # Language
 
 The language of the window's texts: English and German now, French and Spanish later
-(`docs/decisions.md`, D45; issue #183). Steps 2 and 3 of the order of
-work are built: German in the window's own texts. The engine's messages (step 4) and the
-guide (step 5) are still English. A rule that is not built yet stays `[planned]`.
+(`docs/decisions.md`, D45; issue #183). Steps 2 to 4 of the order of
+work are built: German in the window's own texts and in what the engine says. The guide
+(step 5) is still English. A rule that is not built yet stays `[planned]`.
 
 ## Rules
 
@@ -14,7 +14,7 @@ guide (step 5) are still English. A rule that is not built yet stays `[planned]`
   entries give (WIN-14), dialogs, Settings, the bars (Find, Go to line, XPath), headers of
   panes and columns that are not names from the document, notices, the status bar, and
   error messages. Also the texts in an SVG file the diagram exports.
-- **LANG-2** `[planned]` What the engine says is translated too: the problems' messages,
+- **LANG-2** `[built]` What the engine says is translated too: the problems' messages,
   parse errors included, why a reference finds nothing, XPath's messages and results'
   words, and the names of undo steps as *Undo* and *Redo* show them, also for a change an
   agent made.
@@ -29,8 +29,8 @@ guide (step 5) are still English. A rule that is not built yet stays `[planned]`
     nothing -->` (REF-5): they are part of that text, which can be copied and which the
     CLI's `preview` prints too. The same reason in the problems list is translated (LANG-2).
 - **LANG-4** `[built]` Texts that come from outside the program are shown as they come,
-  after a translated lead that says what failed: messages of the operating system and of
-  the regular expression library, and of the XML parser library where XML Atlas does not
+  after a translated lead that says what failed: messages of the operating system, of the
+  regular expression library and of the JSON library, and of the XML parser library where XML Atlas does not
   know the kind of error. The parser errors it knows are translated (LANG-2). The file
   dialogs are the system's and follow its language, not this setting.
 - **LANG-5** `[planned]` The language never changes a document: the bytes that Format, an
@@ -134,8 +134,8 @@ guide (step 5) are still English. A rule that is not built yet stays `[planned]`
 
 ## Order of work
 
-From D45; each step is a pull request or more. Until step 4 is done, German shows some
-English texts.
+From D45; each step is a pull request or more. Until step 5 is done, German shows the
+guide in English.
 
 1. These rules.
 2. The language files and their build step, the setting, and menus, context menus, toolbar
@@ -193,7 +193,10 @@ English texts.
          reason from the engine and holds the window's English to its. With this, no
          warning of the problems list is left in English.
       2. Rules files: why one cannot be used, read or saved, and what the check finds and
-         counts.
+         counts. Built, in Settings, the rules editor, the reference preview and the check
+         in its header. The names of a rules file's keys stay (LANG-3). A test gets the
+         check's findings from the engine and holds the window's English to its. The JSON
+         library's message has a German lead and no English one.
 5. The German guide (LANG-16).
 
 ## Acceptance tests

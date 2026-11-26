@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::references::Rules;
+use crate::references::{Invalid, Rules, RulesError};
 
 /// The folder of rules files, in the configuration folder.
 const FOLDER: &str = "references";
@@ -27,12 +27,16 @@ const NEW_RULES: &str = "{\n  \"includes\": [],\n  \"contexts\": {}\n}\n";
 /// Characters a file name cannot have on one of the platforms.
 const NOT_IN_NAMES: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FolderError {
+    /// There is nowhere the folder could be.
+    #[error("there is no configuration folder")]
+    NoConfigFolder,
+    /// `error` is the operating system's message.
     #[error("{path}: {error}")]
-    Io { path: PathBuf, error: io::Error },
+    Io { path: PathBuf, error: String },
     #[error("{path} cannot be read, so it is left as it is: {reason}")]
-    List { path: PathBuf, reason: String },
+    List { path: PathBuf, reason: ListFault },
     #[error("{0:?} cannot be a file name")]
     Name(String),
     #[error("there is already a file {0}")]
@@ -41,6 +45,48 @@ pub enum FolderError {
     Missing(String),
     #[error("{0} is too large to be a rules file")]
     TooLarge(PathBuf),
+}
+
+/// Why the folder's list cannot be read.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ListFault {
+    /// The JSON library's message.
+    #[error("{0}")]
+    NotJson(String),
+    #[error("it has no list \"files\"")]
+    NoFiles,
+    #[error("a file in it lacks name, on or use_for")]
+    IncompleteFile,
+}
+
+/// Why a rules file's rules cannot be used.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum Unusable {
+    /// It cannot be read.
+    #[error("{0}")]
+    File(#[from] FolderError),
+    #[error("not UTF-8 text")]
+    NotText,
+    /// The JSON library's message.
+    #[error("not valid JSON: {0}")]
+    NotJson(String),
+    #[error("{0}")]
+    Invalid(Invalid),
+    #[error("cannot read {path}: {error}")]
+    Unread { path: PathBuf, error: String },
+}
+
+impl From<RulesError> for Unusable {
+    fn from(error: RulesError) -> Self {
+        match error {
+            RulesError::Json(e) => Self::NotJson(e.to_string()),
+            RulesError::Invalid(what) => Self::Invalid(what),
+            RulesError::Read { path, error } => Self::Unread {
+                path,
+                error: error.to_string(),
+            },
+        }
+    }
 }
 
 /// The folder and its list.
@@ -60,7 +106,7 @@ pub struct Entry {
     /// The documents it is for: patterns separated by `;` ([`applies`]).
     pub use_for: String,
     /// The rules, or why they cannot be used.
-    pub rules: Result<Arc<Rules>, String>,
+    pub rules: Result<Arc<Rules>, Unusable>,
     /// The file's text, for the check (REF-14); `None` when it is no text that can be read.
     pub text: Option<Arc<str>>,
 }
@@ -70,7 +116,7 @@ pub struct Entry {
 pub struct Library {
     pub entries: Vec<Entry>,
     /// Why the folder or its list cannot be read; then no file is on.
-    pub error: Option<String>,
+    pub error: Option<FolderError>,
 }
 
 /// A line of the list.
@@ -117,13 +163,13 @@ impl RulesFolder {
             Err(e) => {
                 return Library {
                     entries: Vec::new(),
-                    error: Some(e.to_string()),
+                    error: Some(e),
                 };
             }
         };
         let (listed, error) = match self.read_list() {
             Ok(listed) => (listed, None),
-            Err(e) => (Vec::new(), Some(e.to_string())),
+            Err(e) => (Vec::new(), Some(e)),
         };
         let entries = ordered(listed, &names)
             .into_iter()
@@ -317,15 +363,16 @@ impl RulesFolder {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(io_at(&self.list)(e)),
         };
-        let bad = |reason: String| FolderError::List {
+        let bad = |reason: ListFault| FolderError::List {
             path: self.list.clone(),
             reason,
         };
-        let value: Value = serde_json::from_slice(&bytes).map_err(|e| bad(e.to_string()))?;
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|e| bad(ListFault::NotJson(e.to_string())))?;
         let files = value
             .get("files")
             .and_then(Value::as_array)
-            .ok_or_else(|| bad("it has no list \"files\"".into()))?;
+            .ok_or_else(|| bad(ListFault::NoFiles))?;
         files
             .iter()
             .map(|file| {
@@ -336,7 +383,7 @@ impl RulesFolder {
                 })
             })
             .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| bad("a file in it lacks name, on or use_for".into()))
+            .ok_or_else(|| bad(ListFault::IncompleteFile))
     }
 
     fn write_list(&self, list: &[Listed]) -> Result<(), FolderError> {
@@ -420,15 +467,15 @@ fn ordered(mut list: Vec<Listed>, names: &[String]) -> Vec<Listed> {
     list
 }
 
-fn read_rules(path: &Path) -> (Result<Arc<Rules>, String>, Option<Arc<str>>) {
+fn read_rules(path: &Path) -> (Result<Arc<Rules>, Unusable>, Option<Arc<str>>) {
     let bytes = match read_small(path) {
         Ok(bytes) => bytes,
-        Err(e) => return (Err(e.to_string()), None),
+        Err(e) => return (Err(e.into()), None),
     };
     let Ok(text) = std::str::from_utf8(&bytes) else {
-        return (Err("not UTF-8 text".to_owned()), None);
+        return (Err(Unusable::NotText), None);
     };
-    let rules = Rules::parse(text).map(Arc::new).map_err(|e| e.to_string());
+    let rules = Rules::parse(text).map(Arc::new).map_err(Unusable::from);
     (rules, Some(text.into()))
 }
 
@@ -442,7 +489,7 @@ fn read_small(path: &Path) -> Result<Vec<u8>, FolderError> {
 fn io_at(path: &Path) -> impl FnOnce(io::Error) -> FolderError + '_ {
     move |error| FolderError::Io {
         path: path.to_owned(),
-        error,
+        error: error.to_string(),
     }
 }
 

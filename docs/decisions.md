@@ -2087,7 +2087,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   `references::Reason`, whose own words stay the CLI's, the MCP tools' and the preview
   comments' English. The part is split in two because the rules files' messages are about
   three times as many.
-- **Next:** step 4, the rules files' messages.
+- **Built, step 4, fifth part, second half:** rules files' messages, as `Invalid`, `Remark`
+  and `RuleName` for what is wrong and what the check counts, and `Unusable`, `FolderError`
+  and `ListFault` for files and the folder. `FolderError` keeps the operating system's
+  message as text, so that a library of rules files can keep and compare it. The language
+  files' generator copies a text that is only a placeholder instead of formatting it.
+- **Next:** step 5, the German guide.
 
 ## Open questions
 

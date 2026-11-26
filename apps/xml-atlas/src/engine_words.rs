@@ -5,7 +5,10 @@
 
 use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::problems::Message;
-use xml_atlas_engine::references::{PathPart, Reason};
+use xml_atlas_engine::references::check::{Remark, RuleName};
+use xml_atlas_engine::references::{Invalid, PathPart, Reason};
+use xml_atlas_engine::rules_folder::{FolderError, ListFault, Unusable};
+use xml_atlas_engine::rules_text::TextError;
 use xml_atlas_engine::text::GoToError;
 use xml_atlas_engine::xml::{IllFormedError, ParseError, ParseReason, SyntaxError};
 use xml_atlas_engine::xpath::{
@@ -254,6 +257,99 @@ pub fn reference_reason(lang: Lang, reason: &Reason) -> String {
     }
 }
 
+/// What is wrong with the contents of a rules file. The names of its keys stay (LANG-3).
+fn rules_invalid(lang: Lang, invalid: &Invalid) -> String {
+    match invalid {
+        Invalid::NoObject => lang.rules_no_object().into(),
+        Invalid::NotObject(at) => lang.rules_not_object(at),
+        Invalid::NotList(at) => lang.rules_not_list(at),
+        Invalid::NotString(at) => lang.rules_not_string(at),
+        Invalid::NotBool(at) => lang.rules_not_bool(at),
+        Invalid::NotBoolOrObject => lang.rules_not_bool_or_object().into(),
+        Invalid::PathNotAbsolute(at) => lang.rules_path_not_absolute(at),
+        Invalid::NeedsPathOrNearest(at) => lang.rules_needs_path_or_nearest(at),
+        Invalid::Needs { at, key } => lang.rules_needs(at, key),
+        Invalid::VariableWithoutDollar(at) => lang.rules_variable_dollar(at),
+        Invalid::UnknownKind { at, kind } => lang.rules_unknown_kind(at, &escaped(kind)),
+    }
+}
+
+/// Why something with the rules folder or its list failed.
+pub fn folder_error(lang: Lang, error: &FolderError) -> String {
+    match error {
+        FolderError::NoConfigFolder => lang.rules_no_folder().into(),
+        // The operating system's words (LANG-4).
+        FolderError::Io { path, error } => format!("{}: {error}", path.display()),
+        FolderError::List { path, reason } => {
+            let reason = match reason {
+                ListFault::NotJson(error) => lang.folder_list_not_json(error),
+                ListFault::NoFiles => lang.folder_list_no_files().into(),
+                ListFault::IncompleteFile => lang.folder_list_incomplete().into(),
+            };
+            lang.folder_list_unreadable(&path.display().to_string(), &reason)
+        }
+        FolderError::Name(name) => lang.folder_bad_name(&escaped(name)),
+        FolderError::Exists(name) => lang.folder_exists(name),
+        FolderError::Missing(name) => lang.folder_missing(name),
+        FolderError::TooLarge(path) => lang.folder_too_large(&path.display().to_string()),
+    }
+}
+
+/// Why a rules file's rules cannot be used.
+pub fn unusable_rules(lang: Lang, why: &Unusable) -> String {
+    match why {
+        Unusable::File(error) => folder_error(lang, error),
+        Unusable::NotText => lang.unusable_not_utf8().into(),
+        Unusable::NotJson(error) => lang.unusable_not_json(error),
+        Unusable::Invalid(invalid) => rules_invalid(lang, invalid),
+        Unusable::Unread { path, error } => {
+            lang.unusable_unread(&path.display().to_string(), error)
+        }
+    }
+}
+
+/// Why the rules editor cannot read or save its file.
+pub fn text_error(lang: Lang, error: &TextError) -> String {
+    let path = |path: &std::path::Path| path.display().to_string();
+    match error {
+        // The operating system's words (LANG-4).
+        TextError::Io { path, error } => format!("{}: {error}", path.display()),
+        TextError::NotText(file) => lang.file_not_utf8(&path(file)),
+        TextError::TooLarge(file) => lang.folder_too_large(&path(file)),
+        TextError::Changed(file) => lang.file_changed(&path(file)),
+    }
+}
+
+/// What the check of a rules file finds.
+pub fn remark(lang: Lang, remark: &Remark) -> String {
+    match remark {
+        Remark::NotJson(error) => lang.check_not_json(error),
+        Remark::Invalid(invalid) => rules_invalid(lang, invalid),
+        // The engine's words: no case of the parser's leads here.
+        Remark::Other(words) => words.clone(),
+        Remark::NoReferences => lang.check_no_references().into(),
+        Remark::GivenTwice(key) => lang.check_given_twice(key),
+        Remark::UnknownKey { key, meant: None } => lang.check_unknown_key(&escaped(key)),
+        Remark::UnknownKey {
+            key,
+            meant: Some(meant),
+        } => lang.check_unknown_key_meant(&escaped(key), meant),
+        Remark::SecondInclude(element) => lang.check_second_include(element),
+        Remark::MatchesNothing(rule) => lang.check_matches_nothing(&rule_name(lang, rule)),
+    }
+}
+
+/// A rule as the check names it; a name that is a key of the rules file stays (LANG-3).
+pub fn rule_name(lang: Lang, rule: &RuleName) -> String {
+    match rule {
+        RuleName::Include { element, attribute } => lang.rule_include(element, attribute),
+        RuleName::AttributeReferences | RuleName::Repeat => rule.to_string(),
+        RuleName::Context(name) => lang.rule_context(name),
+        RuleName::RunTimeContext(name) => lang.rule_run_time_context(name),
+        RuleName::Variable(name) => lang.rule_variable(name),
+    }
+}
+
 /// `text` as it stands between the quotes in the engine's words, which write it as Rust
 /// writes a string.
 fn escaped(text: &str) -> String {
@@ -317,6 +413,7 @@ fn ill_formed_error(lang: Lang, error: &IllFormedError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xml_atlas_engine::references::check::check;
     use xml_atlas_engine::references::{self, Resolution, Rules};
 
     /// A step of every kind, with non-ASCII names.
@@ -773,6 +870,119 @@ mod tests {
             german("count('x')"),
             "„count()“ braucht eine Knotenmenge, nicht eine Zeichenkette"
         );
+    }
+
+    /// What the check finds in faulty rules files, with the rules it counts: got from the
+    /// engine, with non-ASCII names; the window's English is the engine's.
+    #[test]
+    fn what_the_check_of_rules_says() {
+        let document = xml_atlas_engine::Document::from_bytes(
+            "\u{feff}<Doc>\r\n  <Größe/>\r\n</Doc>\r\n".into(),
+        );
+        let include = r#"{"element": "Größe", "attribute": "src"}"#;
+        let texts = [
+            "[1]".to_owned(),
+            r#"{"includes": 1}"#.into(),
+            r#"{"includes": [1]}"#.into(),
+            r#"{"includes": [{"enabled": 1}]}"#.into(),
+            r#"{"includes": [{}]}"#.into(),
+            r#"{"includes": [{"element": 1}]}"#.into(),
+            r#"{"attribute_references": 1}"#.into(),
+            r#"{"contexts": 1}"#.into(),
+            r#"{"contexts": {"Maß": {"path": "x"}}}"#.into(),
+            r#"{"contexts": {"Maß": {}}}"#.into(),
+            r#"{"variables": {"Maß": "parent_name"}}"#.into(),
+            r#"{"variables": {"$Maß": "größe"}}"#.into(),
+            r#"{"includes": [], }"#.into(),
+            "{".into(),
+            "{}".into(),
+            format!(r#"{{"includez": [], "Maß": 1, "includes": [{include}, {include}]}}"#),
+            r#"{"includes": [{"element": "Nie", "attribute": "src"}],
+                "attribute_references": true,
+                "contexts": {"Weg": {"path": "/Doc/Nirgends"}},
+                "runtime_contexts": ["Rt"], "variables": {"$V": "parent_name"},
+                "repeat": {"count": "anzahl"}}"#
+                .into(),
+        ];
+        let mut german = Vec::new();
+        for text in &texts {
+            let report = check(text, Some(&document));
+            assert!(!report.findings.is_empty(), "{text}");
+            for f in report.findings {
+                assert_eq!(remark(Lang::En, &f.message), f.message.to_string());
+                // A rule named by its key alone keeps that name; the sentence is German.
+                assert_ne!(remark(Lang::De, &f.message), f.message.to_string());
+                german.push(remark(Lang::De, &f.message));
+            }
+            for count in report.counts {
+                assert_eq!(rule_name(Lang::En, &count.rule), count.rule.to_string());
+                german.push(rule_name(Lang::De, &count.rule));
+            }
+        }
+        for wanted in [
+            "die Datei enthält kein JSON-Objekt",
+            "variables.$Maß: unbekannte Art „größe“",
+            "unbekannter Schlüssel „includez“; er wird ignoriert. Ist „includes“ gemeint?",
+            "Einbindung <Nie src> trifft auf nichts im Dokument zu",
+            "repeat trifft auf nichts im Dokument zu",
+            "Laufzeitkontext Rt",
+            "attribute_references",
+        ] {
+            assert!(german.iter().any(|g| g == wanted), "{wanted}: {german:#?}");
+        }
+    }
+
+    /// Why a rules file or the folder cannot be used, read or saved.
+    #[test]
+    fn why_rules_files_cannot_be_used() {
+        let path = || std::path::PathBuf::from("/Regeln/Maß.json");
+        let list = |reason| FolderError::List {
+            path: path(),
+            reason,
+        };
+        for error in [
+            FolderError::NoConfigFolder,
+            list(ListFault::NotJson("expected value".into())),
+            list(ListFault::NoFiles),
+            list(ListFault::IncompleteFile),
+            FolderError::Name("a/\"Maß\"".into()),
+            FolderError::Exists("Maß.json".into()),
+            FolderError::Missing("Maß.json".into()),
+            FolderError::TooLarge(path()),
+        ] {
+            refusal(folder_error, error, &[]);
+        }
+        for why in [
+            Unusable::NotText,
+            Unusable::NotJson("expected value".into()),
+            Unusable::Invalid(Invalid::NotList("includes".into())),
+            Unusable::Unread {
+                path: path(),
+                error: "no".into(),
+            },
+            Unusable::File(FolderError::TooLarge(path())),
+        ] {
+            refusal(unusable_rules, why, &[]);
+        }
+        for error in [
+            TextError::NotText(path()),
+            TextError::TooLarge(path()),
+            TextError::Changed(path()),
+        ] {
+            // `TextError` holds an `io::Error` in one case, so it is passed as it is.
+            assert_eq!(text_error(Lang::En, &error), error.to_string());
+            let german = text_error(Lang::De, &error);
+            assert!(
+                german != error.to_string() && german.contains("Maß"),
+                "{german}"
+            );
+        }
+        // The operating system's own words stay (LANG-4).
+        let io = FolderError::Io {
+            path: path(),
+            error: "denied".into(),
+        };
+        assert_eq!(folder_error(Lang::De, &io), io.to_string());
     }
 
     #[test]

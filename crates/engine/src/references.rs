@@ -87,7 +87,52 @@ pub enum RulesError {
     #[error("not valid JSON: {0}")]
     Json(#[from] serde_json::Error),
     #[error("{0}")]
-    Invalid(String),
+    Invalid(Invalid),
+}
+
+/// What is wrong with the contents of a rules file. `at` is where, as `includes[0].element`.
+/// Its words (`Display`) are the English the CLI and the MCP tools give; the window words
+/// each case in its own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+    NoObject,
+    NotObject(String),
+    NotList(String),
+    NotString(String),
+    NotBool(String),
+    /// `attribute_references` is of another kind.
+    NotBoolOrObject,
+    PathNotAbsolute(String),
+    NeedsPathOrNearest(String),
+    Needs {
+        at: String,
+        key: String,
+    },
+    VariableWithoutDollar(String),
+    UnknownKind {
+        at: String,
+        kind: String,
+    },
+}
+
+impl fmt::Display for Invalid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoObject => f.write_str("the file holds no JSON object"),
+            Self::NotObject(at) => write!(f, "{at} is not an object"),
+            Self::NotList(at) => write!(f, "{at} is not a list"),
+            Self::NotString(at) => write!(f, "{at} is not a string"),
+            Self::NotBool(at) => write!(f, "{at} is not true or false"),
+            Self::NotBoolOrObject => {
+                f.write_str("attribute_references is not true, false or an object")
+            }
+            Self::PathNotAbsolute(at) => write!(f, "{at}.path must start with /"),
+            Self::NeedsPathOrNearest(at) => write!(f, "{at} needs either path or nearest"),
+            Self::Needs { at, key } => write!(f, "{at} needs {key}"),
+            Self::VariableWithoutDollar(at) => write!(f, "{at}: a variable starts with $"),
+            Self::UnknownKind { at, kind } => write!(f, "{at}: unknown kind {kind:?}"),
+        }
+    }
 }
 
 /// A reference in the document.
@@ -243,15 +288,13 @@ impl Rules {
     pub fn parse(text: &str) -> Result<Self, RulesError> {
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let v: Value = serde_json::from_str(text)?;
-        let top = v
-            .as_object()
-            .ok_or_else(|| invalid("the file holds no JSON object"))?;
+        let top = v.as_object().ok_or_else(|| invalid(Invalid::NoObject))?;
         let mut rules = Rules::default();
         for (i, inc) in list(top.get("includes"), "includes")?.iter().enumerate() {
             let at = format!("includes[{i}]");
             let o = inc
                 .as_object()
-                .ok_or_else(|| invalid(format!("{at} is not an object")))?;
+                .ok_or_else(|| invalid(Invalid::NotObject(at.clone())))?;
             if !enabled(o, &at)? {
                 continue;
             }
@@ -259,7 +302,7 @@ impl Rules {
             if let Some(s) = o.get("skip_when") {
                 let s = s
                     .as_object()
-                    .ok_or_else(|| invalid(format!("{at}.skip_when is not an object")))?;
+                    .ok_or_else(|| invalid(Invalid::NotObject(format!("{at}.skip_when"))))?;
                 for (k, v) in s {
                     skip_when.push((k.clone(), text_of(v, &format!("{at}.skip_when.{k}"))?));
                 }
@@ -291,20 +334,18 @@ impl Rules {
                 })
             }
             Some(_) => {
-                return Err(invalid(
-                    "attribute_references is not true, false or an object",
-                ));
+                return Err(invalid(Invalid::NotBoolOrObject));
             }
         }
         if let Some(c) = top.get("contexts") {
             let c = c
                 .as_object()
-                .ok_or_else(|| invalid("contexts is not an object"))?;
+                .ok_or_else(|| invalid(Invalid::NotObject("contexts".into())))?;
             for (name, def) in c {
                 let at = format!("contexts.{name}");
                 let o = def
                     .as_object()
-                    .ok_or_else(|| invalid(format!("{at} is not an object")))?;
+                    .ok_or_else(|| invalid(Invalid::NotObject(at.clone())))?;
                 if !enabled(o, &at)? {
                     continue;
                 }
@@ -312,7 +353,7 @@ impl Rules {
                     (Some(p), None) => {
                         let p = text_of(p, &format!("{at}.path"))?;
                         if !p.starts_with('/') {
-                            return Err(invalid(format!("{at}.path must start with /")));
+                            return Err(invalid(Invalid::PathNotAbsolute(at)));
                         }
                         Context::Path(p)
                     }
@@ -320,7 +361,7 @@ impl Rules {
                         name: text_of(n, &format!("{at}.nearest"))?,
                         up_to: field(o, "up_to", &at)?,
                     },
-                    _ => return Err(invalid(format!("{at} needs either path or nearest"))),
+                    _ => return Err(invalid(Invalid::NeedsPathOrNearest(at))),
                 };
                 rules.contexts.push((name.clone(), context));
             }
@@ -336,15 +377,20 @@ impl Rules {
         if let Some(vars) = top.get("variables") {
             let vars = vars
                 .as_object()
-                .ok_or_else(|| invalid("variables is not an object"))?;
+                .ok_or_else(|| invalid(Invalid::NotObject("variables".into())))?;
             for (name, kind) in vars {
                 let at = format!("variables.{name}");
                 if !name.starts_with('$') {
-                    return Err(invalid(format!("{at}: a variable starts with $")));
+                    return Err(invalid(Invalid::VariableWithoutDollar(at)));
                 }
                 let kind = match text_of(kind, &at)?.as_str() {
                     "parent_name" => Variable::ParentName,
-                    other => return Err(invalid(format!("{at}: unknown kind {other:?}"))),
+                    other => {
+                        return Err(invalid(Invalid::UnknownKind {
+                            at,
+                            kind: other.to_string(),
+                        }));
+                    }
                 };
                 rules.variables.push((name.clone(), kind));
             }
@@ -352,7 +398,7 @@ impl Rules {
         if let Some(r) = top.get("repeat") {
             let o = r
                 .as_object()
-                .ok_or_else(|| invalid("repeat is not an object"))?;
+                .ok_or_else(|| invalid(Invalid::NotObject("repeat".into())))?;
             let names = |key: &str| -> Result<Vec<String>, RulesError> {
                 list(o.get(key), &format!("repeat.{key}"))?
                     .iter()
@@ -1464,33 +1510,36 @@ fn enabled(o: &serde_json::Map<String, Value>, at: &str) -> Result<bool, RulesEr
     match o.get("enabled") {
         None => Ok(true),
         Some(Value::Bool(on)) => Ok(*on),
-        Some(_) => Err(invalid(format!("{at}.enabled is not true or false"))),
+        Some(_) => Err(invalid(Invalid::NotBool(format!("{at}.enabled")))),
     }
 }
 
-fn invalid(msg: impl Into<String>) -> RulesError {
-    RulesError::Invalid(msg.into())
+fn invalid(what: Invalid) -> RulesError {
+    RulesError::Invalid(what)
 }
 
 fn list<'v>(v: Option<&'v Value>, at: &str) -> Result<&'v [Value], RulesError> {
     match v {
         None => Ok(&[]),
         Some(Value::Array(a)) => Ok(a),
-        Some(_) => Err(invalid(format!("{at} is not a list"))),
+        Some(_) => Err(invalid(Invalid::NotList(at.to_string()))),
     }
 }
 
 fn field(o: &serde_json::Map<String, Value>, key: &str, at: &str) -> Result<String, RulesError> {
-    let v = o
-        .get(key)
-        .ok_or_else(|| invalid(format!("{at} needs {key}")))?;
+    let v = o.get(key).ok_or_else(|| {
+        invalid(Invalid::Needs {
+            at: at.to_string(),
+            key: key.to_string(),
+        })
+    })?;
     text_of(v, &format!("{at}.{key}"))
 }
 
 fn text_of(v: &Value, at: &str) -> Result<String, RulesError> {
     v.as_str()
         .map(str::to_string)
-        .ok_or_else(|| invalid(format!("{at} is not a string")))
+        .ok_or_else(|| invalid(Invalid::NotString(at.to_string())))
 }
 
 #[cfg(test)]

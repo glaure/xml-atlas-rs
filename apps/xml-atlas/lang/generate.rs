@@ -235,6 +235,13 @@ fn method(
         } else if scan(s).is_ok_and(|names| names.is_empty()) {
             // A form of a plural, or of a text whose other forms have placeholders.
             format!("{literal}.to_owned()")
+        } else if let Ok(names) = scan(s)
+            && let [name] = &names[..]
+            && s == format!("{{{name}}}")
+        {
+            // The placeholder alone, such as a library's message in English (LANG-4):
+            // clippy refuses a `format!` of it.
+            format!("{name}.to_owned()")
         } else {
             format!("format!({s:?})")
         }

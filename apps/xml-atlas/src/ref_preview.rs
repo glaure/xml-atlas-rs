@@ -116,7 +116,8 @@ pub fn show(ui: &mut Ui, open: &mut Open, font: &FontId) {
         }
         Some(Err((file, e))) => {
             ui.label(RichText::new(lang.preview_unreadable()).strong());
-            ui.label(format!("{}: {e}", file.display()));
+            let why = crate::engine_words::unusable_rules(lang, e);
+            ui.label(format!("{}: {why}", file.display()));
             ui.horizontal_wrapped(|ui| {
                 let mut edit = ui.button(lang.preview_edit()).clicked();
                 edit |= status.is_some_and(|status| status.show(ui, lang));
@@ -714,7 +715,7 @@ mod tests {
                 use_for: "*".into(),
                 rules: Rules::parse(rules)
                     .map(std::sync::Arc::new)
-                    .map_err(|e| e.to_string()),
+                    .map_err(Into::into),
                 text: Some(rules.into()),
             }],
             error: None,

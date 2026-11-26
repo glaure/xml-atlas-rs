@@ -129,7 +129,10 @@ impl Checked {
         let mut lines: Vec<String> = findings
             .iter()
             .take(NAMED)
-            .map(|f| lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &f.message))
+            .map(|f| {
+                let message = crate::engine_words::remark(lang, &f.message);
+                lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &message)
+            })
             .collect();
         if findings.len() > NAMED {
             lines.push(lang.check_more(&(findings.len() - NAMED).to_string()));
