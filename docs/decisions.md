@@ -2065,7 +2065,14 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   matches name every case, and a test holds its English to the engine's. Names a caller
   makes up are `StepName::Other`, which only tests use. Format's summary is worded from the
   options' fields, all of them named.
-- **Next:** step 4, refused edits and saves, Find and Go to line.
+- **Built, step 4, second part:** why a command, an edit, Format or Go to line is refused.
+  The engine gave these as values already; the window words them in `engine_words.rs`, and
+  the engine did not change. The Go to line bar keeps the value, so its reason follows a
+  change of language. Find and saving in the file's encoding had their German texts: Find
+  never shows the engine's reason, only that it cannot search.
+- **Decided (owner, 2026-11-26):** the XML parser library's errors that XML Atlas knows
+  are translated; LANG-4 showed all of them as they come. Others still come as they are.
+- **Next:** step 4, XML problems and the warnings about encodings.
 
 ## Open questions
 

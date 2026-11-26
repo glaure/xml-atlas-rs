@@ -29,9 +29,10 @@ guide (step 5) are still English. A rule that is not built yet stays `[planned]`
     nothing -->` (REF-5): they are part of that text, which can be copied and which the
     CLI's `preview` prints too. The same reason in the problems list is translated (LANG-2).
 - **LANG-4** `[built]` Texts that come from outside the program are shown as they come,
-  after a translated lead that says what failed: messages of the operating system, of the
-  regular expression library and of the XML parser library. The file dialogs are the
-  system's and follow its language, not this setting.
+  after a translated lead that says what failed: messages of the operating system and of
+  the regular expression library, and of the XML parser library where XML Atlas does not
+  know the kind of error. The parser errors it knows are translated (LANG-2). The file
+  dialogs are the system's and follow its language, not this setting.
 - **LANG-5** `[planned]` The language never changes a document: the bytes that Format, an
   edit or Save write are the same in every language (AGENTS.md, rule 7).
 
@@ -168,8 +169,15 @@ English texts.
    (LANG-2). The engine's own texts stay as they are. In parts:
    1. The names of undo steps and the settings *Format* names. Built. A test holds the
       window's English to the engine's.
-   2. Refused edits and saves, Find and Go to line.
-   3. XML problems and the warnings about encodings.
+   2. Refused edits and saves, Find and Go to line. Built: why a structured edit, an edit,
+      *Format* or Go to line is refused. These were values already, so the engine did not
+      change. What is wrong with text that is not well-formed is led in German, with its
+      byte; the parser's message in it is the third part's. Saving what the file's encoding
+      cannot hold and Find's own messages were German already. Where Go to line has one
+      line, the window says *1 line*; the engine says *1 lines*. A test holds the window's
+      English to the engine's otherwise.
+   3. XML problems, the XML parser library's known errors among them (LANG-4), and the
+      warnings about encodings.
    4. XPath.
    5. References and rules files.
 5. The German guide (LANG-16).
@@ -220,6 +228,10 @@ to the owner with these questions and not objected to.
 
 Changed after seeing step 2 in the window (owner, 2026-11-26): the setting has a section of
 its own, *Localization*, instead of the first row of Appearance (LANG-6).
+
+Decided before step 4's third part (owner, 2026-11-26): the errors of the XML parser
+library that XML Atlas knows are translated, instead of shown as they come (LANG-2,
+LANG-4).
 
 ## Decisions needed
 

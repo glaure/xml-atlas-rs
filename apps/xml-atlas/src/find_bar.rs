@@ -536,11 +536,17 @@ fn apply(open: &mut Open, edit: Edit, done: String) {
     let lang = open.lang;
     open.note = Some(match open.edit(|doc| doc.apply(edit).map(|()| true)) {
         Ok(_) => match (&open.doc.index.error, was_broken) {
-            (Some(e), false) => Note::refused(lang.find_broke(&done, &e.to_string())),
+            (Some(e), false) => {
+                let why = crate::engine_words::parse_error(lang, e);
+                Note::refused(lang.find_broke(&done, &why))
+            }
             _ => Note::info(done),
         },
         Err(EditError::Empty) => Note::info(lang.find_unchanged(&done)),
-        Err(e) => Note::refused(lang.find_cannot_replace(&e.to_string())),
+        Err(e) => {
+            let why = crate::engine_words::edit_error(lang, &e);
+            Note::refused(lang.find_cannot_replace(&why))
+        }
     });
 }
 

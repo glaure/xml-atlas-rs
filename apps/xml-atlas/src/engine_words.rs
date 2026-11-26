@@ -3,7 +3,10 @@
 //! each is worded by the window. The matches name every case, so that a new one does not
 //! build until it is given its words.
 
-use xml_atlas_engine::{DeletedNode, FormatOptions, StepName};
+use xml_atlas_engine::command::CommandError;
+use xml_atlas_engine::text::GoToError;
+use xml_atlas_engine::xml::ParseError;
+use xml_atlas_engine::{DeletedNode, EditError, FormatError, FormatOptions, StepName};
 
 use crate::lang::Lang;
 
@@ -67,6 +70,58 @@ pub fn format_summary(lang: Lang, options: &FormatOptions) -> String {
         summary = lang.status_text_trimmed(&summary);
     }
     summary
+}
+
+/// Why a structured edit cannot be run.
+pub fn command_error(lang: Lang, error: &CommandError) -> String {
+    match error {
+        CommandError::NotAnElement => lang.refused_not_element().into(),
+        CommandError::RootElement => lang.refused_root().into(),
+        CommandError::NotTextOnly(element) => lang.refused_not_text_only(element),
+        CommandError::BadName(name) => lang.refused_bad_name(name),
+        CommandError::NoAttribute { element, name } => lang.refused_no_attribute(element, name),
+        CommandError::NoSibling(element) => lang.refused_no_sibling(element),
+        CommandError::NoSuchPath(path) => lang.refused_no_such_path(path),
+        CommandError::AmbiguousPath { path, count } => {
+            lang.refused_ambiguous_path(path, &count.to_string())
+        }
+        CommandError::BadPath(path) => lang.refused_bad_path(path),
+    }
+}
+
+/// Why an edit was refused.
+pub fn edit_error(lang: Lang, error: &EditError) -> String {
+    match error {
+        EditError::OutOfRange { start, end, len } => {
+            lang.refused_outside(&start.to_string(), &end.to_string(), &len.to_string())
+        }
+        EditError::Overlap(offset) => lang.refused_overlap(&offset.to_string()),
+        EditError::Empty => lang.refused_no_change().into(),
+    }
+}
+
+/// Why a document cannot be formatted.
+pub fn format_error(lang: Lang, error: &FormatError) -> String {
+    match error {
+        FormatError::Malformed(e) => lang.refused_format(&parse_error(lang, e)),
+    }
+}
+
+/// What is wrong with text that is not well-formed, and where. The message itself is still
+/// the parser's English: it is translated with the problems (LANG-2).
+pub fn parse_error(lang: Lang, error: &ParseError) -> String {
+    let ParseError { offset, message } = error;
+    lang.refused_at_byte(message, &offset.to_string())
+}
+
+/// Why Go to line cannot make a position of its input.
+pub fn goto_error(lang: Lang, error: &GoToError) -> String {
+    match error {
+        GoToError::Empty => lang.goto_empty().into(),
+        GoToError::NotANumber(input) => lang.goto_not_a_number(input),
+        GoToError::Zero => lang.goto_zero().into(),
+        GoToError::PastTheEnd(lines) => lang.goto_past_the_end(*lines as u64),
+    }
 }
 
 #[cfg(test)]
@@ -172,5 +227,84 @@ mod tests {
             format_summary(Lang::De, &options),
             "Einrückung 2, Attribute nie umbrochen, Kommentare entfernt"
         );
+    }
+
+    /// Every reason in both languages: the window's English is the engine's, and the German
+    /// keeps the names, paths and numbers it was given.
+    fn refusal<E: std::fmt::Display>(word: fn(Lang, &E) -> String, error: E, given: &[&str]) {
+        assert_eq!(word(Lang::En, &error), error.to_string());
+        let german = word(Lang::De, &error);
+        assert_ne!(german, error.to_string());
+        for part in given {
+            assert!(german.contains(part), "{part} in {german}");
+        }
+    }
+
+    #[test]
+    fn refused_commands_and_edits() {
+        let name = || "Größe".to_owned();
+        let path = || "/Wurzel/Maß[2]".to_owned();
+        for (error, given) in [
+            (CommandError::NotAnElement, &[][..]),
+            (CommandError::RootElement, &[]),
+            (CommandError::NotTextOnly(name()), &["<Größe>"]),
+            (CommandError::BadName("1 {x}".into()), &["1 {x}"]),
+            (
+                CommandError::NoAttribute {
+                    element: name(),
+                    name: "Maß".into(),
+                },
+                &["<Größe>", "Maß"],
+            ),
+            (CommandError::NoSibling(name()), &["<Größe>"]),
+            (CommandError::NoSuchPath(path()), &["/Wurzel/Maß[2]"]),
+            (
+                CommandError::AmbiguousPath {
+                    path: path(),
+                    count: 1234,
+                },
+                &["/Wurzel/Maß[2]", "1234", "[n]"],
+            ),
+            (
+                CommandError::BadPath("Maß".into()),
+                &["Maß", "/root/child[2]"],
+            ),
+        ] {
+            refusal(command_error, error, given);
+        }
+        let outside = EditError::OutOfRange {
+            start: 11,
+            end: 22,
+            len: 3,
+        };
+        refusal(edit_error, outside, &["11..22", "3 Bytes"]);
+        refusal(edit_error, EditError::Overlap(7), &["7"]);
+        refusal(edit_error, EditError::Empty, &[]);
+        let broken = || ParseError {
+            offset: 42,
+            message: "element <Größe> is not closed".into(),
+        };
+        refusal(parse_error, broken(), &["<Größe>", "bei Byte 42"]);
+        refusal(
+            format_error,
+            FormatError::Malformed(broken()),
+            &["nicht wohlgeformt", "bei Byte 42"],
+        );
+    }
+
+    #[test]
+    fn refused_lines_to_go_to() {
+        refusal(goto_error, GoToError::Empty, &[]);
+        refusal(
+            goto_error,
+            GoToError::NotANumber("zwölf".into()),
+            &["zwölf"],
+        );
+        refusal(goto_error, GoToError::Zero, &[]);
+        refusal(goto_error, GoToError::PastTheEnd(4000), &["4000"]);
+        // One line is where the window says it better than the engine's "1 lines".
+        let one = GoToError::PastTheEnd(1);
+        assert_eq!(goto_error(Lang::En, &one), "The file has 1 line");
+        assert_eq!(goto_error(Lang::De, &one), "Die Datei hat 1 Zeile");
     }
 }
