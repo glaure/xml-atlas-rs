@@ -57,7 +57,7 @@ pub fn to_svg(layout: &Layout, palette: &Palette, sizes: &Sizes) -> String {
     }
     let _ = writeln!(out, "</g>");
     for b in &layout.boxes {
-        draw_box(&mut out, b, palette, sizes);
+        draw_box(&mut out, b, palette, sizes, layout.lang.diagram_text());
     }
     let _ = writeln!(out, "</g>\n</svg>");
     out
@@ -89,7 +89,7 @@ fn lines(out: &mut String, layout: &Layout, b: &Placed) {
     }
 }
 
-fn draw_box(out: &mut String, b: &Placed, p: &Palette, sizes: &Sizes) {
+fn draw_box(out: &mut String, b: &Placed, p: &Palette, sizes: &Sizes, text: &str) {
     let r = b.rect;
     let _ = writeln!(
         out,
@@ -129,7 +129,7 @@ fn draw_box(out: &mut String, b: &Placed, p: &Palette, sizes: &Sizes) {
         x2 += attributes_w + 6.0;
     }
     if b.text {
-        piece(out, x2, y2, sizes.small, text_w, p.text, "text");
+        piece(out, x2, y2, sizes.small, text_w, p.text, text);
     }
     if b.parent {
         let (cx, cy) = (r.right() + TOGGLE_RADIUS + 3.0, r.center().y);

@@ -164,7 +164,7 @@ switch_wrap_tab = "Zeilenumbruch in diesem Tab"
 switch_wrap_all = "Zeilenumbruch in jedem Tab"
 switch_toolbar = "Symbolleiste"
 switch_grid_above = "Tabelle über dem Text"
-switch_text_above = "Text über der Tabelle (wie in XML Marker)"
+switch_text_above = "Text über der Tabelle"
 switch_theme_system = "Wie das System"
 switch_theme_light = "Hell"
 switch_theme_dark = "Dunkel"
@@ -479,8 +479,6 @@ editor_reload = "Neu laden und meine Änderungen verwerfen"
 editor_unsaved_title = "Nicht gespeicherte Regeln"
 editor_save_rules = "Regeln speichern"
 editor_checking = "Wird geprüft…"
-editor_errors = { one = "1 Fehler", other = "{count} Fehler" }
-editor_warnings = { one = "1 Warnung", other = "{count} Warnungen" }
 editor_summary = "{errors}, {warnings}"
 editor_count_large = "In diesem großen Dokument zählen"
 editor_count_large_tip = "Dann wartet jede Tipppause auf die Zählung"
@@ -497,3 +495,106 @@ editor_template_repeat = "Wiederholung"
 editor_in_outer = "In den äußeren {{ }}"
 editor_in_includes = "In includes [ ]"
 editor_in_contexts = "In contexts {{ }}"
+
+# Counts of errors and warnings, wherever they are told.
+count_errors = { one = "1 Fehler", other = "{count} Fehler" }
+count_warnings = { one = "1 Warnung", other = "{count} Warnungen" }
+
+# The empty window and an untitled tab.
+welcome_drop = "XML-Datei hier ablegen oder {key} drücken"
+tabs_untitled = "unbenannt"
+status_loading_stopped = "das Laden wurde abgebrochen"
+
+# The notice about a file that changed on disk (OPEN-14).
+disk_changed = "wurde auf dem Datenträger geändert"
+disk_removed = "wurde auf dem Datenträger gelöscht oder verschoben"
+disk_reload_discard = "Neu laden und Änderungen verwerfen"
+disk_reload_discard_tip = "Die Datei zeigen, wie sie jetzt ist; nicht gespeicherte Änderungen gehen verloren"
+disk_reload = "Neu laden"
+disk_reload_tip = "Die Datei zeigen, wie sie jetzt ist"
+disk_save = "Speichern"
+disk_save_tip = "Das Dokument so in die Datei schreiben, wie es hier geöffnet ist"
+disk_save_as = "Speichern unter…"
+disk_keep = "Behalten"
+disk_keep_tip = "Das Dokument behalten, wie es hier geöffnet ist, ohne zu speichern"
+
+# The notice about a minified file (TEXT-23).
+minified_notice = "{name} ist minifiziert: Die Elemente stehen in einer langen Zeile, die hier umbrochen ist."
+minified_format = "Formatieren"
+minified_format_tip = "Jedes Element auf eine eigene, eingerückte Zeile setzen. Ein Rückgängig-Schritt; die Datei ändert sich erst beim Speichern"
+minified_dismiss = "Ausblenden"
+
+# The grid, its attributes and the cell pane (GRID-11, GRID-16).
+grid_rows = { one = "1 Zeile", other = "{count} Zeilen" }
+grid_columns_hidden = { one = "1 Spalte ausgeblendet", other = "{count} Spalten ausgeblendet" }
+grid_stale = "Der Text dieses Elements wird bearbeitet und ist nicht wohlgeformt; die Tabelle zeigt den letzten Stand."
+grid_row_stale = "Der Text dieses Elements wird bearbeitet und ist nicht wohlgeformt; diese Zeile zeigt den letzten Stand."
+grid_column_element = "Element"
+attributes_none = "Keine Attribute"
+attributes_count = { one = "1 Attribut", other = "{count} Attribute" }
+cell_empty = "Eine Zeile oder Zelle in der Tabelle anklicken, um sie hier zu sehen."
+cell_absent = "Hier ist nichts: Die Zeile hat keinen solchen Wert."
+cell_cut = "Gekürzt: Gezeigt werden die ersten {number} Zeichen."
+cell_copy_whole = "Ganzen Wert kopieren"
+
+# The list of problems (OPEN-13).
+problems_title = "Probleme"
+problems_entry = "Zeile {line}, Spalte {column}:  {message}"
+
+# The reference preview, its tree and the check in its header (REF-5, REF-10, REF-16).
+preview_no_rules = "Keine Verweisregeln für diese Datei"
+preview_no_rules_help = "Unter Datei > Einstellungen > Verweise eine Regeldatei einschalten und „Verwenden für“ ausfüllen (REF-13). Regeln legen fest, welche Elemente und Attribute Verweise sind."
+preview_unreadable = "Die Verweisregeln können nicht gelesen werden"
+preview_edit = "Regeln bearbeiten…"
+preview_rules = "Regeln: {name}"
+preview_select = "Ein Element auswählen, um es mit aufgelösten Verweisen zu sehen."
+preview_waiting = "Das Dokument wird neu gelesen…"
+preview_expand = "Wiederholungen aufklappen"
+preview_expand_tip = "Ein Element mit {name} als entsprechend viele nummerierte Kopien zeigen, so wie das Programm es liest (REF-11)"
+preview_no_references = "Keine Verweise"
+preview_references = { one = "1 Verweis", other = "{count} Verweise" }
+preview_unresolved = "{summary}, {number} nicht aufgelöst"
+preview_cut = "{summary}, nach {number} MiB gekürzt"
+preview_summary_tip = "Schreibgeschützt. Importierte Zeilen sind getönt. Kommentare, die mit „XML Atlas:“ beginnen, sagen, was sich nicht auflösen ließ oder woher ein nachgeschlagener Kontext stammt"
+preview_copy = "Kopieren"
+preview_copy_tip = "Den Text der Vorschau kopieren"
+preview_tree_select = "Ein Element auswählen, um es aufgelöst als Baum zu sehen."
+preview_show_main = "Im Hauptbaum zeigen"
+preview_written = "Das hat die Vorschau selbst geschrieben: Es steht nicht in der Datei"
+preview_nearest = "das nächste, das es hat"
+preview_section = "{context} in {scope} aus"
+check_ok = "Prüfung OK"
+check_ok_uncounted = "OK, nicht gezählt"
+check_more = "und {number} weitere"
+check_not_counted = "Die Treffer im Dokument wurden nicht gezählt. Im Editor ist das möglich."
+check_click = "Die Prüfung der Regeldatei. Zum Bearbeiten klicken."
+
+# The diagram and its SVG export (D36).
+diagram_text = "Text"
+diagram_stopped = "das Lesen der Struktur wurde abgebrochen"
+diagram_cannot_read = "die Struktur kann nicht gelesen werden: {error}"
+diagram_empty = "Keine Elemente"
+diagram_reading = "Struktur wird gelesen…"
+diagram_paths = { one = "{number} Pfad", other = "{number} Pfade" }
+diagram_capped = "die ersten {number} Pfade: Tiefere Elemente fehlen"
+diagram_stale = "nach der Änderung veraltet"
+diagram_export = "Als SVG exportieren…"
+diagram_export_tip = "Das Diagramm, so wie es jetzt eingeklappt ist, als Vektorgrafik"
+diagram_saved = "{path} gespeichert"
+diagram_cannot_save = "{path} konnte nicht gespeichert werden: {error}"
+diagram_zoom = "{percent} %  ·  {wheel}+Mausrad zoomt, {reset} setzt zurück"
+diagram_levels = "Ebenen: {shown}"
+diagram_levels_all = "alle"
+diagram_levels_custom = "eigene"
+diagram_levels_choose_all = "Alle"
+diagram_found = "{number} gefunden"
+diagram_elements = { one = "{number} Element", other = "{number} Elemente" }
+diagram_holds_text = "enthält Text"
+diagram_found_by_xpath = "{number} von der XPath-Abfrage gefunden"
+diagram_click = "Klick: das erste; erneuter Klick oder F3: das nächste"
+
+# Why the update check failed (PKG-7).
+update_why_stopped = "die Suche wurde abgebrochen"
+update_why_unreadable = "die Antwort kann nicht gelesen werden: {error}"
+update_why_no_version = "die Antwort nennt keine Version"
+update_why_bad_version = "{tag} ist keine Version"

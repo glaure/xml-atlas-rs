@@ -62,7 +62,7 @@ pub struct Diagram {
     /// A walk still running.
     job: Option<Job>,
     /// Why the last walk failed.
-    failed: Option<String>,
+    failed: Option<Failure>,
     /// When the index was first seen changed since the structure was read: the walk waits
     /// for a pause in the edits.
     changed: Option<Instant>,
@@ -90,8 +90,26 @@ pub struct Diagram {
     /// *Export as SVG…* was clicked: the file is chosen and written on the next frame.
     export: bool,
     /// What the last export said, shown in the header.
-    exported: Option<String>,
+    exported: Option<Exported>,
 }
+
+/// Why the structure could not be read.
+enum Failure {
+    Stopped,
+    CannotRead(String),
+}
+
+impl Failure {
+    fn text(&self, lang: Lang) -> String {
+        match self {
+            Failure::Stopped => lang.diagram_stopped().into(),
+            Failure::CannotRead(error) => lang.diagram_cannot_read(error),
+        }
+    }
+}
+
+/// What the last export did: the file written, or why it was not.
+type Exported = Result<String, (String, String)>;
 
 /// The XPath results counted per box, and what they were counted for.
 struct Hits {
@@ -115,6 +133,8 @@ pub(crate) struct Layout {
     pub(crate) size: Vec2,
     /// What it was laid out for: the generation and the two font sizes.
     pub(crate) made_for: (u64, f32, f32),
+    /// And the language of the counts and of "text", whose widths it holds.
+    pub(crate) lang: Lang,
 }
 
 #[derive(Debug)]
@@ -206,7 +226,7 @@ impl Diagram {
                     self.seen = None;
                 }
                 Ok(Err(Stopped)) | Err(TryRecvError::Disconnected) => {
-                    self.failed = Some("reading the structure stopped".into());
+                    self.failed = Some(Failure::Stopped);
                 }
             }
             self.job = None;
@@ -257,7 +277,7 @@ impl Diagram {
                     started: Instant::now(),
                 })
             }
-            Err(e) => self.failed = Some(format!("cannot read the structure: {e}")),
+            Err(e) => self.failed = Some(Failure::CannotRead(e.to_string())),
         }
     }
 
@@ -334,14 +354,14 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
     header(ui, lang, &mut open.diagram);
     let Some(structure) = open.diagram.structure.clone() else {
         if let Some(e) = &open.diagram.failed {
-            ui.colored_label(ui.visuals().error_fg_color, e);
+            ui.colored_label(ui.visuals().error_fg_color, e.text(lang));
         } else {
             ui.centered_and_justified(|ui| ui.spinner());
         }
         return;
     };
     if structure.paths.is_empty() {
-        ui.centered_and_justified(|ui| ui.label(RichText::new("No elements").weak()));
+        ui.centered_and_justified(|ui| ui.label(RichText::new(lang.diagram_empty()).weak()));
         return;
     }
     update_hits(open, &structure);
@@ -354,13 +374,16 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
     let small_font = TextStyle::Small.resolve(ui.style());
     let d = &mut open.diagram;
     let made_for = (d.generation, name_font.size, small_font.size);
-    if d.layout.as_ref().is_none_or(|l| l.made_for != made_for) {
+    if d.layout
+        .as_ref()
+        .is_none_or(|l| l.made_for != made_for || l.lang != lang)
+    {
         let measure = Fonts {
             painter: ui.painter(),
             name: name_font.clone(),
             small: small_font.clone(),
         };
-        let mut layout = lay_out(&structure, &d.collapsed, &measure);
+        let mut layout = lay_out(&structure, &d.collapsed, &measure, lang);
         layout.made_for = made_for;
         d.layout = Some(layout);
     }
@@ -502,7 +525,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
                 painter.text(
                     pos2(x, y),
                     egui::Align2::LEFT_TOP,
-                    "text",
+                    lang.diagram_text(),
                     small_font.clone(),
                     theme.syntax.text,
                 );
@@ -512,7 +535,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
             && name_font.size >= MIN_TEXT_SIZE
         {
             // Under the box's lower edge, right-aligned: how many results are in it.
-            let text = format!("{} found", grouped(n));
+            let text = lang.diagram_found(&grouped(lang, n));
             let galley =
                 painter.layout_no_wrap(text, small_font.clone(), visuals.strong_text_color());
             let pad = vec2(4.0, 1.0) * zoom;
@@ -554,7 +577,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
         let hits = d.hits.as_ref().and_then(|h| h.counts.get(p)).copied();
         response
             .clone()
-            .on_hover_ui_at_pointer(|ui| tooltip(ui, &structure, *p, hits));
+            .on_hover_ui_at_pointer(|ui| tooltip(ui, lang, &structure, *p, hits));
     }
     if response.clicked() {
         match hovered {
@@ -645,9 +668,10 @@ fn export(ui: &Ui, lang: Lang, document: Option<&std::path::Path>, d: &mut Diagr
     let Some(path) = dialog.save_file() else {
         return;
     };
+    let name = path.display().to_string();
     d.exported = Some(match xml_atlas_engine::save_atomic(&path, svg.as_bytes()) {
-        Ok(()) => format!("saved {}", path.display()),
-        Err(e) => format!("could not save {}: {e}", path.display()),
+        Ok(()) => Ok(name),
+        Err(e) => Err((name, e.to_string())),
     });
 }
 
@@ -656,35 +680,34 @@ fn header(ui: &mut Ui, lang: Lang, d: &mut Diagram) {
     ui.horizontal(|ui| {
         if d.job.is_some() {
             ui.spinner();
-            ui.label(RichText::new("reading the structure…").weak());
+            ui.label(RichText::new(lang.diagram_reading()).weak());
         } else if let Some(s) = &d.structure {
-            let paths = match s.paths.len() {
-                1 => "1 path".to_string(),
-                n => format!("{} paths", grouped(n as u64)),
-            };
+            let count = s.paths.len() as u64;
+            let paths = lang.diagram_paths(count, &grouped(lang, count));
             let ms = d.took.as_secs_f64() * 1000.0;
             ui.label(RichText::new(format!("{paths}  ·  {ms:.0} ms")).weak());
             if s.capped {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!(
-                        "the first {} paths: deeper elements are left out",
-                        grouped(MAX_PATHS as u64)
-                    ),
+                    lang.diagram_capped(&grouped(lang, MAX_PATHS as u64)),
                 );
             }
             if d.changed.is_some() {
-                ui.label(RichText::new("out of date after the edit").weak());
+                ui.label(RichText::new(lang.diagram_stale()).weak());
             }
-            levels_control(ui, d);
+            levels_control(ui, lang, d);
             if ui
-                .add_enabled(d.layout.is_some(), egui::Button::new("Export as SVG…"))
-                .on_hover_text("The diagram as it is collapsed now, as a vector image")
+                .add_enabled(d.layout.is_some(), egui::Button::new(lang.diagram_export()))
+                .on_hover_text(lang.diagram_export_tip())
                 .clicked()
             {
                 d.export = true;
             }
             if let Some(note) = &d.exported {
+                let note = match note {
+                    Ok(path) => lang.diagram_saved(path),
+                    Err((path, error)) => lang.diagram_cannot_save(path, error),
+                };
                 ui.label(RichText::new(note).weak());
             }
         }
@@ -693,36 +716,34 @@ fn header(ui: &mut Ui, lang: Lang, d: &mut Diagram) {
             let wheel = if ui.ctx().os().is_mac() {
                 "Cmd"
             } else {
-                "Ctrl"
+                lang.key_ctrl()
             };
-            ui.label(
-                RichText::new(format!(
-                    "{:.0} %  ·  {wheel}+wheel zooms, {reset} resets",
-                    d.zoom * 100.0
-                ))
-                .weak(),
-            );
+            let percent = lang.decimal(f64::from(d.zoom) * 100.0, 0);
+            ui.label(RichText::new(lang.diagram_zoom(&percent, wheel, &reset)).weak());
         });
     });
 }
 
 /// *Levels*: collapses the diagram below a depth (#122); the toggles open single boxes again.
-fn levels_control(ui: &mut Ui, d: &mut Diagram) {
+fn levels_control(ui: &mut Ui, lang: Lang, d: &mut Diagram) {
     let deepest = d.max_depth();
     if deepest < 2 {
         return;
     }
     let shown = match (d.levels, d.collapsed.is_empty()) {
         (Some(n), _) => n.to_string(),
-        (None, true) => "all".to_string(),
-        (None, false) => "custom".to_string(),
+        (None, true) => lang.diagram_levels_all().to_string(),
+        (None, false) => lang.diagram_levels_custom().to_string(),
     };
     let mut choice = None;
     egui::ComboBox::from_id_salt("diagram-levels")
-        .selected_text(format!("Levels: {shown}"))
+        .selected_text(lang.diagram_levels(&shown))
         .show_ui(ui, |ui| {
             if ui
-                .selectable_label(d.levels.is_none() && d.collapsed.is_empty(), "All")
+                .selectable_label(
+                    d.levels.is_none() && d.collapsed.is_empty(),
+                    lang.diagram_levels_choose_all(),
+                )
                 .clicked()
             {
                 choice = Some(None);
@@ -842,18 +863,10 @@ fn hit(layout: &Layout, p: Vec2) -> Option<Click> {
 }
 
 /// A box's whole path, count and attributes.
-fn tooltip(ui: &mut Ui, s: &Structure, path: PathId, hits: Option<u64>) {
+fn tooltip(ui: &mut Ui, lang: Lang, s: &Structure, path: PathId, hits: Option<u64>) {
     let info = &s.paths[path as usize];
     ui.label(RichText::new(format!("/{}", String::from_utf8_lossy(&s.key(path)))).strong());
-    ui.label(format!(
-        "{} {}",
-        grouped(info.count),
-        if info.count == 1 {
-            "element"
-        } else {
-            "elements"
-        }
-    ));
+    ui.label(lang.diagram_elements(info.count, &grouped(lang, info.count)));
     if !info.attributes.is_empty() {
         let names: Vec<String> = info
             .attributes
@@ -863,18 +876,23 @@ fn tooltip(ui: &mut Ui, s: &Structure, path: PathId, hits: Option<u64>) {
         ui.label(names.join(" "));
     }
     if info.text {
-        ui.label("holds text");
+        ui.label(lang.diagram_holds_text());
     }
     if let Some(n) = hits {
-        ui.label(format!("{} found by the XPath query", grouped(n)));
+        ui.label(lang.diagram_found_by_xpath(&grouped(lang, n)));
     }
-    ui.label(RichText::new("Click: the first one; again or F3: the next").weak());
+    ui.label(RichText::new(lang.diagram_click()).weak());
 }
 
 /// Places the boxes not collapsed away: each box's children in the column to its right,
 /// stacked, and the box level with the middle of them where there is room. A loop rather
 /// than recursion: a recursive document has paths [`MAX_PATHS`] deep.
-fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -> Layout {
+fn lay_out(
+    s: &Structure,
+    collapsed: &HashSet<Vec<u8>>,
+    measure: &dyn Measure,
+    lang: Lang,
+) -> Layout {
     let mut boxes: Vec<Placed> = Vec::new();
     // Each depth's column: its boxes' widest width.
     let mut widths: Vec<f32> = Vec::new();
@@ -886,7 +904,7 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
         let parent_box = !info.children.is_empty();
         let is_collapsed = parent_box && collapsed.contains(&s.key(p));
         let name = cut(&String::from_utf8_lossy(&info.name), NAME_CHARS);
-        let count = format!("\u{d7}{}", grouped(info.count));
+        let count = format!("\u{d7}{}", grouped(lang, info.count));
         let attributes = cut(
             &info
                 .attributes
@@ -902,7 +920,7 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
             line2 = measure.small(&attributes);
         }
         if info.text {
-            let t = measure.small("text");
+            let t = measure.small(lang.diagram_text());
             line2 = vec2(
                 line2.x + if line2.x > 0.0 { 6.0 } else { 0.0 } + t.x,
                 t.y.max(line2.y),
@@ -930,7 +948,7 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
                     measure.small(&attributes).x
                 },
                 if info.text {
-                    measure.small("text").x
+                    measure.small(lang.diagram_text()).x
                 } else {
                     0.0
                 },
@@ -1002,16 +1020,21 @@ fn lay_out(s: &Structure, collapsed: &HashSet<Vec<u8>>, measure: &dyn Measure) -
         boxes,
         size,
         made_for: (0, 0.0, 0.0),
+        lang,
     }
 }
 
-/// `n` with a comma between thousands: `63,543`.
-fn grouped(n: u64) -> String {
+/// `n` with its thousands apart: `63,543`, in German `63.543` (LANG-17).
+pub(crate) fn grouped(lang: Lang, n: u64) -> String {
+    let separator = match lang {
+        Lang::En => ',',
+        Lang::De => '.',
+    };
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
+            out.push(separator);
         }
         out.push(c);
     }
@@ -1103,7 +1126,12 @@ mod tests {
 
     fn layout(open: &Open) -> Layout {
         let d = &open.diagram;
-        lay_out(d.structure.as_ref().unwrap(), &d.collapsed, &Fixed)
+        lay_out(
+            d.structure.as_ref().unwrap(),
+            &d.collapsed,
+            &Fixed,
+            Lang::En,
+        )
     }
 
     #[test]
@@ -1390,12 +1418,106 @@ mod tests {
 
     #[test]
     fn numbers_are_grouped_and_long_names_cut() {
-        assert_eq!(grouped(0), "0");
-        assert_eq!(grouped(999), "999");
-        assert_eq!(grouped(1000), "1,000");
-        assert_eq!(grouped(63_543), "63,543");
-        assert_eq!(grouped(1_234_567), "1,234,567");
+        assert_eq!(grouped(Lang::En, 0), "0");
+        assert_eq!(grouped(Lang::En, 999), "999");
+        assert_eq!(grouped(Lang::En, 1000), "1,000");
+        assert_eq!(grouped(Lang::En, 63_543), "63,543");
+        assert_eq!(grouped(Lang::En, 1_234_567), "1,234,567");
+        assert_eq!(grouped(Lang::De, 1_234_567), "1.234.567");
         assert_eq!(cut("größer", 3), "grö…");
         assert_eq!(cut("abc", 3), "abc");
+    }
+
+    /// LANG-1, LANG-15 and LANG-17: the diagram, its header as narrow as beside the tree, and
+    /// its SVG export in German; a change of language lays it out again.
+    #[test]
+    fn the_diagram_and_its_export_are_german() {
+        let mut open = opened(&format!(
+            "\u{feff}<r>\r\n{}</r>",
+            "<Größe a=\"1\">x</Größe>\r\n".repeat(1200)
+        ));
+        walk(&mut open);
+        let ctx = egui::Context::default();
+        ctx.set_os(egui::os::OperatingSystem::Nix);
+        let width = 960.0;
+        let draw = |lang: Lang, open: &mut Open| {
+            let mut texts = Vec::new();
+            for _ in 0..4 {
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 500.0))),
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| show(ui, open, lang));
+                out.textures_delta.clear();
+                texts = out
+                    .shapes
+                    .into_iter()
+                    .filter_map(|s| match s.shape {
+                        egui::Shape::Text(t) => {
+                            let rect = t.galley.rect.translate(t.pos.to_vec2());
+                            Some((t.galley.text().to_owned(), rect))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+            }
+            texts
+        };
+        let has =
+            |texts: &[(String, Rect)], part: &str| texts.iter().any(|(t, _)| t.contains(part));
+        let english = draw(Lang::En, &mut open);
+        assert!(has(&english, "\u{d7}1,200"), "{english:?}");
+        let german = draw(Lang::De, &mut open);
+        for part in [
+            "\u{d7}1.200",
+            "Text",
+            "2 Pfade",
+            "Ebenen: alle",
+            "Als SVG exportieren…",
+            "100 %  ·  Strg+Mausrad zoomt",
+        ] {
+            assert!(has(&german, part), "{part}: {german:?}");
+        }
+        // The header's row: the texts level with the first.
+        for texts in [&english, &german] {
+            let top = texts[0].1;
+            let header: Vec<_> = texts
+                .iter()
+                .filter(|(_, r)| r.center().y < top.bottom() + 4.0)
+                .collect();
+            for (i, (text, rect)) in header.iter().enumerate() {
+                // Right-aligned text ends at the edge, give or take its rounding.
+                assert!(
+                    rect.left() >= 0.0 && rect.right() <= width + 1.0,
+                    "{text:?}: {rect:?}"
+                );
+                for (other, o) in &header[i + 1..] {
+                    let shared = rect.intersect(*o);
+                    assert!(
+                        shared.width() <= 1.0 || shared.height() <= 1.0,
+                        "{text:?} lies over {other:?}"
+                    );
+                }
+            }
+        }
+        let colour = Color32::BLACK;
+        let palette = Palette {
+            background: colour,
+            fill: colour,
+            border: colour,
+            line: colour,
+            name: colour,
+            weak: colour,
+            attributes: colour,
+            text: colour,
+        };
+        let sizes = Sizes {
+            name: 14.0,
+            small: 10.0,
+        };
+        let svg = to_svg(open.diagram.layout.as_ref().unwrap(), &palette, &sizes);
+        for part in [">Text</text>", ">\u{d7}1.200</text>", ">Größe</text>"] {
+            assert!(svg.contains(part), "{part}: {svg}");
+        }
     }
 }

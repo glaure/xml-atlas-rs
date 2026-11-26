@@ -2053,7 +2053,13 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Built, step 3, second part:** the dialogs. Why a font cannot be used is now a value,
   worded when shown and in English in the log. The font window has an id of its own, as its
   title changes with the language.
-- **Next:** step 3, panes and the rest.
+- **Built, step 3, third part:** the panes, the notices above the views, the diagram and its
+  SVG export. A diagram's layout keeps its language, as it holds the widths of its texts,
+  and is made again on a change. What the diagram and the update check could not do is kept
+  as values. Counts of errors and warnings are one pair of texts. Found: the program's
+  fonts lack the ℹ of the minified notice, in English too; and a run of spaces in the
+  tooltip of *Expand repeats*, now gone.
+- **Next:** step 4, the engine's messages.
 
 ## Open questions
 

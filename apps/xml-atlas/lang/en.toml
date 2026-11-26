@@ -164,7 +164,7 @@ switch_wrap_tab = "Word wrap in this tab"
 switch_wrap_all = "Word wrap in every tab"
 switch_toolbar = "Toolbar"
 switch_grid_above = "Grid above text"
-switch_text_above = "Text above grid (as in XML Marker)"
+switch_text_above = "Text above grid"
 switch_theme_system = "Follow system"
 switch_theme_light = "Light"
 switch_theme_dark = "Dark"
@@ -479,8 +479,6 @@ editor_reload = "Load it, losing my changes"
 editor_unsaved_title = "Unsaved rules"
 editor_save_rules = "Save rules"
 editor_checking = "Checking…"
-editor_errors = { one = "1 error", other = "{count} errors" }
-editor_warnings = { one = "1 warning", other = "{count} warnings" }
 editor_summary = "{errors}, {warnings}"
 editor_count_large = "Count in this large document"
 editor_count_large_tip = "Each pause in typing then waits for the count"
@@ -497,3 +495,106 @@ editor_template_repeat = "Repeat"
 editor_in_outer = "In the outer {{ }}"
 editor_in_includes = "In includes [ ]"
 editor_in_contexts = "In contexts {{ }}"
+
+# Counts of errors and warnings, wherever they are told.
+count_errors = { one = "1 error", other = "{count} errors" }
+count_warnings = { one = "1 warning", other = "{count} warnings" }
+
+# The empty window and an untitled tab.
+welcome_drop = "Drop an XML file here, or press {key}"
+tabs_untitled = "untitled"
+status_loading_stopped = "loading stopped"
+
+# The notice about a file that changed on disk (OPEN-14).
+disk_changed = "changed on disk"
+disk_removed = "was deleted or moved on disk"
+disk_reload_discard = "Reload, discarding changes"
+disk_reload_discard_tip = "Show the file as it is now; your unsaved changes are lost"
+disk_reload = "Reload"
+disk_reload_tip = "Show the file as it is now"
+disk_save = "Save"
+disk_save_tip = "Write the document as it is open here to the file"
+disk_save_as = "Save as…"
+disk_keep = "Keep"
+disk_keep_tip = "Keep the document as it is open here, without saving"
+
+# The notice about a minified file (TEXT-23).
+minified_notice = "{name} is minified: its elements are on one long line, shown wrapped."
+minified_format = "Format"
+minified_format_tip = "Put each element on its own indented line. One undo step; the file changes only when you save"
+minified_dismiss = "Dismiss"
+
+# The grid, its attributes and the cell pane (GRID-11, GRID-16).
+grid_rows = { one = "1 row", other = "{count} rows" }
+grid_columns_hidden = { one = "1 column hidden", other = "{count} columns hidden" }
+grid_stale = "The text of this element is being edited and is not well-formed; the grid shows it as it last was."
+grid_row_stale = "The text of this element is being edited and is not well-formed; this row shows it as it last was."
+grid_column_element = "element"
+attributes_none = "No attributes"
+attributes_count = { one = "1 attribute", other = "{count} attributes" }
+cell_empty = "Click a row or a cell in the grid to see it here."
+cell_absent = "Nothing here: the row has no such value."
+cell_cut = "Cut: the first {number} characters are shown."
+cell_copy_whole = "Copy whole value"
+
+# The list of problems (OPEN-13).
+problems_title = "Problems"
+problems_entry = "Line {line}, column {column}:  {message}"
+
+# The reference preview, its tree and the check in its header (REF-5, REF-10, REF-16).
+preview_no_rules = "No reference rules for this file"
+preview_no_rules_help = "In File > Settings > References, switch a rules file on and fill in Use for (REF-13). Rules say which elements and attributes are references."
+preview_unreadable = "The reference rules cannot be read"
+preview_edit = "Edit rules…"
+preview_rules = "Rules: {name}"
+preview_select = "Select an element to see it with its references resolved."
+preview_waiting = "Waiting for the document to be read again…"
+preview_expand = "Expand repeats"
+preview_expand_tip = "Show an element with {name} as that many numbered copies, as the program reads it (REF-11)"
+preview_no_references = "No references"
+preview_references = { one = "1 reference", other = "{count} references" }
+preview_unresolved = "{summary}, {number} not resolved"
+preview_cut = "{summary}, cut after {number} MiB"
+preview_summary_tip = "Read-only. Imported lines are tinted; comments starting with \"XML Atlas:\" say what did not resolve, or where a looked-up context came from"
+preview_copy = "Copy"
+preview_copy_tip = "Copy the preview's text"
+preview_tree_select = "Select an element to see it resolved, as a tree."
+preview_show_main = "Show in the main tree"
+preview_written = "The preview wrote this itself: it is not in the file"
+preview_nearest = "the nearest that has it"
+preview_section = "{context} in {scope} from"
+check_ok = "check OK"
+check_ok_uncounted = "OK, not counted"
+check_more = "and {number} more"
+check_not_counted = "Matches in the document were not counted: the editor can."
+check_click = "The check of the rules file. Click to edit it."
+
+# The diagram and its SVG export (D36).
+diagram_text = "text"
+diagram_stopped = "reading the structure stopped"
+diagram_cannot_read = "cannot read the structure: {error}"
+diagram_empty = "No elements"
+diagram_reading = "reading the structure…"
+diagram_paths = { one = "{number} path", other = "{number} paths" }
+diagram_capped = "the first {number} paths: deeper elements are left out"
+diagram_stale = "out of date after the edit"
+diagram_export = "Export as SVG…"
+diagram_export_tip = "The diagram as it is collapsed now, as a vector image"
+diagram_saved = "saved {path}"
+diagram_cannot_save = "could not save {path}: {error}"
+diagram_zoom = "{percent} %  ·  {wheel}+wheel zooms, {reset} resets"
+diagram_levels = "Levels: {shown}"
+diagram_levels_all = "all"
+diagram_levels_custom = "custom"
+diagram_levels_choose_all = "All"
+diagram_found = "{number} found"
+diagram_elements = { one = "{number} element", other = "{number} elements" }
+diagram_holds_text = "holds text"
+diagram_found_by_xpath = "{number} found by the XPath query"
+diagram_click = "Click: the first one; again or F3: the next"
+
+# Why the update check failed (PKG-7).
+update_why_stopped = "the check stopped"
+update_why_unreadable = "cannot read the answer: {error}"
+update_why_no_version = "the answer names no version"
+update_why_bad_version = "{tag} is not a version"

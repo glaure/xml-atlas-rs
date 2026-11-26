@@ -485,8 +485,8 @@ impl Editing {
             lang.editor_checking().to_owned()
         } else {
             lang.editor_summary(
-                &lang.editor_errors(report.errors() as u64),
-                &lang.editor_warnings(warnings as u64),
+                &lang.count_errors(report.errors() as u64),
+                &lang.count_warnings(warnings as u64),
             )
         };
         ui.horizontal(|ui| {
