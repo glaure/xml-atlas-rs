@@ -185,7 +185,7 @@ enum Command {
     /// output (D27). Add it to Claude Code with `claude mcp add xml-atlas -- xml-atlas-cli mcp`.
     Mcp {
         /// Work in the open XML Atlas window, on its tabs, instead of on files (D28). The
-        /// window must allow it: View > Allow AI agents (MCP).
+        /// window must allow it: Settings > Allow AI agents (MCP).
         #[arg(long)]
         window: bool,
     },
@@ -539,7 +539,7 @@ fn load_rules(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<(PathBuf, R
 }
 
 /// The rules file for `file`: `rules`, or the one Settings > References uses for it
-/// (REF-13). View > Resolve references does not count here (REF-12).
+/// (REF-13). Tools > References > Resolve references does not count here (REF-12).
 fn rules_path(file: &Path, rules: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     if let Some(path) = rules {
         return Ok(path);

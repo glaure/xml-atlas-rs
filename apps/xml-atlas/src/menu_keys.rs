@@ -109,6 +109,12 @@ pub struct MenuKeys {
 }
 
 impl MenuKeys {
+    /// What a tap of Alt notes down, for tests.
+    #[cfg(test)]
+    pub fn remember_focus(&mut self, id: egui::Id) {
+        self.restore = Some(id);
+    }
+
     /// Call once per frame before the bar is drawn: the menu's own arrow keys act while it is
     /// drawn, so the request to enter a menu has to be there first.
     pub fn before(&mut self, ctx: &egui::Context) {

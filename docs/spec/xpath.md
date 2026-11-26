@@ -7,7 +7,7 @@ a fraction of a second (`docs/decisions.md`, D35).
 
 ## Rules
 
-- **XP-1** `[done]` *Edit > XPath…* (Ctrl+Shift+X), or its toolbar button (a small tree),
+- **XP-1** `[done]` *Tools > XPath…* (Ctrl+Shift+X), or its toolbar button (a small tree),
   opens a query bar under the find bar. The empty field shows an example; Tab takes it, the
   cursor after it.
   The expression is checked as it is typed: a valid one says *valid*; a wrong one frames

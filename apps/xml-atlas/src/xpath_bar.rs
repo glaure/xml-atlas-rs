@@ -1,4 +1,4 @@
-//! Edit > XPath… (`docs/spec/xpath.md`, XP-1, XP-3 to XP-5; D35).
+//! Tools > XPath… (`docs/spec/xpath.md`, XP-1, XP-3 to XP-5; D35).
 //!
 //! Ctrl+Shift+X opens a query bar under the find bar. Enter runs the expression on a thread
 //! of its own; *Stop* ends it. Nodes are listed in a panel at the bottom, as the problems are:

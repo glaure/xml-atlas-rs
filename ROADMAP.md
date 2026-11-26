@@ -136,7 +136,7 @@ Decided 2026-11-22 (D37 to D41 in `docs/decisions.md`):
 
 - [x] Bug: window and pane sizes were lost on exit; now remembered, with Reset layout
       (D38, WIN-3; #146)
-- [ ] Menus: aligned keys, Navigate and Tools menus, a shorter View (D37)
+- [x] Menus: aligned keys, Navigate and Tools menus, a shorter View (D37, WIN-13, WIN-14)
 - [ ] Layout: the preview's position, Text/Tree/Both in its header, folding problems, close
       buttons on panes (D38)
 - [ ] Layout, later: the cell pane's position, maximize a pane and F6, pictures of the

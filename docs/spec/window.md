@@ -33,7 +33,7 @@ How the views are laid out, and how the window looks.
   it has, per layout for the grid and the diagram. A share changes only when its border is
   dragged, so neither what a pane holds nor a smaller window changes it, and a pane keeps its
   share when the window changes its size. The tree is 320 points wide until it is dragged.
-  The problems and XPath results are never higher than their rows need. View > *Reset layout*,
+  The problems and XPath results are never higher than their rows need. View > Layout > *Reset layout*,
   and Settings > Views > *Reset to defaults*, give the panes their first sizes again and
   leave the window as it is. A change of the window is written a second after it stops, or
   at exit.
@@ -108,15 +108,15 @@ How the views are laid out, and how the window looks.
 - **WIN-11** `[built]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
   font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
-  whether a click in the text expands it (TREE-12), the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Edit > Format
+  whether a click in the text expands it (TREE-12), the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Tools > Format
   options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
   change applies and is saved at once, without OK and Cancel; each section has *Reset to
   defaults*. A test checks that every setting but the recent files and the find options is
   in a section, so a new setting cannot be left out.
-  The View menu keeps word wrap, the layout, the grid, the cell pane, references, their
-  preview and its tree,
-  attribute rows, expanding on a click in the text, the toolbar and the theme mode as shortcuts to the same settings; *Allow AI agents* and *Light style* are
-  only in Settings. Not in Settings: the recent files, window and pane sizes, the find
+  The View menu keeps word wrap, the layout, the grid, the cell pane, attribute rows,
+  expanding on a click in the text, the toolbar and the theme mode, and Tools > References
+  keeps references, their preview and its tree, as shortcuts to the same settings; *Allow AI
+  agents* and *Light style* are only in Settings. Not in Settings: the recent files, window and pane sizes, the find
   options (`docs/decisions.md`, D31).
 - **WIN-12** `[built]` Settings > Appearance shows how each theme looks: above each of
   *Follow system*, *Light*, *Dark*, *Soft grey* and *Classic* a small example window with
@@ -128,16 +128,36 @@ How the views are laid out, and how the window looks.
 - **WIN-13** `[built]` Keys in menus, context menus and tooltips (D37) are set to the right
   of the entry, aligned, and read as the platform names them: Cmd for Ctrl on macOS. Each
   label is made from the shortcut its handler takes (`apps/xml-atlas/src/keys.rs`). Ctrl+Q is
-  File > Quit and asks as it does (OPEN-11). Ctrl+I is Edit > Format; a focused text field
+  File > Quit and asks as it does (OPEN-11). Ctrl+I is Tools > Format; a focused text field
   keeps it. The built-in guide and these specs write Ctrl.
+- **WIN-14** `[built]` Six menus (D37). `>` is a submenu, `|` a separator.
+  - *File*: New, Open, Open Recent> | Save, Save As, Save as UTF-8 | Close | Settings |
+    Quit.
+  - *Edit*: Undo, Redo | Cut, Copy, Paste, Select All | Find, Find next, Find previous,
+    Find in element, Replace | Element> (Rename, Delete, Duplicate, Move up, Move down),
+    which act on the selected element as its tree row's menu does (TREE-9), show it in the
+    tree and give the tree the arrow keys.
+  - *View*: Layout> (Grid above text, Text above grid, Reset layout) | Grid, Diagram, Cell
+    pane | Attributes in the tree, Expand the tree on a click in the text, Collapse the tree
+    | Word wrap | Toolbar, Font, Theme>.
+  - *Navigate*: Drill Up, Drill Down | Go to reference target, Go to line | Next tab,
+    Previous tab | the bookmarks (TREE-15).
+  - *Tools*: XPath | Format, Compact, Format options | References> (Resolve references,
+    Preview, Preview tree, Rules files, which opens Settings > References).
+  - *Help*: XML Atlas Help, Check for updates now, About XML Atlas.
+
+  An entry that does not apply stays in its place, greyed out, and says why on hover. Go to
+  reference target is greyed out while references are off or the file has no rules; whether
+  the selection is a reference is said when it is chosen. The arrow keys move along the
+  bar and into and out of the submenus (#167).
 
 ## Acceptance tests
 
-- Choose Text above grid, turn off View > Attributes in the tree, choose Tabs in Edit > Format
+- Choose Text above grid, turn off View > Attributes in the tree, choose Tabs in Tools > Format
   options, quit, start again: all three are as chosen.
 - Drag the tree's, the grid's and the preview's borders, resize the window, quit, start again:
   all four are as left. Maximize, quit, start again: maximized, and un-maximizing gives the
-  size from before. View > Reset layout: the panes' first sizes, the window unchanged.
+  size from before. View > Layout > Reset layout: the panes' first sizes, the window unchanged.
 - Open a file with problems, choose View > Layout > Text above grid: text on top, the
   problems list under it, the grid at the bottom; the selection is unchanged. Choose Grid above
   text: back as before.

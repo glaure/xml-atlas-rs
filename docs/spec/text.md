@@ -158,7 +158,7 @@ of it.
   then replaces only inside it. The ✕ next to it, Ctrl+F, Edit > Find… and closing the bar
   return to the whole document. The CLI's `find --within PATH` and the agents' `find` with
   `within` do the same. Asked for in issue #104.
-- **TEXT-27** `[done]` Go to line: Edit > Go to line… or Ctrl+G opens a bar above the text with
+- **TEXT-27** `[done]` Go to line: Navigate > Go to line… or Ctrl+G opens a bar above the text with
   one field, hinted with the number of lines. `12` goes to the start of line 12 and `12:5` to
   its column 5, both from 1; columns are display columns as the status bar's are (TEXT-4), and
   past the end of a short line is its end. Enter moves the text cursor there, scrolls it into

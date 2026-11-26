@@ -144,8 +144,19 @@ mod tests {
     fn unsafe_code_is_allowed_only_for_files_from_finder() {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut allowing = Vec::new();
-        for entry in std::fs::read_dir(&src).unwrap() {
-            let path = entry.unwrap().path();
+        let mut folders = vec![src];
+        let mut files = Vec::new();
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        for path in files {
             let text = std::fs::read_to_string(&path).unwrap();
             if text.contains(&["allow(", "unsafe_code)"].concat()) {
                 allowing.push(path.file_name().unwrap().to_string_lossy().into_owned());
