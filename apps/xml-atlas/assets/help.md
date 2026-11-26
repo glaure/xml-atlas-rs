@@ -171,9 +171,13 @@ undo and save.
 
 ## Settings
 
-File > Settings… (Ctrl+,) shows every setting in one window: appearance, views, references,
-format options, updates and AI agents. A change applies at once. Appearance shows an example of
+File > Settings… (Ctrl+,) shows every setting in one window: appearance, localization, views,
+references, format options, updates and AI agents. A change applies at once. Appearance shows an example of
 each theme; click one to use it.
+
+*Language / Sprache*, under Localization, chooses English (the default), Deutsch or
+the system's language. German is not complete yet: dialogs, the bars, messages and this
+guide are still in English.
 
 ## Updates
 

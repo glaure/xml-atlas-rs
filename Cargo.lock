@@ -5324,6 +5324,8 @@ dependencies = [
  "ring",
  "serde_json",
  "skrifa",
+ "sys-locale",
+ "toml",
  "ureq",
  "xml-atlas-engine",
  "xml-atlas-mcp",

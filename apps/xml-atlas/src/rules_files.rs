@@ -5,6 +5,7 @@
 //! The folder is read when references are switched on or the list is shown, and again when
 //! it changes on disk; never per frame.
 
+use crate::lang::Lang;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,15 +22,6 @@ const PAUSE: Duration = Duration::from_millis(700);
 const USE_FOR_WIDTH: f32 = 250.0;
 /// Width of the list, for the names and errors that wrap in it.
 const LIST_WIDTH: f32 = 470.0;
-
-const NOTE: &str = "XML Atlas uses only the files in this list, never one beside an XML file. \
-                    A file is used for a document when it is on and Use for matches; of \
-                    several, the upper one wins.";
-const USE_FOR_HELP: &str = "Patterns separated by ;\n\
-                            * stands for any characters, folders included, ? for one.\n\
-                            Without / a pattern is compared with the file's name: catalog*.xml\n\
-                            With / with the end of its path: */XML/*catalog.xml\n\
-                            * alone is every document; empty is none.";
 
 /// The folder, as last read, and the list's state in the window.
 #[derive(Default)]
@@ -152,8 +144,8 @@ impl RulesFiles {
     }
 
     /// Draws the editor; a saved file is taken by the tabs at once.
-    pub fn show_editor(&mut self, ctx: &egui::Context, document: Option<&Open>) {
-        if self.editor.show(ctx, document) {
+    pub fn show_editor(&mut self, ctx: &egui::Context, lang: Lang, document: Option<&Open>) {
+        if self.editor.show(ctx, lang, document) {
             self.refresh();
         }
     }
@@ -164,9 +156,9 @@ impl RulesFiles {
     }
 
     /// The list. `document`: the path of the document shown, to say which file it gets.
-    pub fn show(&mut self, ui: &mut Ui, document: Option<&Path>) {
+    pub fn show(&mut self, ui: &mut Ui, lang: Lang, document: Option<&Path>) {
         ui.set_max_width(LIST_WIDTH);
-        ui.label(RichText::new(NOTE).weak());
+        ui.label(RichText::new(lang.rules_note()).weak());
         ui.add_space(6.0);
         if self.library.is_none() {
             self.reload();
@@ -175,8 +167,14 @@ impl RulesFiles {
             return;
         };
         let red = ui.visuals().error_fg_color;
-        for e in [&library.error, &self.error].into_iter().flatten() {
-            ui.colored_label(red, e.as_str());
+        // Without a folder the list's error is our own; the others are the engine's
+        // (D45, step 4).
+        let list = match &self.folder {
+            Some(_) => library.error.as_deref(),
+            None => Some(lang.rules_no_folder()),
+        };
+        for e in list.into_iter().chain(self.error.as_deref()) {
+            ui.colored_label(red, e);
         }
         let resolved = self.resolved_document(document);
         let resolved = resolved.as_deref();
@@ -187,14 +185,14 @@ impl RulesFiles {
         let mut command = None;
         ui.add_enabled_ui(library.error.is_none(), |ui| {
             if library.entries.is_empty() {
-                ui.label("No rules files yet: import one, or make a new one.");
+                ui.label(lang.rules_none());
             }
             for (i, entry) in library.entries.iter().enumerate() {
                 let last = i + 1 == library.entries.len();
                 ui.push_id(&entry.name, |ui| {
-                    self.file(ui, entry, (i == 0, last), resolved, &mut command);
+                    self.file(ui, lang, entry, (i == 0, last), resolved, &mut command);
                     if document.is_some() && used == Some(i) {
-                        ui.label(RichText::new("In use for the document shown").weak());
+                        ui.label(RichText::new(lang.rules_in_use()).weak());
                     } else if document.is_some()
                         && entry.on
                         && let Some(upper) = used
@@ -202,24 +200,24 @@ impl RulesFiles {
                         && applies(&entry.use_for, resolved)
                     {
                         let upper = &library.entries[upper].name;
-                        let text = format!("Also for the document shown, but {upper} is above it");
+                        let text = lang.rules_shadowed(upper);
                         ui.label(RichText::new(text).weak());
                     }
                 });
                 ui.separator();
             }
             ui.horizontal(|ui| {
-                if ui.button("New").clicked() {
+                if ui.button(lang.rules_new()).clicked() {
                     command = Some(Command::New);
                 }
                 if ui
-                    .button("Import…")
-                    .on_hover_text("Copies a rules file into the list; the original stays")
+                    .button(lang.rules_import())
+                    .on_hover_text(lang.rules_import_hint())
                     .clicked()
                 {
                     command = Some(Command::Import);
                 }
-                if ui.button("Open folder").clicked() {
+                if ui.button(lang.rules_open_folder()).clicked() {
                     command = Some(Command::OpenFolder);
                 }
             });
@@ -229,7 +227,7 @@ impl RulesFiles {
             ui.add(egui::Label::new(RichText::new(path).weak()).truncate());
         }
         if let Some(command) = command {
-            self.run(command);
+            self.run(lang, command);
         }
     }
 
@@ -237,6 +235,7 @@ impl RulesFiles {
     fn file(
         &mut self,
         ui: &mut Ui,
+        lang: Lang,
         entry: &Entry,
         (first, last): (bool, bool),
         document: Option<&Path>,
@@ -254,7 +253,7 @@ impl RulesFiles {
             }
         });
         ui.horizontal(|ui| {
-            let label = ui.label("Use for");
+            let label = ui.label(lang.rules_use_for());
             let mut text = match &self.use_for {
                 Some(draft) if draft.name == *name => draft.text.clone(),
                 _ => entry.use_for.clone(),
@@ -264,10 +263,10 @@ impl RulesFiles {
                     egui::TextEdit::singleline(&mut text)
                         .id_salt("use-for")
                         .desired_width(USE_FOR_WIDTH)
-                        .hint_text("no document"),
+                        .hint_text(lang.rules_use_for_empty()),
                 )
                 .labelled_by(label.id)
-                .on_hover_text(USE_FOR_HELP);
+                .on_hover_text(lang.rules_use_for_help());
             if field.changed() {
                 self.type_use_for(name, text.clone());
             }
@@ -280,8 +279,8 @@ impl RulesFiles {
                 .filter(|_| !applies(&text, document));
             if let Some(shown) = add
                 && ui
-                    .small_button("+ shown")
-                    .on_hover_text(format!("Add {shown}, the document shown"))
+                    .small_button(lang.rules_add_shown())
+                    .on_hover_text(lang.rules_add_shown_hint(shown))
                     .clicked()
             {
                 let sep = if text.trim().is_empty() { "" } else { "; " };
@@ -298,47 +297,62 @@ impl RulesFiles {
                     *command = Some(what);
                 }
             };
-            button(ui, true, "Edit…", Command::Edit(name.clone()));
-            button(ui, !first, "Up", Command::Move(name.clone(), true));
-            button(ui, !last, "Down", Command::Move(name.clone(), false));
-            button(ui, true, "Duplicate", Command::Duplicate(name.clone()));
-            if ui.small_button("Rename…").clicked() {
+            button(ui, true, lang.rules_edit(), Command::Edit(name.clone()));
+            button(
+                ui,
+                !first,
+                lang.rules_up(),
+                Command::Move(name.clone(), true),
+            );
+            button(
+                ui,
+                !last,
+                lang.rules_down(),
+                Command::Move(name.clone(), false),
+            );
+            button(
+                ui,
+                true,
+                lang.rules_duplicate(),
+                Command::Duplicate(name.clone()),
+            );
+            if ui.small_button(lang.rules_rename_ask()).clicked() {
                 self.asked = Some(Asked::Rename {
                     name: name.clone(),
                     to: name.clone(),
                 });
             }
-            if ui.small_button("Delete…").clicked() {
+            if ui.small_button(lang.rules_delete_ask()).clicked() {
                 self.asked = Some(Asked::Delete { name: name.clone() });
             }
         });
         if let Err(e) = &entry.rules {
             ui.colored_label(ui.visuals().error_fg_color, e.as_str());
         } else if entry.on && entry.use_for.is_empty() {
-            let text = "Used for no document until Use for says which";
+            let text = lang.rules_unused();
             ui.colored_label(ui.visuals().warn_fg_color, text);
         }
         let mut answered = false;
         match &mut self.asked {
             Some(Asked::Rename { name: of, to }) if of == name => {
                 ui.horizontal(|ui| {
-                    let label = ui.label("New name");
+                    let label = ui.label(lang.rules_new_name());
                     ui.text_edit_singleline(to).labelled_by(label.id);
-                    if ui.button("Rename").clicked() {
+                    if ui.button(lang.rules_rename()).clicked() {
                         *command = Some(Command::Rename(of.clone(), to.clone()));
                         answered = true;
                     }
-                    answered |= ui.button("Cancel").clicked();
+                    answered |= ui.button(lang.rules_cancel()).clicked();
                 });
             }
             Some(Asked::Delete { name: of }) if of == name => {
-                ui.label(format!("Delete {of} from the folder? It cannot be undone."));
+                ui.label(lang.rules_delete_question(of));
                 ui.horizontal(|ui| {
-                    if ui.button("Delete").clicked() {
+                    if ui.button(lang.rules_delete()).clicked() {
                         *command = Some(Command::Delete(of.clone()));
                         answered = true;
                     }
-                    answered |= ui.button("Cancel").clicked();
+                    answered |= ui.button(lang.rules_cancel()).clicked();
                 });
             }
             _ => {}
@@ -368,7 +382,7 @@ impl RulesFiles {
         self.done(done);
     }
 
-    fn run(&mut self, command: Command) {
+    fn run(&mut self, lang: Lang, command: Command) {
         self.write_use_for();
         let Some(folder) = &self.folder else { return };
         let done: Result<(), FolderError> = match command {
@@ -384,8 +398,8 @@ impl RulesFiles {
             }
             Command::Import => {
                 let picked = rfd::FileDialog::new()
-                    .add_filter("Rules", &["json"])
-                    .set_title("Import a rules file")
+                    .add_filter(lang.rules_file_filter(), &["json"])
+                    .set_title(lang.rules_import_title())
                     .pick_file();
                 match picked {
                     Some(file) => folder.import(&file).map(|_| ()),

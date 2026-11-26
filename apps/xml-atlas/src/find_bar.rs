@@ -7,6 +7,7 @@
 //! outlined match and finds the next; Replace All replaces every match, in the whole document
 //! or in the selected element, as one undo step.
 
+use crate::lang::Lang;
 use std::ops::Range;
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
@@ -143,7 +144,7 @@ impl FindBar {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, open: &mut Open) {
+    pub fn show(&mut self, ui: &mut Ui, open: &mut Open, lang: Lang) {
         if self.counted != Some(doc_key(open)) {
             self.recount(open);
         }
@@ -196,7 +197,10 @@ impl FindBar {
             }
             if ui
                 .button("⬆")
-                .on_hover_text(format!("Previous ({})", keys::text(ui.ctx(), &PREVIOUS)))
+                .on_hover_text(format!(
+                    "Previous ({})",
+                    keys::text(ui.ctx(), lang, &PREVIOUS)
+                ))
                 .clicked()
             {
                 direction = Some(Direction::Backward);
@@ -220,7 +224,7 @@ impl FindBar {
                 } else {
                     "Replace…"
                 };
-                let key = keys::text(ui.ctx(), &OPEN_REPLACE);
+                let key = keys::text(ui.ctx(), lang, &OPEN_REPLACE);
                 if ui.button(toggle).on_hover_text(key).clicked() {
                     self.replacing = !self.replacing;
                     self.focus_with = self.replacing;

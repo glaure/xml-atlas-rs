@@ -1,5 +1,6 @@
 //! The tree view: draws the rows from [`xml_atlas_engine::tree`], only those on screen.
 
+use crate::lang::Lang;
 use std::ops::Range;
 
 use egui::KeyboardShortcut;
@@ -333,10 +334,11 @@ pub struct Clicks<C> {
 }
 
 /// Draws the tree; `font` is the one chosen in View > Font… (TEXT-25), if any.
-pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>) {
+pub fn show(ui: &mut Ui, open: &mut Open, font: Option<&FontId>, lang: Lang) {
     let stale = open.doc.stale().unwrap_or(NONE);
     let rules = open.rules().cloned();
-    let menu = |ui: &mut Ui, doc: &Document, row| context_menu(ui, doc, rules.as_deref(), row);
+    let menu =
+        |ui: &mut Ui, doc: &Document, row| context_menu(ui, lang, doc, rules.as_deref(), row);
     let clicks = draw(
         ui,
         &open.doc,
@@ -630,6 +632,7 @@ fn finish_rename(open: &mut Open, save: bool) {
 /// The right-click menu of a row. Returns the command chosen.
 fn context_menu(
     ui: &mut Ui,
+    lang: Lang,
     doc: &Document,
     rules: Option<&Rules>,
     row: Row,
@@ -638,7 +641,7 @@ fn context_menu(
     let mut chosen = None;
     let mut item =
         |ui: &mut Ui, enabled: bool, text: &str, shortcut: &KeyboardShortcut, command| {
-            let shortcut = keys::text(ui.ctx(), shortcut);
+            let shortcut = keys::text(ui.ctx(), lang, shortcut);
             let button = egui::Button::new(text).shortcut_text(shortcut);
             if ui.add_enabled(enabled, button).clicked() {
                 chosen = Some(command);
@@ -649,7 +652,7 @@ fn context_menu(
         item(
             ui,
             true,
-            "Go to reference target",
+            lang.tree_reference(),
             &keys::GO_TO_REFERENCE,
             TreeCommand::GoToReference,
         );
@@ -658,12 +661,24 @@ fn context_menu(
     match row {
         Row::Node(id) if idx.node(id).kind == NodeKind::Element => {
             let inner = Some(id) != idx.root_element();
-            item(ui, true, "Rename", &keys::EDIT, TreeCommand::Rename);
-            item(ui, inner, "Delete", &keys::DELETE, TreeCommand::Delete);
+            item(
+                ui,
+                true,
+                lang.tree_rename(),
+                &keys::EDIT,
+                TreeCommand::Rename,
+            );
             item(
                 ui,
                 inner,
-                "Duplicate",
+                lang.tree_delete(),
+                &keys::DELETE,
+                TreeCommand::Delete,
+            );
+            item(
+                ui,
+                inner,
+                lang.tree_duplicate(),
                 &keys::DUPLICATE,
                 TreeCommand::Duplicate,
             );
@@ -671,7 +686,7 @@ fn context_menu(
             item(
                 ui,
                 true,
-                "Find in element…",
+                lang.tree_find_in(),
                 &crate::find_bar::OPEN_WITHIN,
                 TreeCommand::FindIn,
             );
@@ -681,14 +696,14 @@ fn context_menu(
             item(
                 ui,
                 up,
-                "Move up",
+                lang.tree_move_up(),
                 &keys::MOVE_UP,
                 TreeCommand::Move(Direction::Up),
             );
             item(
                 ui,
                 down,
-                "Move down",
+                lang.tree_move_down(),
                 &keys::MOVE_DOWN,
                 TreeCommand::Move(Direction::Down),
             );
@@ -696,16 +711,20 @@ fn context_menu(
         Row::Attribute { .. } => item(
             ui,
             true,
-            "Delete attribute",
+            lang.tree_delete_attribute(),
             &keys::DELETE,
             TreeCommand::Delete,
         ),
-        Row::Node(_) | Row::FoldedText(_) => {
-            item(ui, true, "Delete", &keys::DELETE, TreeCommand::Delete)
-        }
+        Row::Node(_) | Row::FoldedText(_) => item(
+            ui,
+            true,
+            lang.tree_delete(),
+            &keys::DELETE,
+            TreeCommand::Delete,
+        ),
     }
     ui.separator();
-    if ui.button("Collapse all").clicked() {
+    if ui.button(lang.tree_collapse_all()).clicked() {
         chosen = Some(TreeCommand::CollapseAll);
     }
     if chosen.is_some() {

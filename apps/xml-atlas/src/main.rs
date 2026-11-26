@@ -22,6 +22,11 @@ mod highlight;
 mod icons;
 mod installer;
 mod keys;
+mod lang;
+/// The language files' generator, which the build script runs; here to be tested.
+#[cfg(test)]
+#[path = "../lang/generate.rs"]
+mod lang_generate;
 #[cfg(target_os = "macos")]
 mod macos_open;
 mod menu_keys;

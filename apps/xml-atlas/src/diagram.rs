@@ -11,6 +11,7 @@
 //! box with children has a toggle that collapses them; each tab keeps what is collapsed.
 //! The wheel and dragging pan, Ctrl+wheel zooms and Ctrl+0 goes back to 100 %.
 
+use crate::lang::Lang;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -327,10 +328,10 @@ pub fn shortcuts(ctx: &egui::Context, open: &mut Open) {
 }
 
 /// The diagram, in the grid's place.
-pub fn show(ui: &mut Ui, open: &mut Open) {
+pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
     open.diagram
         .refresh(ui.ctx(), &open.doc.index, &open.doc.src);
-    header(ui, &mut open.diagram);
+    header(ui, lang, &mut open.diagram);
     let Some(structure) = open.diagram.structure.clone() else {
         if let Some(e) = &open.diagram.failed {
             ui.colored_label(ui.visuals().error_fg_color, e);
@@ -651,7 +652,7 @@ fn export(ui: &Ui, document: Option<&std::path::Path>, d: &mut Diagram) {
 }
 
 /// What the diagram shows, above it.
-fn header(ui: &mut Ui, d: &mut Diagram) {
+fn header(ui: &mut Ui, lang: Lang, d: &mut Diagram) {
     ui.horizontal(|ui| {
         if d.job.is_some() {
             ui.spinner();
@@ -688,7 +689,7 @@ fn header(ui: &mut Ui, d: &mut Diagram) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let reset = crate::keys::text(ui.ctx(), &RESET_ZOOM);
+            let reset = crate::keys::text(ui.ctx(), lang, &RESET_ZOOM);
             let wheel = if ui.ctx().os().is_mac() {
                 "Cmd"
             } else {
@@ -1353,7 +1354,9 @@ mod tests {
         let price = path(&open, "orders/order/items/item/price");
         go(&mut open, price, false);
         // Shown once so the layout and the mark are made.
-        let mut out = ctx.run_ui(Default::default(), |ui| show(ui, &mut open));
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            show(ui, &mut open, crate::lang::Lang::En)
+        });
         out.textures_delta.clear();
         let d = &open.diagram;
         assert_eq!(d.marked, Some(price));
@@ -1361,7 +1364,9 @@ mod tests {
         assert_eq!(d.layout.as_ref().unwrap().boxes[i].path, price);
         let items = path(&open, "orders/order/items");
         open.diagram.toggle(items);
-        let mut out = ctx.run_ui(Default::default(), |ui| show(ui, &mut open));
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            show(ui, &mut open, crate::lang::Lang::En)
+        });
         out.textures_delta.clear();
         let d = &open.diagram;
         let i = d.shown(price).unwrap();

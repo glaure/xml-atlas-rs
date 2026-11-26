@@ -107,7 +107,8 @@ How the views are laid out, and how the window looks.
   unreadable colour or part comes from the XML Atlas style, with a warning in the log.
 - **WIN-11** `[built]` *File > Settings…* (Ctrl+,; Cmd+, on macOS) opens a window with
   every remembered setting (WIN-3), in sections: *Appearance* (theme mode, light style, the
-  font of text, tree and grid, the toolbar), *Views* (layout, attribute rows in the tree,
+  font of text, tree and grid, the toolbar), *Localization* (the language, LANG-6),
+  *Views* (layout, attribute rows in the tree,
   whether a click in the text expands it (TREE-12), the grid, the cell pane, word wrap for the tabs not switched with Alt+Z), *References* (REF-12, with the preview and its tree, and the rules files, REF-13), *Format* (as Tools > Format
   options…), *Updates* (PKG-7: on or off, when it last checked, *Check now*) and *AI agents* (WIN-6). The font's *Choose…* opens the font dialog (TEXT-25). A
   change applies and is saved at once, without OK and Cancel; each section has *Reset to

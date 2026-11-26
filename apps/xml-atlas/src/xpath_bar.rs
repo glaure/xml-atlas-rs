@@ -6,6 +6,7 @@
 //! string or boolean is shown in the bar. Each tab keeps its own results ([`Open::xpath`]);
 //! after an edit they are out of date and not shown until the query runs again.
 
+use crate::lang::Lang;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Weak};
@@ -149,7 +150,7 @@ impl XPathBar {
     }
 
     /// The bar, under the find bar.
-    pub fn show(&mut self, ui: &mut Ui, open: &mut Open) {
+    pub fn show(&mut self, ui: &mut Ui, open: &mut Open, lang: Lang) {
         poll(open);
         let mut run = false;
         let mut close = false;
@@ -231,7 +232,10 @@ impl XPathBar {
             if has_fresh_nodes(open) {
                 if ui
                     .button("⬆")
-                    .on_hover_text(format!("Previous ({})", keys::text(ui.ctx(), &PREVIOUS)))
+                    .on_hover_text(format!(
+                        "Previous ({})",
+                        keys::text(ui.ctx(), lang, &PREVIOUS)
+                    ))
                     .clicked()
                 {
                     step(open, false);
@@ -789,7 +793,9 @@ mod tests {
         let ctx = egui::Context::default();
         for t in ["//p:a[", "//p:a[)]", "//größe[)]", "//q:a"] {
             bar.text = t.into();
-            let mut out = ctx.run_ui(Default::default(), |ui| bar.show(ui, &mut open));
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                bar.show(ui, &mut open, crate::lang::Lang::En)
+            });
             out.textures_delta.clear();
             assert!(open.xpath.is_none(), "{t} ran");
         }
@@ -809,7 +815,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let mut out = ctx.run_ui(input, |ui| bar.show(ui, &mut open));
+            let mut out = ctx.run_ui(input, |ui| bar.show(ui, &mut open, crate::lang::Lang::En));
             out.textures_delta.clear();
         };
         let tab = || egui::Event::Key {
@@ -845,7 +851,9 @@ mod tests {
         // Drawing the bar with each state changes nothing in the document.
         let ctx = egui::Context::default();
         let before = open.doc.src.clone();
-        let mut out = ctx.run_ui(Default::default(), |ui| bar.show(ui, &mut open));
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            bar.show(ui, &mut open, crate::lang::Lang::En)
+        });
         out.textures_delta.clear();
         assert_eq!(open.doc.src, before);
     }

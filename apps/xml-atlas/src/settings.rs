@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use xml_atlas_engine::FormatOptions;
+
+use crate::lang::LanguageChoice;
 use xml_atlas_engine::find::FindOptions;
 
 /// Files kept in File > Open Recent (OPEN-12).
@@ -45,6 +47,8 @@ pub enum LightStyle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub format: FormatOptions,
+    /// The language of the window's texts (LANG-6).
+    pub language: LanguageChoice,
     pub layout: Layout,
     pub theme: ThemeChoice,
     pub light_style: LightStyle,
@@ -95,6 +99,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             format: FormatOptions::default(),
+            language: LanguageChoice::default(),
             layout: Layout::default(),
             theme: ThemeChoice::default(),
             light_style: LightStyle::default(),
@@ -201,6 +206,11 @@ impl Settings {
     /// The settings as TOML.
     pub fn to_text(&self) -> String {
         let f = &self.format;
+        let language = match self.language {
+            LanguageChoice::System => "system",
+            LanguageChoice::English => "english",
+            LanguageChoice::German => "german",
+        };
         let layout = match self.layout {
             Layout::GridAbove => "grid-above",
             Layout::TextAbove => "text-above",
@@ -225,6 +235,7 @@ impl Settings {
              trim_text = {}\n\
              \n\
              [view]\n\
+             language = \"{language}\"\n\
              layout = \"{layout}\"\n\
              theme = \"{theme}\"\n\
              light_style = \"{light_style}\"\n\
@@ -358,6 +369,15 @@ impl Settings {
                     match string(value) {
                         Some("grid-above") => Some(Layout::GridAbove),
                         Some("text-above") => Some(Layout::TextAbove),
+                        _ => None,
+                    },
+                ),
+                ("view", "language") => set(
+                    &mut s.language,
+                    match string(value) {
+                        Some("system") => Some(LanguageChoice::System),
+                        Some("english") => Some(LanguageChoice::English),
+                        Some("german") => Some(LanguageChoice::German),
                         _ => None,
                     },
                 ),
@@ -525,6 +545,7 @@ mod tests {
                 remove_comments: true,
                 trim_text: true,
             },
+            language: LanguageChoice::German,
             layout: Layout::GridAbove,
             theme: ThemeChoice::Light,
             light_style: LightStyle::Classic,

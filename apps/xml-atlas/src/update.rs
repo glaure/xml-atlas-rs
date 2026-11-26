@@ -8,6 +8,7 @@
 //! only. Errors go to the log, except
 //! after *Check for updates now*, which says what went wrong.
 
+use crate::lang::Lang;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
@@ -229,17 +230,15 @@ pub fn notice(
 }
 
 /// When the last check was, in words for the Settings window.
-pub fn ago(last: Option<u64>, now: u64) -> String {
+pub fn ago(lang: Lang, last: Option<u64>, now: u64) -> String {
     let Some(last) = last else {
-        return "never".into();
+        return lang.settings_updates_never().into();
     };
     let s = now.saturating_sub(last);
     match s / 3600 {
-        0 => "less than an hour ago".into(),
-        1 => "an hour ago".into(),
-        h @ 2..24 => format!("{h} hours ago"),
-        24..48 => "a day ago".into(),
-        h => format!("{} days ago", h / 24),
+        0 => lang.settings_updates_recently().into(),
+        h @ 1..24 => lang.settings_updates_hours(h),
+        h => lang.settings_updates_days(h / 24),
     }
 }
 
@@ -330,6 +329,17 @@ mod tests {
             url: format!("{RELEASES}/tag/v{v}"),
             files: Vec::new(),
         }
+    }
+
+    #[test]
+    fn when_it_last_asked_in_german() {
+        let now = 10 * DAY;
+        let ago = |last| ago(Lang::De, last, now);
+        assert_eq!(ago(None), "nie");
+        assert_eq!(ago(Some(now - 3600)), "vor einer Stunde");
+        assert_eq!(ago(Some(now - 5 * 3600)), "vor 5 Stunden");
+        assert_eq!(ago(Some(now - DAY)), "vor einem Tag");
+        assert_eq!(ago(Some(now - 3 * DAY)), "vor 3 Tagen");
     }
 
     #[test]
@@ -497,12 +507,15 @@ mod tests {
     #[test]
     fn last_check_in_words() {
         let now = 1_800_000_000;
-        assert_eq!(ago(None, now), "never");
-        assert_eq!(ago(Some(now - 59 * 60), now), "less than an hour ago");
-        assert_eq!(ago(Some(now - 3600), now), "an hour ago");
-        assert_eq!(ago(Some(now - 5 * 3600), now), "5 hours ago");
-        assert_eq!(ago(Some(now - DAY), now), "a day ago");
-        assert_eq!(ago(Some(now - 3 * DAY), now), "3 days ago");
-        assert_eq!(ago(Some(now + 60), now), "less than an hour ago");
+        assert_eq!(ago(Lang::En, None, now), "never");
+        assert_eq!(
+            ago(Lang::En, Some(now - 59 * 60), now),
+            "less than an hour ago"
+        );
+        assert_eq!(ago(Lang::En, Some(now - 3600), now), "an hour ago");
+        assert_eq!(ago(Lang::En, Some(now - 5 * 3600), now), "5 hours ago");
+        assert_eq!(ago(Lang::En, Some(now - DAY), now), "a day ago");
+        assert_eq!(ago(Lang::En, Some(now - 3 * DAY), now), "3 days ago");
+        assert_eq!(ago(Lang::En, Some(now + 60), now), "less than an hour ago");
     }
 }
