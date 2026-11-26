@@ -7,6 +7,9 @@ use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::problems::Message;
 use xml_atlas_engine::text::GoToError;
 use xml_atlas_engine::xml::{IllFormedError, ParseError, ParseReason, SyntaxError};
+use xml_atlas_engine::xpath::{
+    EvalReason, Found, Operand, SyntaxReason, ValueKind, Wanted, XPathError,
+};
 use xml_atlas_engine::{
     DeletedNode, EditError, FormatError, FormatOptions, IgnoredEncoding, StepName,
 };
@@ -141,6 +144,85 @@ pub fn goto_error(lang: Lang, error: &GoToError) -> String {
         GoToError::NotANumber(input) => lang.goto_not_a_number(input),
         GoToError::Zero => lang.goto_zero().into(),
         GoToError::PastTheEnd(lines) => lang.goto_past_the_end(*lines as u64),
+    }
+}
+
+/// Why an XPath expression gives no value, with the character where it goes wrong when
+/// it cannot be read.
+pub fn xpath_error(lang: Lang, error: &XPathError) -> String {
+    match error {
+        XPathError::Syntax { reason, at } => {
+            lang.xpath_error_at(&xpath_syntax(lang, reason), &at.to_string())
+        }
+        XPathError::Failed(EvalReason::UndeclaredPrefix(prefix)) => lang.xp_no_prefix(prefix),
+        XPathError::Failed(EvalReason::NeedsNodeSet { what, got }) => {
+            let what = match what {
+                Operand::Union => lang.xp_code("|"),
+                Operand::Predicate => lang.xp_a_predicate().into(),
+                Operand::Path => lang.xp_a_path().into(),
+                Operand::Count => lang.xp_code("count()"),
+                Operand::Sum => lang.xp_code("sum()"),
+                Operand::NameFunction => lang.xp_the_function().into(),
+            };
+            let got = match got {
+                ValueKind::NodeSet => lang.xp_got_node_set(),
+                ValueKind::Number => lang.xp_got_number(),
+                ValueKind::String => lang.xp_got_string(),
+                ValueKind::Boolean => lang.xp_got_boolean(),
+            };
+            lang.xp_needs_node_set(&what, got)
+        }
+        XPathError::Stopped => lang.xp_stopped().into(),
+    }
+}
+
+/// Why an expression cannot be read, without where.
+fn xpath_syntax(lang: Lang, reason: &SyntaxReason) -> String {
+    let found = |found: &Found| match found {
+        Found::Code(code) => lang.xp_code(code),
+        Found::Literal(text) => lang.xp_literal(text),
+        Found::Number => lang.xp_a_number().into(),
+    };
+    match reason {
+        SyntaxReason::Empty => lang.xp_empty().into(),
+        SyntaxReason::Unexpected(what) => lang.xp_unexpected(&found(what)),
+        SyntaxReason::UnclosedString => lang.xp_unclosed_string().into(),
+        SyntaxReason::NotANumber(text) => lang.xp_not_a_number(text),
+        SyntaxReason::NameAfterDollar => lang.xp_name_after_dollar().into(),
+        SyntaxReason::NameAfterColon => lang.xp_name_after_colon().into(),
+        SyntaxReason::OperatorExpected(name) => lang.xp_operator_expected(name),
+        SyntaxReason::Expected {
+            wanted,
+            found: what,
+        } => {
+            let wanted = match wanted {
+                Wanted::Symbol(symbol) => lang.xp_code(symbol),
+                Wanted::CommaOrParen => lang.xp_comma_or_paren().into(),
+                Wanted::Expression => lang.xp_an_expression().into(),
+                Wanted::Step => lang.xp_a_step().into(),
+            };
+            match what {
+                Some(what) => lang.xp_expected(&wanted, &found(what)),
+                None => lang.xp_expected_at_end(&wanted),
+            }
+        }
+        SyntaxReason::TooDeep => lang.xp_too_deep().into(),
+        SyntaxReason::Variable(name) => lang.xp_variable(name),
+        SyntaxReason::NoFunction(name) => lang.xp_no_function(name),
+        SyntaxReason::ArgumentCount {
+            function,
+            min,
+            max,
+            given,
+        } => {
+            let given = given.to_string();
+            match max {
+                None => lang.xp_at_least(function, &min.to_string(), &given),
+                Some(max) if max == min => lang.xp_arguments(*min as u64, function, &given),
+                Some(max) => lang.xp_between(function, &min.to_string(), &max.to_string(), &given),
+            }
+        }
+        SyntaxReason::NoAxis(name) => lang.xp_no_axis(name),
     }
 }
 
@@ -492,6 +574,98 @@ mod tests {
         for start in ["Element <Größe>", "End-Tag </Maß>", "Syntaxfehler: "] {
             assert!(seen.iter().any(|s| s.starts_with(start)), "{seen:#?}");
         }
+    }
+
+    /// Every reason of XPath, got from the engine: the window's English is its English.
+    #[test]
+    fn xpath_errors() {
+        let document = xml_atlas_engine::Document::from_bytes(
+            "\u{feff}<r>\r\n  <Größe a=\"1\">12</Größe>\r\n</r>\r\n".into(),
+        );
+        let deep = "(".repeat(300);
+        for expr in [
+            "",
+            "a ! b",
+            "'it''s'",
+            "1 2",
+            "'open",
+            "$ ",
+            "p:",
+            "a Größe",
+            "//a[@id='1'",
+            "/a/",
+            "count(//r",
+            "//a[@id='1' and]",
+            "$x",
+            "maß()",
+            "seitwärts::a",
+            "count()",
+            "true(1)",
+            "substring('a')",
+            "string(1,2)",
+            "concat('a')",
+            "//r | 1",
+            "(1)[1]",
+            "\"s\"/a",
+            "count('x')",
+            "sum(1)",
+            "name(1)",
+            "local-name(true())",
+            "//q:Größe",
+            &deep,
+        ] {
+            let error = xml_atlas_engine::xpath::evaluate(&document, expr).expect_err(expr);
+            assert_eq!(xpath_error(Lang::En, &error), error.to_string(), "{expr}");
+            assert_ne!(xpath_error(Lang::De, &error), error.to_string(), "{expr}");
+        }
+        refusal(xpath_error, XPathError::Stopped, &[]);
+        // Cases the expressions above do not reach.
+        for found in [
+            Found::Code("]".into()),
+            Found::Literal("Maß".into()),
+            Found::Number,
+        ] {
+            let reason = SyntaxReason::Expected {
+                wanted: Wanted::CommaOrParen,
+                found: Some(found),
+            };
+            refusal(
+                xpath_error,
+                XPathError::Syntax {
+                    reason: Box::new(reason),
+                    at: 3,
+                },
+                &["Position 3"],
+            );
+        }
+        for got in [
+            ValueKind::NodeSet,
+            ValueKind::Number,
+            ValueKind::String,
+            ValueKind::Boolean,
+        ] {
+            let reason = EvalReason::NeedsNodeSet {
+                what: Operand::Path,
+                got,
+            };
+            refusal(xpath_error, XPathError::Failed(reason), &["Knotenmenge"]);
+        }
+        let german = |expr| {
+            let error = xml_atlas_engine::xpath::evaluate(&document, expr).unwrap_err();
+            xpath_error(Lang::De, &error)
+        };
+        assert_eq!(
+            german("count()"),
+            "„count()“ erwartet 1 Argument, nicht 0 an Position 1"
+        );
+        assert_eq!(
+            german("//q:Größe"),
+            "das Präfix „q“ ist im Wurzelelement nicht deklariert"
+        );
+        assert_eq!(
+            german("count('x')"),
+            "„count()“ braucht eine Knotenmenge, nicht eine Zeichenkette"
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use xml_atlas_xml::{Folded, Index, NodeId, NodeKind, ROOT, unescape};
 
 use super::parse::{Arith, Axis, Cmp, Expr, Func, Path, Start, Step, Test};
-use super::{Item, ItemKind, Value, XPathError};
+use super::{EvalReason, Item, ItemKind, Operand, Value, XPathError};
 
 /// The namespace the prefix `xml` stands for in every document.
 pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
@@ -120,13 +120,13 @@ impl<'d> Eval<'d> {
                 Value::Number(-self.number(&a))
             }
             Expr::Union(a, b) => {
-                let a = self.nodes(a, ctx, "`|`")?;
-                let b = self.nodes(b, ctx, "`|`")?;
+                let a = self.nodes(a, ctx, Operand::Union)?;
+                let b = self.nodes(b, ctx, Operand::Union)?;
                 Value::Nodes(union(a, b))
             }
             Expr::Path(p) => Value::Nodes(self.path(p, ctx)?),
             Expr::Filter(primary, predicates) => {
-                let mut nodes = self.nodes(primary, ctx, "a predicate")?;
+                let mut nodes = self.nodes(primary, ctx, Operand::Predicate)?;
                 for p in predicates {
                     nodes = self.filter(nodes, p, false)?;
                 }
@@ -139,13 +139,13 @@ impl<'d> Eval<'d> {
     }
 
     /// Evaluates `e`, which must give a node-set for `what`.
-    fn nodes(&mut self, e: &Expr, ctx: Ctx, what: &str) -> R<Vec<Item>> {
+    fn nodes(&mut self, e: &Expr, ctx: Ctx, what: Operand) -> R<Vec<Item>> {
         match self.eval(e, ctx)? {
             Value::Nodes(n) => Ok(n),
-            other => Err(XPathError::Failed(format!(
-                "{what} needs a node-set, not {}",
-                other.type_name()
-            ))),
+            other => Err(XPathError::Failed(EvalReason::NeedsNodeSet {
+                what,
+                got: other.kind(),
+            })),
         }
     }
 
@@ -153,7 +153,7 @@ impl<'d> Eval<'d> {
         let mut nodes = match &p.start {
             Start::Root => vec![Item::Node(ROOT)],
             Start::Context => vec![ctx.item],
-            Start::Filter(e) => self.nodes(e, ctx, "a path")?,
+            Start::Filter(e) => self.nodes(e, ctx, Operand::Path)?,
         };
         for step in &p.steps {
             nodes = self.step(&nodes, step)?;
@@ -569,11 +569,7 @@ impl<'d> Eval<'d> {
                     .find(|(n, _)| *n == decl.as_bytes())
                     .map(|(_, v)| unescape(v).into_owned())
             })
-            .ok_or_else(|| {
-                XPathError::Failed(format!(
-                    "the prefix `{prefix}` is not declared on the root element"
-                ))
-            })
+            .ok_or_else(|| XPathError::Failed(EvalReason::UndeclaredPrefix(prefix.to_string())))
     }
 
     /// The default namespace the root element declares, if any.
@@ -869,7 +865,7 @@ impl<'d> Eval<'d> {
 
     fn call(&mut self, f: Func, args: &[Expr], ctx: Ctx) -> R<Value> {
         // The argument, or the context node as a node-set when there is none.
-        let arg_nodes = |me: &mut Self, what: &str| -> R<Vec<Item>> {
+        let arg_nodes = |me: &mut Self, what: Operand| -> R<Vec<Item>> {
             match args.first() {
                 Some(a) => me.nodes(a, ctx, what),
                 None => Ok(vec![ctx.item]),
@@ -882,7 +878,7 @@ impl<'d> Eval<'d> {
         Ok(match f {
             Func::Last => Value::Number(ctx.size as f64),
             Func::Position => Value::Number(ctx.pos as f64),
-            Func::Count => Value::Number(self.nodes(&args[0], ctx, "`count()`")?.len() as f64),
+            Func::Count => Value::Number(self.nodes(&args[0], ctx, Operand::Count)?.len() as f64),
             Func::Id => {
                 let v = self.eval(&args[0], ctx)?;
                 let mut ids = Vec::new();
@@ -905,7 +901,7 @@ impl<'d> Eval<'d> {
                 Value::Nodes(self.elements_with_id(&ids)?)
             }
             Func::LocalName | Func::Name | Func::NamespaceUri => {
-                let nodes = arg_nodes(self, "the function")?;
+                let nodes = arg_nodes(self, Operand::NameFunction)?;
                 let Some(&n) = nodes.first() else {
                     return Ok(Value::String(String::new()));
                 };
@@ -1027,7 +1023,7 @@ impl<'d> Eval<'d> {
             },
             Func::Sum => {
                 let mut total = 0.0;
-                for n in self.nodes(&args[0], ctx, "`sum()`")? {
+                for n in self.nodes(&args[0], ctx, Operand::Sum)? {
                     let s = self.string_value(n)?;
                     total += string_to_number(&s);
                 }

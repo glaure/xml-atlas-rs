@@ -17,6 +17,8 @@ use xml_atlas_engine::xml::Index;
 use xml_atlas_engine::xpath::{Item, ItemKind, Value, XPath, XPathError};
 
 use crate::app::Open;
+use crate::engine_words::xpath_error;
+use crate::find_bar::fits;
 use crate::keys;
 
 pub const OPEN: KeyboardShortcut =
@@ -49,25 +51,7 @@ pub struct XPathBar {
 struct Checked {
     text: String,
     index: Weak<Index>,
-    problem: Option<Problem>,
-}
-
-/// What is wrong with the expression in the field.
-#[derive(Clone, Debug, PartialEq)]
-struct Problem {
-    message: String,
-    /// The character where it goes wrong, from 1, when it is known.
-    at: Option<usize>,
-}
-
-impl Problem {
-    /// The message under the bar, with the position where it is known.
-    fn words(self, lang: Lang) -> String {
-        match self.at {
-            Some(at) => lang.xpath_error_at(&self.message, &at.to_string()),
-            None => self.message,
-        }
-    }
+    problem: Option<XPathError>,
 }
 
 /// One tab's query and what it gave.
@@ -98,8 +82,7 @@ enum State {
 
 /// Why a query gave nothing, worded when drawn.
 enum Failure {
-    /// The engine's words, as it gives them.
-    Engine(String),
+    Query(XPathError),
     CannotStart(String),
     Stopped,
 }
@@ -107,7 +90,7 @@ enum Failure {
 impl Failure {
     fn text(&self, lang: Lang) -> String {
         match self {
-            Failure::Engine(why) => why.clone(),
+            Failure::Query(error) => xpath_error(lang, error),
             Failure::CannotStart(error) => lang.xpath_cannot_start(error),
             Failure::Stopped => lang.xpath_stopped().into(),
         }
@@ -184,6 +167,7 @@ impl XPathBar {
         let mut close = false;
         let mut valid = false;
         let mut message = None;
+        let mut why = None;
         ui.horizontal(|ui| {
             ui.label("XPath");
             let empty = self.text.is_empty();
@@ -217,7 +201,7 @@ impl XPathBar {
                 ui.label(RichText::new(lang.xpath_valid()).weak())
                     .on_hover_text(lang.xpath_valid_tip());
             }
-            message = problem.map(|p| p.words(lang));
+            message = problem.map(|p| xpath_error(lang, &p));
             if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 // A wrong expression is not run: its message is already shown.
                 run = valid;
@@ -272,7 +256,7 @@ impl XPathBar {
                     step(open, true);
                 }
             }
-            status(ui, open, lang);
+            why = status(ui, open, lang);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let hint = lang.bar_close(lang.key_escape());
                 if ui.button("✕").on_hover_text(hint).clicked() {
@@ -280,7 +264,9 @@ impl XPathBar {
                 }
             });
         });
-        if let Some(m) = message {
+        // The same words from the check and from the run are said once.
+        let why = why.filter(|why| message.as_ref() != Some(why));
+        for m in message.into_iter().chain(why) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("XPath").color(egui::Color32::TRANSPARENT));
                 ui.colored_label(ui.visuals().error_fg_color, m);
@@ -308,7 +294,7 @@ impl XPathBar {
 
     /// What is wrong with the expression in the field, checked again when the text or the
     /// document changed: parsing a line is a few microseconds, so it is done as it is typed.
-    fn check(&mut self, open: &Open) -> Option<Problem> {
+    fn check(&mut self, open: &Open) -> Option<XPathError> {
         let index = &open.doc.index;
         let same = self
             .checked
@@ -319,18 +305,8 @@ impl XPathBar {
                 None
             } else {
                 match XPath::parse(&self.text) {
-                    Err(XPathError::Syntax { message, at }) => Some(Problem {
-                        message: message.to_string(),
-                        at: Some(at),
-                    }),
-                    Err(e) => Some(Problem {
-                        message: e.to_string(),
-                        at: None,
-                    }),
-                    Ok(x) => x.check(&open.doc.src, index).err().map(|e| Problem {
-                        message: e.to_string(),
-                        at: None,
-                    }),
+                    Err(e) => Some(e),
+                    Ok(x) => x.check(&open.doc.src, index).err(),
                 }
             };
             self.checked = Some(Checked {
@@ -359,7 +335,7 @@ impl XPathBar {
         let index = Arc::clone(&open.doc.index);
         let weak = Arc::downgrade(&index);
         let state = match XPath::parse(&text) {
-            Err(e) => State::Failed(Failure::Engine(e.to_string())),
+            Err(e) => State::Failed(Failure::Query(e)),
             Ok(query) => {
                 let src = Arc::clone(&open.doc.src);
                 let stop = Arc::new(AtomicBool::new(false));
@@ -396,7 +372,7 @@ impl XPathBar {
 
 /// Frames the field in the error colour and underlines the character where the expression
 /// goes wrong; at the end, a short line after the last character.
-fn show_problem(ui: &Ui, output: &egui::text_edit::TextEditOutput, problem: &Problem) {
+fn show_problem(ui: &Ui, output: &egui::text_edit::TextEditOutput, problem: &XPathError) {
     let color = ui.visuals().error_fg_color;
     let rect = output.response.response.rect;
     ui.painter().rect_stroke(
@@ -405,7 +381,7 @@ fn show_problem(ui: &Ui, output: &egui::text_edit::TextEditOutput, problem: &Pro
         egui::Stroke::new(1.5, color),
         egui::StrokeKind::Outside,
     );
-    let Some(at) = problem.at else {
+    let &XPathError::Syntax { at, .. } = problem else {
         return;
     };
     let galley = &output.galley;
@@ -599,7 +575,7 @@ fn poll(open: &mut Open) {
     r.state = match rx.try_recv() {
         Err(TryRecvError::Empty) => return,
         Ok(Ok(value)) => State::Done { value, took },
-        Ok(Err(e)) => State::Failed(Failure::Engine(e.to_string())),
+        Ok(Err(e)) => State::Failed(Failure::Query(e)),
         Err(TryRecvError::Disconnected) => State::Failed(Failure::Stopped),
     };
     if r.nodes().is_some_and(|n| !n.is_empty()) {
@@ -607,11 +583,10 @@ fn poll(open: &mut Open) {
     }
 }
 
-/// What the query gave, after the buttons.
-fn status(ui: &mut Ui, open: &Open, lang: Lang) {
-    let Some(r) = &open.xpath else {
-        return;
-    };
+/// What the query gave, after the buttons. Why it failed is returned instead where the row
+/// has no room for it, to go under the bar (LANG-15).
+fn status(ui: &mut Ui, open: &Open, lang: Lang) -> Option<String> {
+    let r = open.xpath.as_ref()?;
     match &r.state {
         State::Running { started, .. } => {
             ui.spinner();
@@ -621,7 +596,11 @@ fn status(ui: &mut Ui, open: &Open, lang: Lang) {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
         State::Failed(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e.text(lang));
+            let why = e.text(lang);
+            if !fits(ui, &why, &["✕"]) {
+                return Some(why);
+            }
+            ui.colored_label(ui.visuals().error_fg_color, why);
         }
         State::Done { value, took } => {
             let ms = format!("{:.0} ms", took.as_secs_f64() * 1000.0);
@@ -649,6 +628,7 @@ fn status(ui: &mut Ui, open: &Open, lang: Lang) {
             }
         }
     }
+    None
 }
 
 fn count_text(lang: Lang, n: usize) -> String {
@@ -799,17 +779,21 @@ mod tests {
         assert_eq!(check(&mut bar, &open, "  "), None);
         assert_eq!(check(&mut bar, &open, "//p:a[@x = 'größe']"), None);
         let problem = check(&mut bar, &open, "//p:a[").unwrap();
-        assert_eq!(problem.at, Some(7));
-        // The engine's words, with our position after them in either language.
-        let engine = "expected an expression, found the end";
-        assert_eq!(problem.clone().words(Lang::En), format!("{engine} at 7"));
-        assert_eq!(problem.words(Lang::De), format!("{engine} an Position 7"));
+        assert!(matches!(problem, XPathError::Syntax { at: 7, .. }));
+        // Worded when drawn, with our position after the reason in either language.
+        assert_eq!(
+            xpath_error(Lang::En, &problem),
+            "expected an expression, found the end at 7"
+        );
+        assert_eq!(
+            xpath_error(Lang::De, &problem),
+            "erwartet: ein Ausdruck; gefunden: das Ende an Position 7"
+        );
         assert_eq!(
             check(&mut bar, &open, "//q:a"),
-            Some(Problem {
-                message: "the prefix `q` is not declared on the root element".into(),
-                at: None,
-            })
+            Some(XPathError::Failed(
+                xml_atlas_engine::xpath::EvalReason::UndeclaredPrefix("q".into())
+            ))
         );
         // Drawing the bar with the error at the end, in the middle and after non-ASCII text.
         let ctx = egui::Context::default();
@@ -821,6 +805,60 @@ mod tests {
             out.textures_delta.clear();
             assert!(open.xpath.is_none(), "{t} ran");
         }
+    }
+
+    /// LANG-15: why a query failed goes under the bar where its row has no room, so that it
+    /// covers no button, here beside the tree in the window's own width.
+    #[test]
+    fn a_long_reason_goes_under_the_bar() {
+        // Whether the reason shares the line of the field's label, and where it ends.
+        let drawn = |expr: &str, lang: Lang| {
+            let mut open = opened("<r><a/></r>");
+            let mut bar = XPathBar::default();
+            run(&mut bar, &mut open, expr);
+            let why = match &open.xpath.as_ref().unwrap().state {
+                State::Failed(e) => e.text(lang),
+                _ => panic!("{expr} did not fail"),
+            };
+            let ctx = egui::Context::default();
+            let mut texts = Vec::new();
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(960.0, 200.0),
+                    )),
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| bar.show(ui, &mut open, lang));
+                out.textures_delta.clear();
+                texts = out
+                    .shapes
+                    .into_iter()
+                    .filter_map(|s| match s.shape {
+                        egui::Shape::Text(t) => Some((
+                            t.pos.x + t.galley.rect.right(),
+                            t.pos.y,
+                            t.galley.text().to_owned(),
+                        )),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            let line = |wanted: &str| {
+                let found: Vec<_> = texts.iter().filter(|t| t.2 == wanted).collect();
+                assert_eq!(found.len(), 1, "{wanted} in {texts:?}");
+                (found[0].0, found[0].1)
+            };
+            // The first "XPath" is the row's label; a line under the bar is indented by another,
+            // unseen.
+            let label = texts.iter().find(|t| t.2 == "XPath").unwrap();
+            let (said, close) = (line(&why), line("✕"));
+            assert!(said.0 <= 960.0 && close.0 <= 960.0, "{texts:?}");
+            (said.1 - label.1).abs() < 5.0
+        };
+        assert!(!drawn("local-name(true())", Lang::De), "no room in the row");
+        assert!(drawn("//r | 1", Lang::En), "room in the row");
     }
 
     /// Tab in the empty field takes the example; with text in it, Tab leaves the text alone.

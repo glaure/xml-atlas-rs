@@ -14,6 +14,7 @@
 mod eval;
 mod parse;
 
+use std::fmt;
 use std::ops::Range;
 use std::sync::atomic::AtomicBool;
 
@@ -68,14 +69,97 @@ pub enum ItemKind {
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum XPathError {
     /// The expression cannot be read; `at` is the character where it goes wrong, from 1.
-    #[error("{message} at {at}")]
-    Syntax { message: String, at: usize },
+    #[error("{reason} at {at}")]
+    /// The reason is boxed to keep the error small: every step of an evaluation returns a
+    /// result that has room for one.
+    Syntax {
+        reason: Box<SyntaxReason>,
+        at: usize,
+    },
     /// It can be read but not evaluated, such as a step from a number.
     #[error("{0}")]
-    Failed(String),
+    Failed(EvalReason),
     /// [`XPath::evaluate`] was asked to stop.
     #[error("the query was stopped")]
     Stopped,
+}
+
+/// Why an expression cannot be read. The words (`Display`) of this and of the other reasons
+/// here are the English the CLI and the MCP tools give; the window words each case in its
+/// own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyntaxReason {
+    Empty,
+    Unexpected(Found),
+    UnclosedString,
+    NotANumber(String),
+    NameAfterDollar,
+    NameAfterColon,
+    /// A name where only an operator can stand.
+    OperatorExpected(String),
+    /// `found` is `None` at the end of the expression.
+    Expected {
+        wanted: Wanted,
+        found: Option<Found>,
+    },
+    TooDeep,
+    Variable(String),
+    NoFunction(String),
+    /// `max` is `None` when there is no upper limit.
+    ArgumentCount {
+        function: String,
+        min: usize,
+        max: Option<usize>,
+        given: usize,
+    },
+    NoAxis(String),
+}
+
+/// What stands where something else should.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Found {
+    /// This part of the expression.
+    Code(String),
+    /// A string with this content.
+    Literal(String),
+    Number,
+}
+
+/// What the parser looked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wanted {
+    Symbol(&'static str),
+    CommaOrParen,
+    Expression,
+    Step,
+}
+
+/// Why an expression that can be read gives no value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EvalReason {
+    NeedsNodeSet { what: Operand, got: ValueKind },
+    UndeclaredPrefix(String),
+}
+
+/// What takes only a node-set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Operand {
+    Union,
+    Predicate,
+    Path,
+    Count,
+    Sum,
+    /// `name()`, `local-name()` or `namespace-uri()`.
+    NameFunction,
+}
+
+/// The four kinds of [`Value`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueKind {
+    NodeSet,
+    Number,
+    String,
+    Boolean,
 }
 
 impl XPath {
@@ -121,12 +205,12 @@ pub fn evaluate(doc: &Document, expr: &str) -> Result<Value, XPathError> {
 }
 
 impl Value {
-    fn type_name(&self) -> &'static str {
+    fn kind(&self) -> ValueKind {
         match self {
-            Value::Nodes(_) => "a node-set",
-            Value::Number(_) => "a number",
-            Value::String(_) => "a string",
-            Value::Boolean(_) => "a boolean",
+            Value::Nodes(_) => ValueKind::NodeSet,
+            Value::Number(_) => ValueKind::Number,
+            Value::String(_) => ValueKind::String,
+            Value::Boolean(_) => ValueKind::Boolean,
         }
     }
 
@@ -330,11 +414,118 @@ fn children_of(index: &Index, id: NodeId) -> Vec<Item> {
     out
 }
 
+impl fmt::Display for SyntaxReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("the expression is empty"),
+            Self::Unexpected(found) => write!(f, "unexpected {found}"),
+            Self::UnclosedString => f.write_str("the string is not closed"),
+            Self::NotANumber(text) => write!(f, "`{text}` is not a number"),
+            Self::NameAfterDollar => f.write_str("expected a name after `$`"),
+            Self::NameAfterColon => f.write_str("expected a name after `:`"),
+            Self::OperatorExpected(name) => write!(f, "expected an operator, not `{name}`"),
+            Self::Expected { wanted, found } => {
+                write!(f, "expected {wanted}, found ")?;
+                match found {
+                    Some(found) => found.fmt(f),
+                    None => f.write_str("the end"),
+                }
+            }
+            Self::TooDeep => f.write_str("the expression is nested too deeply"),
+            Self::Variable(name) => write!(f, "variables such as `${name}` are not supported"),
+            Self::NoFunction(name) => write!(f, "there is no function `{name}()`"),
+            Self::ArgumentCount {
+                function,
+                min,
+                max,
+                given,
+            } => {
+                write!(f, "`{function}()` takes ")?;
+                match max {
+                    None => write!(f, "at least {min}")?,
+                    Some(max) if max == min => write!(f, "{min}")?,
+                    Some(max) => write!(f, "{min} to {max}")?,
+                }
+                let s = if (*min, *max) == (1, Some(1)) {
+                    ""
+                } else {
+                    "s"
+                };
+                write!(f, " argument{s}, not {given}")
+            }
+            Self::NoAxis(name) => write!(f, "there is no axis `{name}`"),
+        }
+    }
+}
+
+impl fmt::Display for Found {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Code(code) => write!(f, "`{code}`"),
+            Self::Literal(text) => write!(f, "\"{text}\""),
+            Self::Number => f.write_str("a number"),
+        }
+    }
+}
+
+impl fmt::Display for Wanted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Symbol(symbol) => write!(f, "`{symbol}`"),
+            Self::CommaOrParen => f.write_str("`,` or `)`"),
+            Self::Expression => f.write_str("an expression"),
+            Self::Step => f.write_str("a step"),
+        }
+    }
+}
+
+impl fmt::Display for EvalReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NeedsNodeSet { what, got } => write!(f, "{what} needs a node-set, not {got}"),
+            Self::UndeclaredPrefix(prefix) => write!(
+                f,
+                "the prefix `{prefix}` is not declared on the root element"
+            ),
+        }
+    }
+}
+
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Union => "`|`",
+            Self::Predicate => "a predicate",
+            Self::Path => "a path",
+            Self::Count => "`count()`",
+            Self::Sum => "`sum()`",
+            Self::NameFunction => "the function",
+        })
+    }
+}
+
+impl fmt::Display for ValueKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NodeSet => "a node-set",
+            Self::Number => "a number",
+            Self::String => "a string",
+            Self::Boolean => "a boolean",
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::Ordering;
 
     use super::*;
+
+    /// A larger error made a query measurably slower (about 4% on 100 MB).
+    #[test]
+    fn the_error_stays_small() {
+        assert!(std::mem::size_of::<XPathError>() <= 40);
+    }
 
     const DOC: &str = r#"<?xml version="1.0"?>
 <!DOCTYPE doc>
@@ -652,15 +843,11 @@ mod tests {
         assert_eq!(ok("//x | count(//y)"), Ok(()));
         assert_eq!(
             ok("//p:x[q:y = 1]"),
-            Err(XPathError::Failed(
-                "the prefix `q` is not declared on the root element".into()
-            ))
+            Err(XPathError::Failed(EvalReason::UndeclaredPrefix("q".into())))
         );
         assert_eq!(
             ok("(//z)[1]/w:*"),
-            Err(XPathError::Failed(
-                "the prefix `w` is not declared on the root element".into()
-            ))
+            Err(XPathError::Failed(EvalReason::UndeclaredPrefix("w".into())))
         );
         // Each prefix once, in the order written.
         assert_eq!(
@@ -765,9 +952,10 @@ mod tests {
             negations(n + 20),
             calls(n + 20),
         ] {
-            assert!(
-                matches!(run(text), Err(XPathError::Syntax { ref message, .. }) if message.contains("nested too deeply"))
-            );
+            assert!(matches!(
+                run(text),
+                Err(XPathError::Syntax { reason, .. }) if *reason == SyntaxReason::TooDeep
+            ));
         }
     }
 
