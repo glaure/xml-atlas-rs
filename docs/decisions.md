@@ -1935,8 +1935,102 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   - For how translations are stored, the comparison favours a check at build time: a
     missing or misspelled text fails the build or the tests, with little or no new
     dependency and fast lookup. Adding a language may take a code change.
-- **Open:** the method itself. It is compared and proposed here before work starts.
-- **Next:** that proposal, then rules in `docs/spec/`. Not built.
+- **Later (owner, 2026-11-26):** French and Spanish. The method has to carry four
+  languages; only English and German are in this step.
+- **Size** (2026-11-26, a count of string literals with words outside the tests; rough, as
+  it takes some that are never shown and misses others): about 480 in the window, 87 with
+  placeholders; about 170 in the engine, 112 with placeholders; the guide, 187 lines.
+- **Compared,** in the versions current on 2026-11-26. *New* counts crate names, over all
+  platforms, that are not in our `Cargo.lock`. Checks are as read in each crate's README or
+  source; none of the crates was built or tried.
+
+  | Method | New | A missing or wrong text |
+  |---|---|---|
+  | Our own: a file per language, read at build | 0 expected | Missing: English. Wrong: the build fails. To be built and shown |
+  | Our own: all languages side by side in a Rust macro | 0 | The build fails, except a placeholder left out in one language (tried with a prototype in one file) |
+  | `i18n-embed-fl` 0.10.1 with `i18n-embed` and `rust-embed` (Fluent files) | 23 | Name and arguments checked at build against the fallback language only; German needs a test of ours |
+  | `rust-i18n` 4.2.4 (YAML, JSON or TOML files) | 20 | At run time: English if there is a fallback, else the key's name; a tool lists untranslated texts |
+  | `fluent-templates` 0.15.1 | 19 | Files built in; no check of the keys at their use found in its README |
+  | `fluent-bundle` 0.16.0 and a layer of our own | 7 | At run time; the checks would be ours to write |
+  | `tr` 0.1.11 (gettext) | 14, among them the C library gettext | At run time |
+
+- **Method** (decided, see the answers below): a file per language in our own format on TOML,
+  `apps/xml-atlas/lang/en.toml`, `de.toml`, later `fr.toml` and `es.toml`, which the
+  program's build script turns into Rust: one method of `Lang` per text.
+
+  ```toml
+  # en.toml
+  save = "Save"
+  go_to_line = "Go to line {line}"
+  rows = { one = "{count} row", other = "{count} rows" }
+
+  # de.toml
+  save = "Speichern"
+  go_to_line = "Gehe zu Zeile {line}"
+  rows = { one = "{count} Zeile", other = "{count} Zeilen" }
+
+  # In a view: ui.button(lang.save())
+  ```
+
+  - `en.toml` says which texts there are and which placeholders each has. A text another
+    file lacks is shown in English; a plural that lacks a form it needs counts as lacking.
+    The build names these as a warning and does not fail. It does fail, naming the file and
+    the text, when a file cannot be read, has a text that English has not (a misspelled
+    name), or has other placeholders. A misspelled name or a missing argument at a use does
+    not compile, as the method does not match.
+  - Which plural form a number takes is a small function per language in our code. French
+    takes "one" for 0 and 1, English, German and Spanish for 1 only. French and Spanish
+    also have a form for whole millions (*1 000 000 de lignes*), which their files may
+    give and which is else "other".
+  - A text without placeholders is a `&'static str`: no file read, parsing or lookup by key
+    at run time. One with placeholders allocates as `format!` does today.
+  - The language is passed along from the settings, not kept in a global, so that a test
+    can draw in any language.
+  - A translator edits one file and no Rust. A new language is its file, its plural
+    function, its entry in the setting and key names, and its guide.
+  - The parser: `toml` 1.2.1 is already built for the app's build script, through
+    `embed-resource`; it would be named there directly. Whether its features suffice is to
+    check. The generator has not been built or tried. It and its checks are our own code to
+    keep.
+  - Chosen over the Rust macro, proposed first for two languages: with four, every entry
+    would hold four texts, each translator would edit Rust and the same files, and a
+    placeholder left out would pass. Over Fluent: it has rules for grammar that our texts
+    are not known to need, for 23 new crates; German completeness, and later French and
+    Spanish, would need our own test. Our files are no standard format, so translation
+    tools may not read them as they are.
+- **The engine stays English** and does not learn about languages (decision above: CLI, MCP
+  and logs are English). Its `Display` texts are what those show. For the window, what is
+  now only a `String` has to say what it is: the problems' messages (parse errors
+  included), why a reference finds nothing, XPath's messages and the names of undo steps
+  become values with their parts, with `Display` giving today's English. Errors that are
+  enums already need no change: the window matches them. Texts from outside (the operating
+  system, `regex`, the XML parser library) are shown as they come, after a translated lead.
+- **Keys:** `keys.rs` (WIN-13) gets German names, through egui's `ModifierNames` for the
+  modifiers and our own names for keys such as *Entf*. French and Spanish get theirs the
+  same way; whether they too are shown in their own words is decided when they are added.
+- **Guide:** one per language, `help.de.md` beside `help.md`. A test checks that all have
+  the same number of sections; whether they say the same is for review. With four
+  languages, a change to the guide is four changes.
+- **System:** reading the system's language needs a source on each platform. `sys-locale`
+  0.3.2 is in `Cargo.lock`; whether it is built on all three is still to check. A language
+  for which there is no file gives English.
+- **Not covered:** the file dialogs, which are the system's and follow its language, and
+  egui's own texts, not yet looked for. German, French and Spanish are often longer than
+  English, so each dialog needs a look in each. Whether egui's fonts have every character
+  they need (such as *œ*, *¿* and French's narrow space) is to check.
+- **Order of work:** (1) rules in `docs/spec/`; (2) the build script, the setting and the menus,
+  toolbar and Settings, to see the approach in use; (3) the window's other texts; (4) the
+  engine's messages made into values, a part at a time; (5) the guide. Until (4) is done,
+  German shows some English messages. A test cannot find a text that was never put in a
+  language file; review has to.
+- **Decided (owner, 2026-11-26),** on the proposal above:
+  1. A file per language of our own, checked at build.
+  2. The engine's messages become values: English in the engine, translated in the window.
+  3. The order of work above, with English left in German until step 4.
+  4. A language need not be complete: where it lacks a text, the English one is shown. This
+     replaces, for a missing text, the failed build or test that the comparison was to
+     favour.
+- **Next:** rules in `docs/spec/`. Not built.
 
 ## Open questions
 
@@ -1948,7 +2042,9 @@ About D44 and D45, split view and localization (owner, 2026-11-26), asked one by
 as proposed: one document in at most 4 views, menus and close buttons without keys, the last
 used view, no memory of the split; a language setting with English as the default, the guide
 translated, German key names, the CLI, MCP and logs in English, translations checked at
-build time.
+build time. Then, with French and Spanish wanted later, on the storage proposal in D45: a
+file per language, the engine's messages as values, the proposed order of work, all as
+proposed; and against the proposal, no language has to be complete: English stands in.
 
 About D41 (owner, 2026-11-22), replacing D40: rules files in the configuration folder, each
 switched on and off, with a *Use for* pattern; the search beside and above the document is
