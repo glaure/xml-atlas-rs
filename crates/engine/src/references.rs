@@ -17,7 +17,7 @@ use xml_atlas_xml::{NodeId, NodeKind, ROOT};
 
 use crate::Document;
 use crate::format::newline_style;
-use crate::problems::{Problem, Severity};
+use crate::problems::{Message, Problem, Severity};
 
 pub mod check;
 
@@ -567,7 +567,7 @@ pub fn problems(doc: &Document, rules: &Rules) -> Vec<Problem> {
             Resolution::Unresolved(why) => Some(Problem {
                 severity: Severity::Warning,
                 offset: r.span.start as u64,
-                message: format!("Reference {:?} {why}", r.expr),
+                message: Message::Reference(format!("Reference {:?} {why}", r.expr)),
             }),
             _ => None,
         })
@@ -1594,7 +1594,7 @@ mod tests {
     fn problems_list_only_what_finds_nothing() {
         let d = doc();
         let p = problems(&d, &rules());
-        let messages: Vec<&str> = p.iter().map(|p| p.message.as_str()).collect();
+        let messages: Vec<String> = p.iter().map(|p| p.message.to_string()).collect();
         // The second Shared:Missing has no fallback; run time, skipped and the Var in
         // Shared (resolved where it is imported) are not problems.
         assert_eq!(messages, ["Reference \"Shared:Missing\" finds nothing"]);

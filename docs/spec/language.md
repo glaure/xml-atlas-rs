@@ -177,7 +177,11 @@ English texts.
       line, the window says *1 line*; the engine says *1 lines*. A test holds the window's
       English to the engine's otherwise.
    3. XML problems, the XML parser library's known errors among them (LANG-4), and the
-      warnings about encodings.
+      warnings about encodings. Built, in the problems list, the status bar, the text view's
+      hint and the refusals of the second part. The library's known errors are its syntax
+      errors, its errors for a document that is not well-formed, and bytes that are not
+      UTF-8. A test holds the window's English to the engine's and reads broken files in
+      German. The one kind of warning left in English is a reference's (fifth part).
    4. XPath.
    5. References and rules files.
 5. The German guide (LANG-16).

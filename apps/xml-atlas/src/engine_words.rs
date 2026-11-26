@@ -4,9 +4,12 @@
 //! build until it is given its words.
 
 use xml_atlas_engine::command::CommandError;
+use xml_atlas_engine::problems::Message;
 use xml_atlas_engine::text::GoToError;
-use xml_atlas_engine::xml::ParseError;
-use xml_atlas_engine::{DeletedNode, EditError, FormatError, FormatOptions, StepName};
+use xml_atlas_engine::xml::{IllFormedError, ParseError, ParseReason, SyntaxError};
+use xml_atlas_engine::{
+    DeletedNode, EditError, FormatError, FormatOptions, IgnoredEncoding, StepName,
+};
 
 use crate::lang::Lang;
 
@@ -107,11 +110,28 @@ pub fn format_error(lang: Lang, error: &FormatError) -> String {
     }
 }
 
-/// What is wrong with text that is not well-formed, and where. The message itself is still
-/// the parser's English: it is translated with the problems (LANG-2).
+/// What is wrong with text that is not well-formed, and where.
 pub fn parse_error(lang: Lang, error: &ParseError) -> String {
-    let ParseError { offset, message } = error;
-    lang.refused_at_byte(message, &offset.to_string())
+    let ParseError { offset, reason } = error;
+    lang.refused_at_byte(&parse_reason(lang, reason), &offset.to_string())
+}
+
+/// A problem, as the problems list, the status bar and the text view's hint show it.
+pub fn problem(lang: Lang, message: &Message) -> String {
+    match message {
+        Message::Parse(reason) => parse_reason(lang, reason),
+        Message::IgnoredEncoding(IgnoredEncoding::NotUtf16 { label }) => {
+            lang.problem_not_utf16(label)
+        }
+        Message::IgnoredEncoding(IgnoredEncoding::Unknown { label }) => {
+            lang.problem_unknown_encoding(label)
+        }
+        // The mark comes from here: the fonts lack it (LANG-15's test of the texts).
+        Message::InvalidBytes { encoding } => lang.problem_invalid_bytes(encoding, "\u{FFFD}"),
+        Message::SavedAsUtf8 { declared } => lang.problem_saved_as_utf8(declared),
+        // Still the engine's English: references are translated with the rules files.
+        Message::Reference(words) => words.clone(),
+    }
 }
 
 /// Why Go to line cannot make a position of its input.
@@ -121,6 +141,59 @@ pub fn goto_error(lang: Lang, error: &GoToError) -> String {
         GoToError::NotANumber(input) => lang.goto_not_a_number(input),
         GoToError::Zero => lang.goto_zero().into(),
         GoToError::PastTheEnd(lines) => lang.goto_past_the_end(*lines as u64),
+    }
+}
+
+/// What is wrong, without where.
+fn parse_reason(lang: Lang, reason: &ParseReason) -> String {
+    match reason {
+        ParseReason::NotClosed(name) => lang.problem_not_closed(name),
+        ParseReason::NoOpenElement(name) => lang.problem_no_open_element(name),
+        ParseReason::NameTooLong { max } => lang.problem_name_too_long(&max.to_string()),
+        ParseReason::NotUtf8(e) => {
+            let index = e.valid_up_to().to_string();
+            let why = match e.error_len() {
+                Some(length) => lang.problem_utf8_invalid(&length.to_string(), &index),
+                None => lang.problem_utf8_incomplete(&index),
+            };
+            lang.problem_not_utf8(&why)
+        }
+        ParseReason::Syntax(e) => lang.problem_syntax(syntax_error(lang, e)),
+        ParseReason::IllFormed(e) => lang.problem_ill_formed(&ill_formed_error(lang, e)),
+        // An error XML Atlas does not know comes as the library words it (LANG-4).
+        ParseReason::Library(words) => words.clone(),
+    }
+}
+
+fn syntax_error(lang: Lang, error: &SyntaxError) -> &'static str {
+    match error {
+        SyntaxError::InvalidBangMarkup => lang.syntax_bang_markup(),
+        SyntaxError::UnclosedPI => lang.syntax_unclosed_instruction(),
+        SyntaxError::UnclosedXmlDecl => lang.syntax_unclosed_declaration(),
+        SyntaxError::UnclosedComment => lang.syntax_unclosed_comment(),
+        SyntaxError::UnclosedDoctype => lang.syntax_unclosed_doctype(),
+        SyntaxError::UnclosedCData => lang.syntax_unclosed_cdata(),
+        SyntaxError::UnclosedTag => lang.syntax_unclosed_tag(),
+        SyntaxError::UnclosedSingleQuotedAttributeValue => lang.syntax_unclosed_single_quote(),
+        SyntaxError::UnclosedDoubleQuotedAttributeValue => lang.syntax_unclosed_double_quote(),
+    }
+}
+
+fn ill_formed_error(lang: Lang, error: &IllFormedError) -> String {
+    match error {
+        IllFormedError::MissingDeclVersion(None) => lang.ill_no_version().into(),
+        IllFormedError::MissingDeclVersion(Some(attribute)) => {
+            lang.ill_version_not_first(attribute)
+        }
+        IllFormedError::UnknownVersion => lang.ill_unknown_version().into(),
+        IllFormedError::MissingDoctypeName => lang.ill_no_doctype_name().into(),
+        IllFormedError::MissingEndTag(name) => lang.ill_missing_end_tag(name),
+        IllFormedError::UnmatchedEndTag(name) => lang.ill_unmatched_end_tag(name),
+        IllFormedError::MismatchedEndTag { expected, found } => {
+            lang.ill_mismatched_end_tag(expected, found)
+        }
+        IllFormedError::DoubleHyphenInComment => lang.ill_double_hyphen().into(),
+        IllFormedError::UnclosedReference => lang.ill_unclosed_reference().into(),
     }
 }
 
@@ -282,7 +355,7 @@ mod tests {
         refusal(edit_error, EditError::Empty, &[]);
         let broken = || ParseError {
             offset: 42,
-            message: "element <Größe> is not closed".into(),
+            reason: ParseReason::NotClosed("Größe".into()),
         };
         refusal(parse_error, broken(), &["<Größe>", "bei Byte 42"]);
         refusal(
@@ -290,6 +363,135 @@ mod tests {
             FormatError::Malformed(broken()),
             &["nicht wohlgeformt", "bei Byte 42"],
         );
+    }
+
+    /// Every problem there is but a reference's, which is still the engine's words.
+    #[test]
+    fn xml_problems_and_encoding_warnings() {
+        let name = || "Größe".to_owned();
+        let broken = |src: &[u8]| {
+            let error = std::str::from_utf8(src).unwrap_err();
+            Message::Parse(ParseReason::NotUtf8(error))
+        };
+        for (message, given) in [
+            (broken(b"ab\xFFc"), &["1 Byte ab Position 2"][..]),
+            (broken(b"abc\xC3"), &["ab Position 3"]),
+            (
+                Message::IgnoredEncoding(IgnoredEncoding::NotUtf16 {
+                    label: "UTF-16".into(),
+                }),
+                &["UTF-16"],
+            ),
+            (
+                Message::IgnoredEncoding(IgnoredEncoding::Unknown {
+                    label: "klingon".into(),
+                }),
+                &["klingon"],
+            ),
+            (
+                Message::InvalidBytes {
+                    encoding: "UTF-16LE".into(),
+                },
+                &["UTF-16LE", "\u{FFFD}"],
+            ),
+            (
+                Message::SavedAsUtf8 {
+                    declared: "windows-1252".into(),
+                },
+                &["windows-1252"],
+            ),
+        ] {
+            refusal(problem, message, given);
+        }
+        let syntax = [
+            SyntaxError::InvalidBangMarkup,
+            SyntaxError::UnclosedPI,
+            SyntaxError::UnclosedXmlDecl,
+            SyntaxError::UnclosedComment,
+            SyntaxError::UnclosedDoctype,
+            SyntaxError::UnclosedCData,
+            SyntaxError::UnclosedTag,
+            SyntaxError::UnclosedSingleQuotedAttributeValue,
+            SyntaxError::UnclosedDoubleQuotedAttributeValue,
+        ];
+        for e in syntax {
+            refusal(problem, Message::Parse(ParseReason::Syntax(e)), &[]);
+        }
+        for (e, given) in [
+            (IllFormedError::MissingDeclVersion(None), &["version"][..]),
+            (
+                IllFormedError::MissingDeclVersion(Some("Maß".into())),
+                &["Maß"],
+            ),
+            (IllFormedError::UnknownVersion, &["1.1"]),
+            (IllFormedError::MissingDoctypeName, &["<!DOCTYPE>"]),
+            (IllFormedError::MissingEndTag(name()), &["</Größe>"]),
+            (IllFormedError::UnmatchedEndTag(name()), &["</Größe>"]),
+            (
+                IllFormedError::MismatchedEndTag {
+                    expected: name(),
+                    found: "Maß".into(),
+                },
+                &["</Größe>", "</Maß>"],
+            ),
+            (IllFormedError::DoubleHyphenInComment, &["--"]),
+            (IllFormedError::UnclosedReference, &[";"]),
+        ] {
+            refusal(problem, Message::Parse(ParseReason::IllFormed(e)), given);
+        }
+        for (reason, given) in [
+            (ParseReason::NotClosed(name()), &["<Größe>"][..]),
+            (ParseReason::NoOpenElement(name()), &["</Größe>"]),
+            (ParseReason::NameTooLong { max: 65535 }, &["65535"]),
+        ] {
+            refusal(problem, Message::Parse(reason), given);
+        }
+        // What is not known, or not translated yet, is shown as it comes (LANG-4).
+        for message in [
+            Message::Parse(ParseReason::Library("something new".into())),
+            Message::Reference("Reference \"Maß\" finds nothing".into()),
+        ] {
+            assert_eq!(problem(Lang::De, &message), message.to_string());
+        }
+    }
+
+    /// Broken files as they are opened, with a byte order mark, CRLF and non-ASCII names:
+    /// what the parser finds is German, and the window's English is the engine's.
+    #[test]
+    fn problems_of_broken_files() {
+        let mut seen = Vec::new();
+        for src in [
+            "\u{feff}<r>\r\n<Größe></r>\r\n".as_bytes(),
+            "\u{feff}<r></Maß>\r\n</r>".as_bytes(),
+            "<r><!-- Grüße".as_bytes(),
+            "<r><![CDATA[ä".as_bytes(),
+            "<r><?ziel ö".as_bytes(),
+            "<r><a b=\"ü".as_bytes(),
+            "<r><a b='ü".as_bytes(),
+            "<r><Größe".as_bytes(),
+            "<!DOCTYPE r [".as_bytes(),
+            "<?xml version=\"1.0\"".as_bytes(),
+            "<r><!x".as_bytes(),
+            "<r>a &amp b</r>".as_bytes(),
+            b"<r>\r\n<a>\xFF</a></r>",
+        ] {
+            let document = xml_atlas_engine::Document::from_bytes(src.to_vec());
+            let problems = document.problems();
+            let shown = String::from_utf8_lossy(src);
+            assert!(!problems.is_empty(), "{shown}");
+            for p in problems {
+                assert_eq!(problem(Lang::En, &p.message), p.message.to_string());
+                assert_ne!(
+                    problem(Lang::De, &p.message),
+                    p.message.to_string(),
+                    "{shown}"
+                );
+                seen.push(problem(Lang::De, &p.message));
+            }
+        }
+        for start in ["Element <Größe>", "End-Tag </Maß>", "Syntaxfehler: "] {
+            assert!(seen.iter().any(|s| s.starts_with(start)), "{seen:#?}");
+        }
     }
 
     #[test]

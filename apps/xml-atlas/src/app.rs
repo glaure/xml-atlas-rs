@@ -1765,7 +1765,8 @@ impl App {
                 .position(|p| p.severity == Severity::Error)
             {
                 let p = &open.problems[i];
-                let text = format!("  {} {}", problems_panel::symbol(p.severity), p.message);
+                let message = crate::engine_words::problem(lang, &p.message);
+                let text = format!("  {} {message}", problems_panel::symbol(p.severity));
                 let text =
                     RichText::new(text).color(problems_panel::color(ui.visuals(), p.severity));
                 if ui

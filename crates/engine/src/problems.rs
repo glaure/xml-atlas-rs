@@ -4,7 +4,11 @@
 //! (OPEN-8). Only the first bytes are read for the latter, so building the list costs
 //! nothing measurable.
 
-use crate::{Document, encoding};
+use std::fmt;
+
+use xml_atlas_xml::ParseReason;
+
+use crate::{Document, IgnoredEncoding, encoding};
 
 /// Encoding names that need no conversion.
 const UTF8_NAMES: &[&str] = &["utf-8", "utf8", "us-ascii", "ascii"];
@@ -20,7 +24,42 @@ pub struct Problem {
     pub severity: Severity,
     /// Byte where the problem is.
     pub offset: u64,
-    pub message: String,
+    pub message: Message,
+}
+
+/// What a problem is. Its words (`Display`) are the English the CLI and the MCP tools give;
+/// the window words each case in its own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Message {
+    /// Text that is not well-formed (OPEN-10).
+    Parse(ParseReason),
+    /// The encoding the file declares is not used.
+    IgnoredEncoding(IgnoredEncoding),
+    /// The file has bytes its encoding does not allow.
+    InvalidBytes { encoding: String },
+    /// The declaration names another encoding than the UTF-8 the document is saved in.
+    SavedAsUtf8 { declared: String },
+    /// A reference that finds nothing (REF-4), already in words.
+    Reference(String),
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parse(reason) => reason.fmt(f),
+            Self::IgnoredEncoding(why) => why.fmt(f),
+            Self::InvalidBytes { encoding } => write!(
+                f,
+                "The file has bytes that are not valid {encoding}; they are shown as \u{FFFD}. It \
+                 can only be saved as UTF-8"
+            ),
+            Self::SavedAsUtf8 { declared } => write!(
+                f,
+                "The declaration says encoding {declared}, but the document is saved as UTF-8"
+            ),
+            Self::Reference(words) => f.write_str(words),
+        }
+    }
 }
 
 impl Document {
@@ -34,7 +73,7 @@ impl Document {
             out.push(Problem {
                 severity: Severity::Error,
                 offset: e.offset,
-                message: e.message.clone(),
+                message: Message::Parse(e.reason.clone()),
             });
         }
         out.sort_by_key(|p| p.offset);
@@ -51,7 +90,7 @@ fn encoding_problem(doc: &Document) -> Option<Problem> {
         return Some(Problem {
             severity: Severity::Warning,
             offset: at,
-            message: note.to_string(),
+            message: Message::IgnoredEncoding(note.clone()),
         });
     }
     if let Some(enc) = doc.encoding() {
@@ -63,11 +102,9 @@ fn encoding_problem(doc: &Document) -> Option<Problem> {
         return Some(Problem {
             severity: Severity::Warning,
             offset: bad as u64,
-            message: format!(
-                "The file has bytes that are not valid {}; they are shown as \u{FFFD}. It can \
-                 only be saved as UTF-8",
-                enc.label
-            ),
+            message: Message::InvalidBytes {
+                encoding: enc.label.clone(),
+            },
         });
     }
     // A UTF-8 document whose declaration names another encoding: after Save as UTF-8 was
@@ -79,9 +116,7 @@ fn encoding_problem(doc: &Document) -> Option<Problem> {
     Some(Problem {
         severity: Severity::Warning,
         offset: at as u64,
-        message: format!(
-            "The declaration says encoding {name}, but the document is saved as UTF-8"
-        ),
+        message: Message::SavedAsUtf8 { declared: name },
     })
 }
 
@@ -136,7 +171,7 @@ mod tests {
         }
         let p = problems(&src);
         assert_eq!((p[0].severity, p[0].offset), (Severity::Warning, 3));
-        assert!(p[0].message.contains("only be saved as UTF-8"));
+        assert!(p[0].message.to_string().contains("only be saved as UTF-8"));
     }
 
     #[test]
@@ -145,6 +180,6 @@ mod tests {
         let p = problems(b"<a><b>one</b><c>two</a>");
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].severity, p[0].offset), (Severity::Error, 13));
-        assert!(p[0].message.contains("<c>"), "{}", p[0].message);
+        assert!(p[0].message.to_string().contains("<c>"), "{}", p[0].message);
     }
 }

@@ -460,7 +460,10 @@ pub fn show(ui: &mut Ui, open: &mut Open, format: &FormatOptions, wrap: bool, fo
             }
             painter.galley(origin, galley.clone(), visuals.text_color());
             if !here.is_empty() {
-                let text: Vec<&str> = here.iter().map(|p| p.message.as_str()).collect();
+                let text: Vec<String> = here
+                    .iter()
+                    .map(|p| crate::engine_words::problem(open.lang, &p.message))
+                    .collect();
                 ui.interact(
                     rect.intersect(text_rect),
                     id.with(("problem", n, start)),
