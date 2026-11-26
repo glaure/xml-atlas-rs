@@ -2,8 +2,8 @@
 
 The language of the window's texts: English and German now, French and Spanish later
 (`docs/decisions.md`, D45; issue #183). Step 2 of the order of work is built: German in the
-menus, the right-click menus, the toolbar and Settings. A rule that covers more than that
-stays `[planned]`.
+menus, the right-click menus, the toolbar and Settings; of step 3, the bars and the status
+bar. A rule that covers more than that stays `[planned]`.
 
 ## Rules
 
@@ -142,9 +142,19 @@ English texts.
    parts, the engine's texts (the names of undo steps, why a rules file cannot be used)
    are English until step 4, and what the status bar says until step 3. Tests draw the
    menus and every section of Settings in German and find nothing cut off (LANG-15); the
-   rest of the window is not looked at yet. macOS shows its keys the same in German.
+   rest of the window was not looked at in that step. macOS shows its keys the same in German.
    The About card was translated ahead of step 3, with its new look (owner, 2026-11-26).
-3. The window's other texts (the rest of LANG-1, LANG-4).
+3. The window's other texts (the rest of LANG-1, LANG-4), in parts:
+   1. The bars (Find, Go to line, XPath with its results) and the status bar, with the update
+      and install notice. Built; their numbers follow LANG-17. Where the Find bar has no room
+      for what a search says, as in German beside the tree, it goes on a line under the bar.
+      Messages made of the engine's words stay English until step 4: why an expression, a line
+      number or an edit is refused, undo step names, Format's summary of its settings, and why
+      a reference finds nothing. Why GitHub's answer to the update check cannot be read is
+      still English too.
+   2. Dialogs.
+   3. Panes and what is left: the problems list, notices above the views, the grid's and
+      diagram's other texts, the SVG export.
 4. The engine's messages made into values the window can translate, a part at a time
    (LANG-2). The engine's own texts stay as they are.
 5. The German guide (LANG-16).

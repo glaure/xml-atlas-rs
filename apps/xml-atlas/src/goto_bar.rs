@@ -5,6 +5,7 @@
 //! numbers mean is `xml_atlas_engine::text::go_to`'s, which the bar only calls. While the
 //! document has an error the field's hint is the line of the first one.
 
+use crate::lang::Lang;
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::text::{self, Selection};
@@ -46,15 +47,15 @@ impl GoToBar {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, open: &mut Open) {
+    pub fn show(&mut self, ui: &mut Ui, open: &mut Open, lang: Lang) {
         let mut go = false;
         let mut close = false;
         ui.horizontal(|ui| {
-            ui.label("Go to line");
+            ui.label(lang.goto_label());
             let lines = open.doc.line_count();
             let hint = match error_line(open) {
-                Some(line) => format!("{line} (the error)"),
-                None => format!("1–{lines}, or line:column"),
+                Some(line) => lang.goto_hint_error(&line.to_string()),
+                None => lang.goto_hint(&lines.to_string()),
             };
             let before = self.text.clone();
             let field = egui::TextEdit::singleline(&mut self.text)
@@ -84,12 +85,13 @@ impl GoToBar {
                 close = true;
                 ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
             }
-            ui.label(RichText::new(format!("of {lines}")).weak());
+            ui.label(RichText::new(lang.goto_of(&lines.to_string())).weak());
             if let Some(e) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✕").on_hover_text("Close (Escape)").clicked() {
+                let hint = lang.bar_close(lang.key_escape());
+                if ui.button("✕").on_hover_text(hint).clicked() {
                     close = true;
                 }
             });

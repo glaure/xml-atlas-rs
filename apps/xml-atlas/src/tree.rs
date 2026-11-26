@@ -12,7 +12,7 @@ use xml_atlas_engine::tree::{self, Label, Row, TreeOptions};
 use xml_atlas_engine::tree_rows::Rows;
 use xml_atlas_engine::xml::{NONE, NodeId, NodeKind, NodeSplice, ROOT};
 
-use crate::app::{Note, Open, Shift};
+use crate::app::{Note, Open, Shift, What};
 use crate::icons;
 use crate::keys;
 use crate::theme;
@@ -531,7 +531,7 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
                     focused: false,
                 });
             }
-            None => open.note = Some(Note::refused("Only elements can be renamed")),
+            None => open.note = Some(Note::refused(open.lang.status_only_rename())),
         },
         (TreeCommand::Delete, Row::Attribute { element, index }) => {
             let Some((name, _)) = doc
@@ -543,23 +543,23 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
                 return;
             };
             open.command(
-                "remove the attribute",
+                What::RemoveAttribute,
                 |d| command::remove_attribute(d, element, &name).map(Some),
                 Shift::None,
             );
         }
         (TreeCommand::Delete, Row::FoldedText(element)) => open.command(
-            "delete the text",
+            What::DeleteText,
             |d| command::set_text(d, element, "").map(Some),
             Shift::None,
         ),
         (TreeCommand::Delete, Row::Node(id)) => {
             let shift = position.map_or(Shift::None, Shift::Remove);
-            open.command("delete", |d| command::delete(d, id).map(Some), shift);
+            open.command(What::Delete, |d| command::delete(d, id).map(Some), shift);
         }
         (TreeCommand::Duplicate | TreeCommand::Move(_), _) => {
             let (Some(id), Some(p)) = (element, position) else {
-                open.note = Some(Note::refused("Only elements can be duplicated or moved"));
+                open.note = Some(Note::refused(open.lang.status_only_move()));
                 return;
             };
             let next = |p: &[u32], up: bool| {
@@ -574,14 +574,14 @@ pub fn run(open: &mut Open, row: Row, command: TreeCommand) {
             };
             match command {
                 TreeCommand::Duplicate => open.command(
-                    "duplicate",
+                    What::Duplicate,
                     |d| command::duplicate(d, id).map(Some),
                     Shift::Insert(next(&p, false)),
                 ),
                 TreeCommand::Move(direction) => {
                     let other = next(&p, direction == Direction::Up);
                     open.command(
-                        "move",
+                        What::Move,
                         |d| command::move_element(d, id, direction).map(Some),
                         Shift::Swap(p, other),
                     );
@@ -618,7 +618,7 @@ fn finish_rename(open: &mut Open, save: bool) {
     }
     let unchanged = open.doc.index.name(&open.doc.src, rename.id) == rename.name.as_bytes();
     open.command(
-        "rename",
+        What::Rename,
         |d| {
             if unchanged {
                 return Ok(None);

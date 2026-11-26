@@ -2045,7 +2045,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   German menu names do not all fit the theme examples, which draw those that do.
 - **Changed (owner, 2026-11-26),** after seeing step 2: the language has a section of its
   own in Settings, *Localization*, instead of the first row of Appearance (LANG-6).
-- **Next:** step 3.
+- **Built, step 3, first part:** the bars and the status bar. A tab keeps the window's
+  language (`Open::lang`) for what a command says without drawing. What can stay on screen
+  is kept as a value and worded when drawn: what a search said, why a query or a download
+  failed. Found: in German the Find bar's row does not fit beside the tree in the program's
+  own window size, so what a search says then goes under the bar.
+- **Next:** step 3, dialogs, then panes and the rest.
 
 ## Open questions
 

@@ -22,6 +22,16 @@ pub enum LanguageChoice {
 }
 
 impl Lang {
+    /// A number the window writes in its own texts, with `places` after the decimal mark:
+    /// a comma in German (LANG-17). Line numbers and a document's values never come here.
+    pub fn decimal(self, number: f64, places: usize) -> String {
+        let text = format!("{number:.places$}");
+        match self {
+            Lang::En => text,
+            Lang::De => text.replace('.', ","),
+        }
+    }
+
     /// Whether `count` takes the form `one` (LANG-11).
     fn is_one(self, count: u64) -> bool {
         match self {

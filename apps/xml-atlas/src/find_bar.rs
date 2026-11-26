@@ -45,8 +45,8 @@ pub struct FindBar {
     within_label: String,
     /// Where the match the bar last went to starts, while it is outlined (`Open::mark`).
     current: Option<u64>,
-    /// What the last search said: "not found", "continued from the top".
-    note: String,
+    /// What the last search said, worded when drawn, so that it follows the language.
+    note: Option<Outcome>,
     focus_field: bool,
     /// The Replace row is shown (TEXT-14).
     pub replacing: bool,
@@ -55,6 +55,30 @@ pub struct FindBar {
     /// Replace All only inside the selected element.
     in_selection: bool,
     focus_with: bool,
+}
+
+/// What a search says after the buttons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outcome {
+    NotFound,
+    CannotSearch,
+    FromTop,
+    FromBottom,
+    FromStart,
+    FromEnd,
+}
+
+impl Outcome {
+    fn text(self, lang: Lang) -> &'static str {
+        match self {
+            Outcome::NotFound => lang.find_not_found(),
+            Outcome::CannotSearch => lang.find_cannot_search(),
+            Outcome::FromTop => lang.find_from_top(),
+            Outcome::FromBottom => lang.find_from_bottom(),
+            Outcome::FromStart => lang.find_from_start(),
+            Outcome::FromEnd => lang.find_from_end(),
+        }
+    }
 }
 
 struct Compiled {
@@ -149,12 +173,13 @@ impl FindBar {
             self.recount(open);
         }
         let mut direction = None;
+        let mut below = None;
         ui.horizontal(|ui| {
-            ui.label("Find");
+            ui.label(lang.find_label());
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.query)
                     .desired_width(260.0)
-                    .hint_text("text in the document"),
+                    .hint_text(lang.find_hint()),
             );
             if std::mem::take(&mut self.focus_field) {
                 field.request_focus();
@@ -163,10 +188,10 @@ impl FindBar {
                 self.recount(open);
             }
             if open.find_within.is_some() {
-                ui.label(RichText::new(format!("in {}", self.within_label)).strong());
+                ui.label(RichText::new(lang.find_within(&self.within_label)).strong());
                 if ui
                     .small_button("✕")
-                    .on_hover_text("Find in the whole document")
+                    .on_hover_text(lang.find_whole_document())
                     .clicked()
                 {
                     open.find_within = None;
@@ -187,43 +212,49 @@ impl FindBar {
                 self.visible = false;
             }
             let mut changed = ui
-                .checkbox(&mut self.options.match_case, "Match case")
+                .checkbox(&mut self.options.match_case, lang.find_match_case())
                 .changed();
             changed |= ui
-                .checkbox(&mut self.options.whole_word, "Whole word")
+                .checkbox(&mut self.options.whole_word, lang.find_whole_word())
                 .changed();
             if changed {
                 self.recount(open);
             }
             if ui
                 .button("⬆")
-                .on_hover_text(format!(
-                    "Previous ({})",
-                    keys::text(ui.ctx(), lang, &PREVIOUS)
-                ))
+                .on_hover_text(keys::tip(ui.ctx(), lang, lang.bar_previous(), &PREVIOUS))
                 .clicked()
             {
                 direction = Some(Direction::Backward);
             }
-            if ui.button("⬇").on_hover_text("Next (F3)").clicked() {
+            let next = keys::tip(ui.ctx(), lang, lang.bar_next(), &NEXT);
+            if ui.button("⬇").on_hover_text(next).clicked() {
                 direction = Some(Direction::Forward);
             }
-            let count = self.count(open);
-            let status = [count.as_str(), self.note.as_str()]
+            let count = self.count(open, lang);
+            let note = self.note.map_or("", |note| note.text(lang));
+            let status = [count.as_str(), note]
                 .into_iter()
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join("  ·  ");
-            ui.label(RichText::new(status).weak());
+            let toggle = if self.replacing {
+                lang.find_only()
+            } else {
+                lang.find_show_replace()
+            };
+            // Where the buttons on the right leave no room, as in German beside the tree,
+            // what the search says goes under the bar's rows (LANG-15).
+            if fits(ui, &status, &[toggle, "✕"]) {
+                ui.label(RichText::new(status).weak());
+            } else {
+                below = Some(status);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✕").on_hover_text("Close (Escape)").clicked() {
+                let close = lang.bar_close(lang.key_escape());
+                if ui.button("✕").on_hover_text(close).clicked() {
                     self.visible = false;
                 }
-                let toggle = if self.replacing {
-                    "Find only"
-                } else {
-                    "Replace…"
-                };
                 let key = keys::text(ui.ctx(), lang, &OPEN_REPLACE);
                 if ui.button(toggle).on_hover_text(key).clicked() {
                     self.replacing = !self.replacing;
@@ -234,11 +265,11 @@ impl FindBar {
         let mut action = None;
         if self.replacing {
             ui.horizontal(|ui| {
-                ui.label("Replace with");
+                ui.label(lang.find_replace_with());
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut self.with)
                         .desired_width(260.0)
-                        .hint_text("inserted as typed"),
+                        .hint_text(lang.find_replace_hint()),
                 );
                 if std::mem::take(&mut self.focus_with) {
                     field.request_focus();
@@ -253,28 +284,29 @@ impl FindBar {
                     self.visible = false;
                 }
                 if ui
-                    .button("Replace")
-                    .on_hover_text("Replace the outlined match and find the next (Enter)")
+                    .button(lang.find_replace())
+                    .on_hover_text(lang.find_replace_tip(lang.key_enter()))
                     .clicked()
                 {
                     action = Some(false);
                 }
-                if ui.button("Replace All").clicked() {
+                if ui.button(lang.find_replace_all()).clicked() {
                     action = Some(true);
                 }
                 if open.find_within.is_some() {
-                    ui.label(RichText::new("Replace All keeps to the element too").weak());
+                    ui.label(RichText::new(lang.find_keeps()).weak());
                 } else {
                     ui.add_enabled(
                         scope(open).is_some(),
-                        egui::Checkbox::new(&mut self.in_selection, "In selection"),
+                        egui::Checkbox::new(&mut self.in_selection, lang.find_in_selection()),
                     )
-                    .on_hover_text(
-                        "Replace All only inside the text selected in the text view or, when \
-                         none is, the element selected in tree or grid",
-                    );
+                    .on_hover_text(lang.find_in_selection_tip());
                 }
             });
+        }
+        // Last, so that the Replace row's buttons stay put when it comes and goes.
+        if let Some(status) = below {
+            ui.label(RichText::new(status).weak());
         }
         if let Some(d) = direction {
             self.find(open, d);
@@ -306,7 +338,7 @@ impl FindBar {
             self.find(open, Direction::Forward);
             return;
         };
-        apply(open, edit, "Replaced 1 match".into());
+        apply(open, edit, open.lang.find_replaced(1));
         self.find_from(open, after, Direction::Forward);
     }
 
@@ -324,13 +356,10 @@ impl FindBar {
         };
         match find::replace_all(finder, &open.doc.src, within.clone(), &with) {
             Some((edit, count)) => {
-                let done = match count {
-                    1 => "Replaced 1 match".to_string(),
-                    n => format!("Replaced {n} matches"),
-                };
+                let done = open.lang.find_replaced(count as u64);
                 let before = open.doc.src.len();
                 apply(open, edit, done);
-                self.note.clear();
+                self.note = None;
                 // A text selection still covers what it covered, now replaced.
                 if open.text_sel.is_some_and(|s| s.range() == within) {
                     let end = (within.end + open.doc.src.len()).saturating_sub(before);
@@ -340,7 +369,7 @@ impl FindBar {
                     });
                 }
             }
-            None => self.note = "Not found".into(),
+            None => self.note = Some(Outcome::NotFound),
         }
     }
 
@@ -359,16 +388,12 @@ impl FindBar {
     /// Finds the next match in `direction` from byte `from`.
     fn find_from(&mut self, open: &mut Open, from: usize, direction: Direction) {
         let Some(finder) = self.finder() else {
-            self.note = if self.query.is_empty() {
-                String::new()
-            } else {
-                "Cannot search for this text".into()
-            };
+            self.note = (!self.query.is_empty()).then_some(Outcome::CannotSearch);
             return;
         };
         let within = find_range(open);
         let Some(found) = finder.next_within(&open.doc.src, within, from, direction) else {
-            self.note = "Not found".into();
+            self.note = Some(Outcome::NotFound);
             return;
         };
         let range = found.range.start as u64..found.range.end as u64;
@@ -380,11 +405,11 @@ impl FindBar {
         open.mark = Some(range);
         let element = open.find_within.is_some();
         self.note = match (found.wrapped, direction, element) {
-            (false, _, _) => String::new(),
-            (true, Direction::Forward, false) => "Continued from the top".into(),
-            (true, Direction::Backward, false) => "Continued from the bottom".into(),
-            (true, Direction::Forward, true) => "Continued from the element's start".into(),
-            (true, Direction::Backward, true) => "Continued from the element's end".into(),
+            (false, _, _) => None,
+            (true, Direction::Forward, false) => Some(Outcome::FromTop),
+            (true, Direction::Backward, false) => Some(Outcome::FromBottom),
+            (true, Direction::Forward, true) => Some(Outcome::FromStart),
+            (true, Direction::Backward, true) => Some(Outcome::FromEnd),
         };
     }
 
@@ -406,20 +431,20 @@ impl FindBar {
 
     /// The count after the buttons, with the position of the match the bar went to while it
     /// is still outlined; empty while there is nothing to search for.
-    fn count(&self, open: &Open) -> String {
+    fn count(&self, open: &Open, lang: Lang) -> String {
         if !self.compiled.as_ref().is_some_and(|c| c.finder.is_some()) {
             return String::new();
         }
         let current = self
             .current
             .filter(|&c| open.mark.as_ref().is_some_and(|m| m.start == c));
-        count_label(&self.starts, current)
+        count_label(lang, &self.starts, current)
     }
 
     /// Counts the matches of the current query for the status line.
     fn recount(&mut self, open: &Open) {
         self.counted = Some(doc_key(open));
-        self.note.clear();
+        self.note = None;
         self.within_label = open
             .find_within
             .map(|id| open.doc.index.path(&open.doc.src, id))
@@ -443,26 +468,43 @@ impl FindBar {
     }
 }
 
+/// Whether `status` still goes into the row, with `buttons` after it.
+fn fits(ui: &Ui, status: &str, buttons: &[&str]) -> bool {
+    let width = |text: &str, style: egui::TextStyle| {
+        let font = style.resolve(ui.style());
+        let colour = egui::Color32::PLACEHOLDER;
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font, colour)
+            .size()
+            .x
+    };
+    let spacing = ui.spacing();
+    let buttons: f32 = buttons
+        .iter()
+        .map(|b| width(b, egui::TextStyle::Button) + 2.0 * spacing.button_padding.x)
+        .map(|w| w + spacing.item_spacing.x)
+        .sum();
+    width(status, egui::TextStyle::Body) + buttons + spacing.item_spacing.x <= ui.available_width()
+}
+
 /// The count after the buttons: "No matches", "120 matches", or with the outlined match
 /// `current` (where it starts) "3 of 120 matches" (TEXT-12). A match the count skipped, such
 /// as one overlapping the one before, or one past [`COUNT_LIMIT`], has no position.
-fn count_label(starts: &[usize], current: Option<u64>) -> String {
-    let total = match starts.len() {
-        0 => return "No matches".into(),
-        n if n >= COUNT_LIMIT => format!("{COUNT_LIMIT}+"),
-        n => n.to_string(),
-    };
-    let unit = if starts.len() == 1 {
-        "match"
-    } else {
-        "matches"
-    };
+fn count_label(lang: Lang, starts: &[usize], current: Option<u64>) -> String {
+    if starts.is_empty() {
+        return lang.find_no_matches().into();
+    }
     let position = current
         .and_then(|c| usize::try_from(c).ok())
-        .and_then(|c| starts.binary_search(&c).ok());
-    match position {
-        Some(i) => format!("{} of {total} {unit}", i + 1),
-        None => format!("{total} {unit}"),
+        .and_then(|c| starts.binary_search(&c).ok())
+        .map(|i| (i + 1).to_string());
+    let count = starts.len() as u64;
+    let limit = COUNT_LIMIT.to_string();
+    match (position, starts.len() < COUNT_LIMIT) {
+        (Some(p), true) => lang.find_count_at(count, &p),
+        (None, true) => lang.find_count(count),
+        (Some(p), false) => lang.find_count_over_at(&p, &limit),
+        (None, false) => lang.find_count_over(&limit),
     }
 }
 
@@ -491,15 +533,14 @@ fn find_range(open: &Open) -> Range<usize> {
 /// it can break the markup: then the status bar says so, and Ctrl+Z undoes it.
 fn apply(open: &mut Open, edit: Edit, done: String) {
     let was_broken = open.doc.index.error.is_some();
+    let lang = open.lang;
     open.note = Some(match open.edit(|doc| doc.apply(edit).map(|()| true)) {
         Ok(_) => match (&open.doc.index.error, was_broken) {
-            (Some(e), false) => Note::refused(format!(
-                "{done}; the document is no longer well-formed ({e}). Undo takes it back"
-            )),
+            (Some(e), false) => Note::refused(lang.find_broke(&done, &e.to_string())),
             _ => Note::info(done),
         },
-        Err(EditError::Empty) => Note::info(format!("{done}: already as given, nothing changed")),
-        Err(e) => Note::refused(format!("Cannot replace: {e}")),
+        Err(EditError::Empty) => Note::info(lang.find_unchanged(&done)),
+        Err(e) => Note::refused(lang.find_cannot_replace(&e.to_string())),
     });
 }
 
@@ -518,15 +559,15 @@ mod tests {
 
     #[test]
     fn count_label_shows_the_position_of_the_outlined_match() {
-        assert_eq!(count_label(&[], None), "No matches");
-        assert_eq!(count_label(&[7], None), "1 match");
-        assert_eq!(count_label(&[7], Some(7)), "1 of 1 match");
+        assert_eq!(count_label(Lang::En, &[], None), "No matches");
+        assert_eq!(count_label(Lang::En, &[7], None), "1 match");
+        assert_eq!(count_label(Lang::En, &[7], Some(7)), "1 of 1 match");
         let starts = [3, 10, 42];
-        assert_eq!(count_label(&starts, None), "3 matches");
-        assert_eq!(count_label(&starts, Some(3)), "1 of 3 matches");
-        assert_eq!(count_label(&starts, Some(42)), "3 of 3 matches");
+        assert_eq!(count_label(Lang::En, &starts, None), "3 matches");
+        assert_eq!(count_label(Lang::En, &starts, Some(3)), "1 of 3 matches");
+        assert_eq!(count_label(Lang::En, &starts, Some(42)), "3 of 3 matches");
         // Not where a counted match starts: only the count.
-        assert_eq!(count_label(&starts, Some(11)), "3 matches");
+        assert_eq!(count_label(Lang::En, &starts, Some(11)), "3 matches");
     }
 
     /// F3 and Shift+F3 move the position, and it goes on from the other end; a grid click
@@ -541,7 +582,7 @@ mod tests {
             ..FindBar::default()
         };
         bar.recount(&open);
-        let label = |bar: &FindBar, open: &Open| bar.count(open);
+        let label = |bar: &FindBar, open: &Open| bar.count(open, Lang::En);
         assert_eq!(label(&bar, &open), "3 matches");
         bar.find(&mut open, Direction::Forward);
         assert_eq!(label(&bar, &open), "1 of 3 matches");
@@ -550,7 +591,7 @@ mod tests {
         bar.find(&mut open, Direction::Backward);
         bar.find(&mut open, Direction::Backward);
         assert_eq!(label(&bar, &open), "3 of 3 matches");
-        assert_eq!(bar.note, "Continued from the bottom");
+        assert_eq!(bar.note, Some(Outcome::FromBottom));
         open.mark = Some(0..3);
         assert_eq!(label(&bar, &open), "3 matches");
     }
@@ -573,7 +614,10 @@ mod tests {
         bar.open_within(&mut open);
         bar.recount(&open);
         assert_eq!(
-            (bar.count(&open).as_str(), bar.within_label.as_str()),
+            (
+                bar.count(&open, Lang::En).as_str(),
+                bar.within_label.as_str()
+            ),
             ("2 matches", "/r/b[2]")
         );
         let text = |open: &Open| {
@@ -582,28 +626,31 @@ mod tests {
         };
         bar.find(&mut open, Direction::Forward);
         assert_eq!(
-            (bar.count(&open), text(&open)),
+            (bar.count(&open, Lang::En), text(&open)),
             ("1 of 2 matches".into(), "SÖHNE".into())
         );
         bar.find(&mut open, Direction::Forward);
-        assert_eq!(bar.count(&open), "2 of 2 matches");
+        assert_eq!(bar.count(&open, Lang::En), "2 of 2 matches");
         // A match selects its `c`, yet Find still keeps to `b[2]`.
         assert_ne!(open.selected, Some(b2));
         bar.find(&mut open, Direction::Forward);
-        assert_eq!(bar.count(&open), "1 of 2 matches");
-        assert_eq!(bar.note, "Continued from the element's start");
+        assert_eq!(bar.count(&open, Lang::En), "1 of 2 matches");
+        assert_eq!(bar.note, Some(Outcome::FromStart));
 
         // Deleting the `b` before it: the scope follows its element, now `b[1]`.
         let b1 = command::resolve(&open.doc, "/r/b[1]").unwrap();
         let p = open.doc.index.element_position(b1);
         open.command(
-            "delete",
+            crate::app::What::Delete,
             |d| command::delete(d, b1).map(Some),
             crate::app::Shift::Remove(p),
         );
         bar.recount(&open);
         assert_eq!(
-            (bar.count(&open).as_str(), bar.within_label.as_str()),
+            (
+                bar.count(&open, Lang::En).as_str(),
+                bar.within_label.as_str()
+            ),
             ("2 matches", "/r/b")
         );
 
@@ -619,7 +666,7 @@ mod tests {
         let b = command::resolve(&open.doc, "/r/b").unwrap();
         let p = open.doc.index.element_position(b);
         open.command(
-            "delete",
+            crate::app::What::Delete,
             |d| command::delete(d, b).map(Some),
             crate::app::Shift::Remove(p),
         );
@@ -629,6 +676,108 @@ mod tests {
     #[test]
     fn count_label_past_the_limit() {
         let starts: Vec<usize> = (0..COUNT_LIMIT).collect();
-        assert_eq!(count_label(&starts, Some(4)), "5 of 1000000+ matches");
+        assert_eq!(
+            count_label(Lang::En, &starts, Some(4)),
+            "5 of 1000000+ matches"
+        );
+    }
+
+    /// LANG-1 and LANG-15: Find with its Replace row, Go to line and XPath in German, in a
+    /// panel as narrow as beside the tree in the program's own window size: nothing is cut off
+    /// or lies over another text, and what a search said follows the language.
+    #[test]
+    fn the_bars_are_whole_in_german() {
+        let src = "\u{feff}<r>\r\n  <a>Söhne</a>\r\n  <a>söhne</a>\r\n</r>";
+        let doc = xml_atlas_engine::Document::from_bytes(src.as_bytes().to_vec());
+        let mut open = Open::new(doc, egui::Id::unique("german-bars"));
+        crate::xpath_bar::run_for_test(&mut open, "//a");
+        let mut find = FindBar {
+            visible: true,
+            query: "söhne".into(),
+            replacing: true,
+            ..FindBar::default()
+        };
+        find.recount(&open);
+        // Twice round: the note says so.
+        for _ in 0..3 {
+            find.find(&mut open, Direction::Forward);
+        }
+        let mut goto = crate::goto_bar::GoToBar::default();
+        let mut xpath = crate::xpath_bar::XPathBar::default();
+        let ctx = egui::Context::default();
+        ctx.set_os(egui::os::OperatingSystem::Nix);
+        let width = 960.0;
+        let mut draw = |lang: Lang, open: &mut Open| {
+            let mut texts = Vec::new();
+            for _ in 0..4 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 600.0),
+                    )),
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| {
+                    find.show(ui, open, lang);
+                    xpath.show(ui, open, lang);
+                    goto.show(ui, open, lang);
+                    open.lang = lang;
+                    crate::xpath_bar::show_results(ui, open);
+                });
+                out.textures_delta.clear();
+                texts = out
+                    .shapes
+                    .into_iter()
+                    .filter_map(|s| match s.shape {
+                        egui::Shape::Text(t) => {
+                            let rect = t.galley.rect.translate(t.pos.to_vec2());
+                            Some((t.galley.text().to_owned(), rect, s.clip_rect))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+            }
+            texts
+        };
+        let english = draw(Lang::En, &mut open);
+        assert!(
+            english
+                .iter()
+                .any(|(t, ..)| t.contains("Continued from the top"))
+        );
+        let german = draw(Lang::De, &mut open);
+        for part in [
+            "Suchen",
+            "Groß-/Kleinschreibung",
+            "Am Anfang fortgesetzt",
+            "Ersetzen durch",
+            "Alle ersetzen",
+            "Gehe zu Zeile",
+            "von 4",
+            "Ausführen",
+            "XPath-Ergebnisse",
+            "1 von 2 Knoten",
+        ] {
+            assert!(
+                german.iter().any(|(t, ..)| t.contains(part)),
+                "{part}: {german:?}"
+            );
+        }
+        for texts in [&english, &german] {
+            for (i, (text, rect, clip)) in texts.iter().enumerate() {
+                assert!(rect.right() <= width, "{text:?} leaves the bar: {rect:?}");
+                assert!(
+                    rect.right() <= clip.right() + 1.0,
+                    "{text:?} is cut: {rect:?} in {clip:?}"
+                );
+                for (other, o, _) in &texts[i + 1..] {
+                    let shared = rect.intersect(*o);
+                    assert!(
+                        shared.width() <= 1.0 || shared.height() <= 1.0,
+                        "{text:?} lies over {other:?}"
+                    );
+                }
+            }
+        }
     }
 }

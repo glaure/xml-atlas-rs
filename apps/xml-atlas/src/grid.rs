@@ -8,7 +8,7 @@ use xml_atlas_engine::command;
 use xml_atlas_engine::grid::{Cell, CellTarget, Column, Grid, Sort, SortBy};
 use xml_atlas_engine::xml::NodeId;
 
-use crate::app::{Note, Open, Pane, Shift};
+use crate::app::{Note, Open, Pane, Shift, What};
 use crate::keys;
 use crate::table;
 
@@ -18,9 +18,6 @@ const LEAD: usize = 2;
 const NAME_WIDTH: f32 = 110.0;
 const COLUMN_WIDTH: f32 = 140.0;
 const COLUMN_MIN: f32 = 40.0;
-
-/// Why the editor does not open on a long value (GRID-10).
-const TOO_LONG: &str = "Too long to edit here: edit it in the text";
 
 /// Spacing of the hatching that marks an absent value.
 const HATCH_STEP: f32 = 6.0;
@@ -127,9 +124,8 @@ fn run(open: &mut Open, action: Action) {
             let Some(grid) = &mut open.grid else { return };
             let n = grid.hide_empty(&open.doc);
             open.note = Some(Note::info(match n {
-                0 => "No column is empty in every row".to_string(),
-                1 => "Hid 1 empty column".to_string(),
-                n => format!("Hid {n} empty columns"),
+                0 => open.lang.status_no_empty_column().to_string(),
+                n => open.lang.status_hid_columns(n as u64),
             }));
             unmark_hidden(open);
         }
@@ -147,7 +143,7 @@ fn run(open: &mut Open, action: Action) {
             };
             if save {
                 open.command(
-                    "edit the cell",
+                    What::EditCell,
                     |doc| command::set_cell(doc, &editor.target, &editor.text),
                     Shift::None,
                 );
@@ -175,7 +171,7 @@ fn start_edit(open: &mut Open, row: NodeId, column: usize) {
         return;
     };
     if grid.too_long_to_edit(&open.doc, row, c) {
-        open.note = Some(Note::refused(TOO_LONG));
+        open.note = Some(Note::refused(open.lang.status_too_long()));
         return;
     }
     match grid.edit_target(&open.doc, row, c) {
@@ -190,8 +186,7 @@ fn start_edit(open: &mut Open, row: NodeId, column: usize) {
             });
         }
         None => {
-            // The status bar's texts are not translated yet (D45, step 3).
-            let why = not_editable(Lang::En, &grid.cell(&open.doc, row, c));
+            let why = not_editable(open.lang, &grid.cell(&open.doc, row, c));
             open.note = Some(Note::refused(why));
         }
     }
@@ -647,9 +642,7 @@ pub fn key(open: &mut Open, key: GridKey) {
             return start_edit(open, grid.rows[c], column);
         }
         (GridKey::Edit, ..) => {
-            open.note = Some(Note::refused(
-                "Mark a cell first: click it, or use the arrow keys",
-            ));
+            open.note = Some(Note::refused(open.lang.status_mark_cell()));
             return;
         }
         (GridKey::Enter, Some(c), cell) => {
@@ -727,7 +720,7 @@ mod tests {
                         (Some(editor), None) if opens => assert_eq!(editor.text, value, "{at}"),
                         (None, Some(note)) if !opens => {
                             assert!(note.refused, "{at}");
-                            assert_eq!(note.text, TOO_LONG, "{at}");
+                            assert_eq!(note.text, Lang::En.status_too_long(), "{at}");
                         }
                         _ => panic!("editor or note wrong at {at}"),
                     }
