@@ -2092,7 +2092,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   and `ListFault` for files and the folder. `FolderError` keeps the operating system's
   message as text, so that a library of rules files can keep and compare it. The language
   files' generator copies a text that is only a placeholder instead of formatting it.
-- **Next:** step 5, the German guide.
+- **Built, step 5:** the German guide, `help.de.md`. A translation of `help.md` as it is,
+  with the window's German names. A test compares the two block by block, with their `code`
+  (the one word the diagram shows, `text`, is translated), so that a change of one guide
+  does not pass without the other.
+- **Open:** the German of the texts and the guide wants a proofreader; French and Spanish
+  come later.
 
 ## Open questions
 
