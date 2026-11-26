@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Key, KeyboardShortcut, Modifiers, RichText, ThemePreference, Ui};
 use xml_atlas_engine::command::CommandError;
+use xml_atlas_engine::rules_folder::Unusable;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{
     DiskChange, Document, Edit, EditError, FormatError, FormatOptions, REPARSE_INLINE_BYTES,
@@ -32,7 +33,7 @@ use xml_atlas_engine::rules_folder::Library;
 mod menus;
 
 /// The rules a tab uses, with their file, or that file and why it cannot be used.
-pub type TabRules = Result<(PathBuf, Arc<Rules>), (PathBuf, String)>;
+pub type TabRules = Result<(PathBuf, Arc<Rules>), (PathBuf, Unusable)>;
 
 /// Time a frame spends looking at a long grid's rows for columns (GRID-3).
 const GRID_SCAN_TIME: Duration = Duration::from_millis(6);
@@ -2971,7 +2972,7 @@ mod tests {
                 path: "rules.json".into(),
                 on: true,
                 use_for: use_for.into(),
-                rules: Rules::parse(rules).map(Arc::new).map_err(|e| e.to_string()),
+                rules: Rules::parse(rules).map(Arc::new).map_err(Into::into),
                 text: Some(rules.into()),
             }],
             error: None,

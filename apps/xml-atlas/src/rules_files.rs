@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
 use xml_atlas_engine::rules_folder::{Entry, FolderError, Library, RulesFolder, applies, resolved};
+use xml_atlas_engine::rules_text::TextError;
+
+use crate::engine_words::{folder_error, text_error, unusable_rules};
 
 use crate::app::Open;
 use crate::rules_editor::RulesEditor;
@@ -33,7 +36,8 @@ pub struct RulesFiles {
     use_for: Option<Draft>,
     asked: Option<Asked>,
     /// The last command that failed.
-    error: Option<String>,
+    /// Why the last thing asked for did not happen, worded when drawn.
+    error: Option<Failed>,
     /// The shown document's path, and where it really is.
     shown: Option<(PathBuf, PathBuf)>,
     editor: RulesEditor,
@@ -50,6 +54,13 @@ struct Draft {
 enum Asked {
     Rename { name: String, to: String },
     Delete { name: String },
+}
+
+/// What was asked for in the list and failed.
+enum Failed {
+    Folder(FolderError),
+    /// A file could not be opened for editing.
+    File(TextError),
 }
 
 /// A command of the list.
@@ -140,7 +151,7 @@ impl RulesFiles {
     /// Opens a file in the editor.
     pub fn edit(&mut self, path: &Path) {
         self.editor.edit(path);
-        self.error = self.editor.take_open_error();
+        self.error = self.editor.take_open_error().map(Failed::File);
     }
 
     /// Draws the editor; a saved file is taken by the tabs at once.
@@ -167,13 +178,9 @@ impl RulesFiles {
             return;
         };
         let red = ui.visuals().error_fg_color;
-        // Without a folder the list's error is our own; the others are the engine's
-        // (D45, step 4).
-        let list = match &self.folder {
-            Some(_) => library.error.as_deref(),
-            None => Some(lang.rules_no_folder()),
-        };
-        for e in list.into_iter().chain(self.error.as_deref()) {
+        let list = library.error.as_ref().map(|e| folder_error(lang, e));
+        let last = self.error.as_ref().map(|e| e.text(lang));
+        for e in list.into_iter().chain(last) {
             ui.colored_label(red, e);
         }
         let resolved = self.resolved_document(document);
@@ -327,7 +334,7 @@ impl RulesFiles {
             }
         });
         if let Err(e) = &entry.rules {
-            ui.colored_label(ui.visuals().error_fg_color, e.as_str());
+            ui.colored_label(ui.visuals().error_fg_color, unusable_rules(lang, e));
         } else if entry.on && entry.use_for.is_empty() {
             let text = lang.rules_unused();
             ui.colored_label(ui.visuals().warn_fg_color, text);
@@ -417,7 +424,7 @@ impl RulesFiles {
             Command::OpenFolder => folder.create_folder().and_then(|path| {
                 show_folder(path).map_err(|error| FolderError::Io {
                     path: path.to_owned(),
-                    error,
+                    error: error.to_string(),
                 })
             }),
         };
@@ -425,7 +432,7 @@ impl RulesFiles {
     }
 
     fn done(&mut self, done: Result<(), FolderError>) {
-        self.error = done.err().map(|e| e.to_string());
+        self.error = done.err().map(Failed::Folder);
         self.reload();
     }
 
@@ -434,7 +441,7 @@ impl RulesFiles {
             Some(folder) => (folder.load(), folder.watched().map(Path::to_owned).to_vec()),
             None => (
                 Library {
-                    error: Some("there is no configuration folder".into()),
+                    error: Some(FolderError::NoConfigFolder),
                     ..Library::default()
                 },
                 Vec::new(),
@@ -459,6 +466,15 @@ impl RulesFiles {
             self.shown = Some((document.to_owned(), resolved(document)));
         }
         self.shown.as_ref().map(|(_, real)| real.clone())
+    }
+}
+
+impl Failed {
+    fn text(&self, lang: Lang) -> String {
+        match self {
+            Failed::Folder(error) => folder_error(lang, error),
+            Failed::File(error) => text_error(lang, error),
+        }
     }
 }
 

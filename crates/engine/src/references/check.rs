@@ -2,10 +2,14 @@
 //! refuses, and what it takes in silence and rarely means: unknown keys, keys given twice,
 //! rules that match nothing in a document.
 
+use std::fmt;
+
 use memchr::memmem;
 use serde_json::Value;
 
-use super::{Context, RefKind, Rules, RulesError, Selection, references, select, split_context};
+use super::{
+    Context, Invalid, RefKind, Rules, RulesError, Selection, references, select, split_context,
+};
 use crate::Document;
 use crate::problems::Severity;
 use xml_atlas_xml::{NodeId, NodeKind, ROOT};
@@ -40,13 +44,46 @@ pub struct Finding {
     pub severity: Severity,
     pub line: usize,
     pub column: usize,
-    pub message: String,
+    pub message: Remark,
+}
+
+/// What a [`Finding`] says. Its words (`Display`) are the English the CLI gives; the window
+/// words each case in its own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Remark {
+    /// The JSON library's message, without its line and column.
+    NotJson(String),
+    Invalid(Invalid),
+    /// Another reason the rules cannot be read, in the engine's words.
+    Other(String),
+    NoReferences,
+    /// A key, as `includes[0].element`.
+    GivenTwice(String),
+    /// `meant` is the known key it may be a slip for.
+    UnknownKey {
+        key: String,
+        meant: Option<&'static str>,
+    },
+    /// An include for an element of this name after the first.
+    SecondInclude(String),
+    MatchesNothing(RuleName),
+}
+
+/// A rule, as the check names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuleName {
+    Include { element: String, attribute: String },
+    AttributeReferences,
+    Context(String),
+    RunTimeContext(String),
+    Variable(String),
+    Repeat,
 }
 
 /// How many places of the document a rule matches.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Count {
-    pub rule: String,
+    pub rule: RuleName,
     pub places: usize,
 }
 
@@ -70,6 +107,45 @@ struct Place {
 enum Part {
     Key(String),
     Item(usize),
+}
+
+impl fmt::Display for Remark {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotJson(words) | Self::Other(words) => f.write_str(words),
+            Self::Invalid(what) => what.fmt(f),
+            Self::NoReferences => f.write_str(
+                "these rules name no references: there is neither includes, \
+                 attribute_references nor repeat",
+            ),
+            Self::GivenTwice(key) => write!(f, "{key} is given twice: only the last counts"),
+            Self::UnknownKey { key, meant } => {
+                write!(f, "unknown key {key:?}, which is ignored")?;
+                match meant {
+                    Some(meant) => write!(f, "; is it {meant:?}?"),
+                    None => Ok(()),
+                }
+            }
+            Self::SecondInclude(element) => write!(
+                f,
+                "a second include for <{element}> is never used: only the first counts"
+            ),
+            Self::MatchesNothing(rule) => write!(f, "{rule} matches nothing in the document"),
+        }
+    }
+}
+
+impl fmt::Display for RuleName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Include { element, attribute } => write!(f, "include <{element} {attribute}>"),
+            Self::AttributeReferences => f.write_str("attribute_references"),
+            Self::Context(name) => write!(f, "context {name}"),
+            Self::RunTimeContext(name) => write!(f, "run-time context {name}"),
+            Self::Variable(name) => write!(f, "variable {name}"),
+            Self::Repeat => f.write_str("repeat"),
+        }
+    }
 }
 
 impl Report {
@@ -103,39 +179,30 @@ pub fn check(text: &str, document: Option<&Document>) -> Report {
                 severity: Severity::Error,
                 line,
                 column: chars + 1,
-                message,
+                message: Remark::NotJson(message),
             });
             return report;
         }
     };
     let places = places(text);
-    let mut found: Vec<(usize, Severity, String)> = Vec::new();
+    let mut found: Vec<(usize, Severity, Remark)> = Vec::new();
     unknown_and_repeated(&places, &mut found);
     match Rules::parse(text) {
-        Err(RulesError::Invalid(message)) => {
-            found.push((
-                place_of_message(&places, &message),
-                Severity::Error,
-                message,
-            ));
+        Err(RulesError::Invalid(what)) => {
+            let at = place_of_message(&places, &what.to_string());
+            found.push((at, Severity::Error, Remark::Invalid(what)));
         }
-        Err(e) => found.push((0, Severity::Error, e.to_string())),
+        Err(e) => found.push((0, Severity::Error, Remark::Other(e.to_string()))),
         Ok(rules) => {
             if rules.is_empty() && rules.repeat.is_none() {
-                found.push((
-                    0,
-                    Severity::Warning,
-                    "these rules name no references: there is neither includes, \
-                     attribute_references nor repeat"
-                        .into(),
-                ));
+                found.push((0, Severity::Warning, Remark::NoReferences));
             }
             repeated_includes(&places, &value, &rules, &mut found);
             if let Some(doc) = document {
                 for (rule, path, count) in matches(doc, &value, &rules) {
                     if count == 0 {
                         let at = place(&places, &path);
-                        let message = format!("{rule} matches nothing in the document");
+                        let message = Remark::MatchesNothing(rule.clone());
                         found.push((at, Severity::Warning, message));
                     }
                     report.counts.push(Count {
@@ -163,14 +230,14 @@ pub fn check(text: &str, document: Option<&Document>) -> Report {
     report
 }
 
-fn unknown_and_repeated(places: &[Place], found: &mut Vec<(usize, Severity, String)>) {
+fn unknown_and_repeated(places: &[Place], found: &mut Vec<(usize, Severity, Remark)>) {
     let mut seen = std::collections::HashSet::new();
     for p in places.iter().filter(|p| p.object.is_some()) {
         let Some((Part::Key(key), parent)) = p.path.split_last() else {
             continue;
         };
         if !seen.insert((p.object, key.as_str())) {
-            let message = format!("{} is given twice: only the last counts", name_of(&p.path));
+            let message = Remark::GivenTwice(name_of(&p.path));
             found.push((p.at, Severity::Warning, message));
         }
         let known = match parent {
@@ -190,8 +257,10 @@ fn unknown_and_repeated(places: &[Place], found: &mut Vec<(usize, Severity, Stri
             .map(|k| (distance(k, key), *k))
             .min()
             .filter(|(d, _)| *d <= NEAR);
-        let hint = near.map_or(String::new(), |(_, k)| format!("; is it {k:?}?"));
-        let message = format!("unknown key {key:?}, which is ignored{hint}");
+        let message = Remark::UnknownKey {
+            key: key.clone(),
+            meant: near.map(|(_, k)| k),
+        };
         found.push((p.at, Severity::Warning, message));
     }
 }
@@ -200,24 +269,21 @@ fn repeated_includes(
     places: &[Place],
     value: &Value,
     rules: &Rules,
-    found: &mut Vec<(usize, Severity, String)>,
+    found: &mut Vec<(usize, Severity, Remark)>,
 ) {
     let at = included(value);
     for (i, inc) in rules.includes.iter().enumerate() {
         let before = rules.includes[..i].iter();
         if before.filter(|b| b.element == inc.element).count() > 0 {
             let path = [Part::Key("includes".into()), Part::Item(at[i])];
-            let message = format!(
-                "a second include for <{}> is never used: only the first counts",
-                inc.element
-            );
+            let message = Remark::SecondInclude(inc.element.clone());
             found.push((place(places, &path), Severity::Warning, message));
         }
     }
 }
 
 /// Per rule: its name, its place in the file, and how many places of `doc` it matches.
-fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(String, Vec<Part>, usize)> {
+fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(RuleName, Vec<Part>, usize)> {
     let idx = &doc.index;
     let Some(root) = idx.root_element() else {
         return Vec::new();
@@ -233,13 +299,16 @@ fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(String, Vec<Par
                 r.kind == RefKind::Include && idx.name(&doc.src, r.site) == inc.element.as_bytes()
             })
             .count();
-        let name = format!("include <{} {}>", inc.element, inc.attribute);
+        let name = RuleName::Include {
+            element: inc.element.clone(),
+            attribute: inc.attribute.clone(),
+        };
         out.push((name, vec![key("includes"), Part::Item(i)], count));
     }
     if rules.attributes.is_some() {
         let count = found.iter().filter(|r| r.kind != RefKind::Include).count();
         let path = vec![key("attribute_references")];
-        out.push(("attribute_references".to_owned(), path, count));
+        out.push((RuleName::AttributeReferences, path, count));
     }
 
     // The names `nearest` looks for and the repeat's attribute, in one walk.
@@ -285,7 +354,7 @@ fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(String, Vec<Par
             Context::Nearest { .. } => named.next().unwrap_or(0),
         };
         out.push((
-            format!("context {name}"),
+            RuleName::Context(name.clone()),
             vec![key("contexts"), key(name)],
             count,
         ));
@@ -299,7 +368,7 @@ fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(String, Vec<Par
             })
             .count();
         let path = vec![key("runtime_contexts"), Part::Item(i)];
-        out.push((format!("run-time context {name}"), path, count));
+        out.push((RuleName::RunTimeContext(name.clone()), path, count));
     }
     for (name, _) in &rules.variables {
         let count = found
@@ -307,13 +376,13 @@ fn matches(doc: &Document, value: &Value, rules: &Rules) -> Vec<(String, Vec<Par
             .filter(|r| r.expr.contains(name.as_str()))
             .count();
         out.push((
-            format!("variable {name}"),
+            RuleName::Variable(name.clone()),
             vec![key("variables"), key(name)],
             count,
         ));
     }
     if repeat.is_some() {
-        out.push(("repeat".to_owned(), vec![key("repeat")], counted));
+        out.push((RuleName::Repeat, vec![key("repeat")], counted));
     }
     out
 }
@@ -493,7 +562,7 @@ mod tests {
         check(text, doc)
             .findings
             .into_iter()
-            .map(|f| (f.severity, f.line, f.column, f.message))
+            .map(|f| (f.severity, f.line, f.column, f.message.to_string()))
             .collect()
     }
 
@@ -577,11 +646,12 @@ mod tests {
         }"#;
         let report = check(text, Some(&doc()));
         assert!(report.findings.is_empty(), "{:?}", report.findings);
-        let counts: Vec<(&str, usize)> = report
+        let counts: Vec<(String, usize)> = report
             .counts
             .iter()
-            .map(|c| (c.rule.as_str(), c.places))
+            .map(|c| (c.rule.to_string(), c.places))
             .collect();
+        let counts: Vec<(&str, usize)> = counts.iter().map(|(r, n)| (r.as_str(), *n)).collect();
         assert_eq!(
             counts,
             [
