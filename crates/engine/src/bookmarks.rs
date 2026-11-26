@@ -232,8 +232,12 @@ mod tests {
 
         // Format and Compact replace everything, and the marks stay on their elements.
         let formatted = d.format(&FormatOptions::default()).unwrap();
-        d.apply(crate::Edit::whole("Format", d.src.len(), formatted))
-            .unwrap();
+        d.apply(crate::Edit::whole(
+            crate::StepName::Format,
+            d.src.len(),
+            formatted,
+        ))
+        .unwrap();
         assert_eq!(marked(&d), ["boxes", "c", "d"]);
 
         // Undo and redo, in the same way.
@@ -265,8 +269,10 @@ mod tests {
         let mut d = doc();
         mark(&mut d, "/r/d");
         let at = d.index.node(command::resolve(&d, "/r/a").unwrap()).start as usize;
-        d.apply_typed(crate::Edit::new("Type").replace(at..at, "<new/>"))
-            .unwrap();
+        d.apply_typed(
+            crate::Edit::new(crate::StepName::Other("Type".into())).replace(at..at, "<new/>"),
+        )
+        .unwrap();
         assert_eq!(marked(&d), ["d"]);
         let start = d.bookmarks.starts()[0];
         assert_eq!(&d.src[start..start + 4], b"<d/>");

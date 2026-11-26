@@ -20,7 +20,7 @@ use xml_atlas_engine::find::{self as find_text, Direction, FindOptions, Finder};
 use xml_atlas_engine::grid::{Cell, Column, Grid};
 use xml_atlas_engine::problems::Severity;
 use xml_atlas_engine::xml::{NodeId, NodeKind};
-use xml_atlas_engine::{Document, Edit, EditError, FormatOptions};
+use xml_atlas_engine::{Document, Edit, EditError, FormatOptions, StepName};
 
 pub mod bridge;
 
@@ -504,6 +504,8 @@ pub fn call(
             let (done, modified) = docs
                 .change(id, |d| {
                     let done = if undo { d.undo() } else { d.redo() };
+                    // In English, whatever the window's language (LANG-3).
+                    let done = done.map(|step| step.to_string());
                     (done, d.is_modified())
                 })
                 .ok_or(ToolError::NoDocument(id))?;
@@ -836,15 +838,16 @@ fn format(
         remove_comments: flag("remove_comments"),
         trim_text: flag("trim_text"),
     };
-    let (label, result) = if indent {
+    let (step, result) = if indent {
         let chosen = d.format_options(base);
-        ("Format", d.format(&chosen.options))
+        (StepName::Format, d.format(&chosen.options))
     } else {
-        ("Compact", d.compact(&base))
+        (StepName::Compact, d.compact(&base))
     };
     let out = result.map_err(|e| ToolError::Refused(e.to_string()))?;
-    let edit = Edit::whole(label, d.src.len(), out);
-    apply(docs, id, edit, label)
+    let label = step.to_string();
+    let edit = Edit::whole(step, d.src.len(), out);
+    apply(docs, id, edit, &label)
 }
 
 /// [`apply_whole`] through [`Documents::change`].

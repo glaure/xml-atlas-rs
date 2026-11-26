@@ -704,14 +704,17 @@ mod tests {
         w.rows(&d, 1);
         // Into the blank after the 273rd element.
         let at = d.line_starts[1] as usize + 11 * 272 + 10;
-        d.apply(Edit::new("Type").replace(at..at, b"\xC3\xBC  <b>".to_vec()))
-            .unwrap();
+        d.apply(
+            Edit::new(crate::StepName::Other("Type".into()))
+                .replace(at..at, b"\xC3\xBC  <b>".to_vec()),
+        )
+        .unwrap();
         let (_, line) = line_bytes(&d, 1);
         let expect = row_starts(line, 40);
         assert_eq!(w.starts(&d, 1), expect);
         // A line break joins two lines: all is worked out anew.
         let nl = d.line_starts[2] as usize - 1;
-        d.apply(Edit::new("Delete").replace(nl..nl + 1, Vec::new()))
+        d.apply(Edit::new(crate::StepName::Delete).replace(nl..nl + 1, Vec::new()))
             .unwrap();
         let (_, line) = line_bytes(&d, 1);
         let expect = row_starts(line, 40);

@@ -949,7 +949,7 @@ mod tests {
         let (mut open, dir) = opened("ref-typing");
         // Typing the missing name: the warning goes at once, the check waits.
         let at = open.doc.src.windows(5).position(|w| w == b"Fehlt").unwrap();
-        let edit = Edit::new("Typing").replace(at..at + 5, "Größe");
+        let edit = Edit::new(xml_atlas_engine::StepName::Typing).replace(at..at + 5, "Größe");
         open.type_edit(edit).unwrap();
         assert!(open.problems.is_empty());
         assert!(open.references_due.is_some());
@@ -1016,7 +1016,7 @@ mod tests {
         assert_eq!(f12(&mut open), "/Doc/Unit/Sub/Var/Größe");
         // Typing an element before it keeps it too.
         let at = open.doc.src.windows(5).position(|w| w == b"<Box>").unwrap();
-        open.type_edit(Edit::new("Typing").replace(at..at, "<Neu/>"))
+        open.type_edit(Edit::new(xml_atlas_engine::StepName::Typing).replace(at..at, "<Neu/>"))
             .unwrap();
         assert_eq!(chosen(&open).len(), 1);
         // Deleting the chosen section drops the choice.

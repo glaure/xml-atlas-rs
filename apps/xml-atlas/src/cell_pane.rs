@@ -243,11 +243,16 @@ mod reparse_tests {
         };
 
         let at = src.find("</Größe>").unwrap();
-        open.type_edit(Edit::new("Type").replace(at..at, "<![CDATA[hi"))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(at..at, "<![CDATA[hi"),
+        )
+        .unwrap();
         let end = at + "<![CDATA[hi".len();
-        open.type_edit(Edit::new("Type").replace(end..end, "]]>"))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(end..end, "]]>"),
+        )
+        .unwrap();
         assert!(open.doc.stale().is_some(), "waits to be read again");
         draw(&mut open);
         open.settle();
@@ -373,8 +378,11 @@ mod value_tests {
             .windows(7)
             .position(|w| w == b"the end")
             .unwrap();
-        open.type_edit(Edit::new("Type").replace(at..at + 7, "a new end"))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(at..at + 7, "a new end"),
+        )
+        .unwrap();
         open.select(root);
         let row = open.grid.as_ref().unwrap().rows[0];
         open.focus(row);

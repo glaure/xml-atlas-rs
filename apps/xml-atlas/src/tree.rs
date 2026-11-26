@@ -865,8 +865,11 @@ mod tests {
             assert_eq!(frame(&doc, &mut state), settled);
         }
         let at = doc.src.len() - "</r>".len();
-        doc.apply(xml_atlas_engine::Edit::new("Type").replace(at..at, " "))
-            .unwrap();
+        doc.apply(
+            xml_atlas_engine::Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(at..at, " "),
+        )
+        .unwrap();
         assert!(frame(&doc, &mut state) > settled, "after an edit");
     }
 

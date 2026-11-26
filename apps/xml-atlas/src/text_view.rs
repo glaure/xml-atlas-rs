@@ -958,7 +958,7 @@ fn move_to(open: &mut Open, sel: Selection) {
 fn apply(open: &mut Open, change: Option<TextEdit>) {
     let Some(change) = change else { return };
     open.text_goal = None;
-    let label = change.edit.label().to_string();
+    let step = change.edit.label().clone();
     let t = std::time::Instant::now();
     let result = open.type_edit(change.edit);
     log::debug!(
@@ -980,7 +980,8 @@ fn apply(open: &mut Open, change: Option<TextEdit>) {
             open.tree.keep_scroll();
         }
         Err(e) => {
-            let note = open.lang.status_cannot_step(&label, &e.to_string());
+            let step = crate::engine_words::step_name(open.lang, &step);
+            let note = open.lang.status_cannot_step(&step, &e.to_string());
             open.note = Some(Note::refused(note));
         }
     }

@@ -1216,7 +1216,10 @@ mod tests {
         // An edit: the structure is read again, the box stays collapsed.
         let at = ORDERS.find("<note>").unwrap();
         open.doc
-            .apply(Edit::new("Insert").replace(at..at, "<extra/>"))
+            .apply(
+                Edit::new(xml_atlas_engine::StepName::Other("Insert".into()))
+                    .replace(at..at, "<extra/>"),
+            )
             .unwrap();
         walk(&mut open);
         assert!(open.diagram.fresh_for(&open.doc.index));
@@ -1255,7 +1258,10 @@ mod tests {
         // The levels stay after an edit reads the structure again.
         let at = ORDERS.find("<note>").unwrap();
         open.doc
-            .apply(Edit::new("Insert").replace(at..at, "<extra/>"))
+            .apply(
+                Edit::new(xml_atlas_engine::StepName::Other("Insert".into()))
+                    .replace(at..at, "<extra/>"),
+            )
             .unwrap();
         walk(&mut open);
         open.diagram.set_levels(None);

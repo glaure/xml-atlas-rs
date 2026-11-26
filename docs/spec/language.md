@@ -165,7 +165,13 @@ English texts.
       they check that the panes, the notices and the diagram's header cut nothing off. With
       this, what is left in English is the engine's (step 4) and the guide (step 5).
 4. The engine's messages made into values the window can translate, a part at a time
-   (LANG-2). The engine's own texts stay as they are.
+   (LANG-2). The engine's own texts stay as they are. In parts:
+   1. The names of undo steps and the settings *Format* names. Built. A test holds the
+      window's English to the engine's.
+   2. Refused edits and saves, Find and Go to line.
+   3. XML problems and the warnings about encodings.
+   4. XPath.
+   5. References and rules files.
 5. The German guide (LANG-16).
 
 ## Acceptance tests

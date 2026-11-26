@@ -171,7 +171,8 @@ mod tests {
         assert_eq!(open.number, 2, "the changed tab is shown");
         let selected = open.selected.unwrap();
         assert_eq!(open.doc.index.path(&open.doc.src, selected), "/r/c");
-        assert_eq!(open.doc.history.undo_label(), Some("Rename <b> to <c>"));
+        let step = open.doc.history.undo_label().map(ToString::to_string);
+        assert_eq!(step.as_deref(), Some("Rename <b> to <c>"));
         // XPath reads the tab as it is now, after the rename (D35, XP-7).
         let found = call(&mut w, "xpath", json!({"document": doc, "expr": "/r/*"})).unwrap();
         assert_eq!(found["total"], 2);

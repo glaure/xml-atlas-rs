@@ -20,10 +20,68 @@ pub const HISTORY_BYTES: usize = 512 << 20;
 /// (`docs/spec/text.md`, TEXT-20).
 pub const TYPING_PAUSE: Duration = Duration::from_secs(1);
 
+/// What an undo step is called, as Edit > Undo shows it. A value rather than a text, so that
+/// the window can word it in its language (`docs/spec/language.md`, LANG-2); written out
+/// ([`std::fmt::Display`]) it is the English the CLI and the MCP tools give. Element and
+/// attribute names are the document's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepName {
+    /// Typed in the text view.
+    Typing,
+    Paste,
+    Cut,
+    /// Backspace or Delete in the text view.
+    Delete,
+    Replace,
+    /// Replace All, with how many matches.
+    ReplaceAll(usize),
+    Format,
+    Compact,
+    ConvertToUtf8,
+    /// An element's text was set.
+    EditText {
+        element: String,
+    },
+    SetAttribute {
+        attribute: String,
+        element: String,
+    },
+    RemoveAttribute {
+        attribute: String,
+        element: String,
+    },
+    Rename {
+        from: String,
+        to: String,
+    },
+    DeleteNode(DeletedNode),
+    Duplicate {
+        element: String,
+    },
+    MoveUp {
+        element: String,
+    },
+    MoveDown {
+        element: String,
+    },
+    /// A caller's own name, shown as it is. The program's commands do not use it.
+    Other(String),
+}
+
+/// What *Delete* removed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeletedNode {
+    Element(String),
+    Comment,
+    ProcessingInstruction,
+    CData,
+    Text,
+}
+
 /// A change to make: replace each range of the current source with new bytes.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edit {
-    label: String,
+    label: StepName,
     changes: Vec<(Range<usize>, Vec<u8>)>,
     /// Typed in the text view: may join the previous undo step (TEXT-20).
     typing: Option<Typing>,
@@ -92,17 +150,17 @@ struct Change {
 /// Changes in source order, not overlapping, with offsets in the source they apply to.
 #[derive(Debug)]
 struct Step {
-    label: String,
+    label: StepName,
     changes: Vec<Change>,
     /// For a step of typing: its kind and when the last keystroke joined it.
     typed: Option<(Typing, Instant)>,
 }
 
 impl Edit {
-    /// An empty edit. `label` names it in Edit > Undo, e.g. "Format".
-    pub fn new(label: impl Into<String>) -> Self {
+    /// An empty edit. `label` names it in Edit > Undo.
+    pub fn new(label: StepName) -> Self {
         Self {
-            label: label.into(),
+            label,
             changes: Vec::new(),
             typing: None,
         }
@@ -116,7 +174,7 @@ impl Edit {
     }
 
     /// Replaces the whole document.
-    pub fn whole(label: impl Into<String>, len: usize, bytes: Vec<u8>) -> Self {
+    pub fn whole(label: StepName, len: usize, bytes: Vec<u8>) -> Self {
         Self::new(label).replace(0..len, bytes)
     }
 
@@ -127,8 +185,50 @@ impl Edit {
         self
     }
 
-    pub fn label(&self) -> &str {
+    pub fn label(&self) -> &StepName {
         &self.label
+    }
+}
+
+impl std::fmt::Display for StepName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StepName::Typing => f.write_str("Typing"),
+            StepName::Paste => f.write_str("Paste"),
+            StepName::Cut => f.write_str("Cut"),
+            StepName::Delete => f.write_str("Delete"),
+            StepName::Replace => f.write_str("Replace"),
+            StepName::ReplaceAll(1) => f.write_str("Replace All (1 match)"),
+            StepName::ReplaceAll(n) => write!(f, "Replace All ({n} matches)"),
+            StepName::Format => f.write_str("Format"),
+            StepName::Compact => f.write_str("Compact"),
+            StepName::ConvertToUtf8 => f.write_str("Convert to UTF-8"),
+            StepName::EditText { element } => write!(f, "Edit <{element}>"),
+            StepName::SetAttribute { attribute, element } => {
+                write!(f, "Set {attribute} of <{element}>")
+            }
+            StepName::RemoveAttribute { attribute, element } => {
+                write!(f, "Remove {attribute} of <{element}>")
+            }
+            StepName::Rename { from, to } => write!(f, "Rename <{from}> to <{to}>"),
+            StepName::DeleteNode(node) => write!(f, "Delete {node}"),
+            StepName::Duplicate { element } => write!(f, "Duplicate <{element}>"),
+            StepName::MoveUp { element } => write!(f, "Move <{element}> up"),
+            StepName::MoveDown { element } => write!(f, "Move <{element}> down"),
+            StepName::Other(name) => f.write_str(name),
+        }
+    }
+}
+
+impl std::fmt::Display for DeletedNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeletedNode::Element(name) => write!(f, "<{name}>"),
+            DeletedNode::Comment => f.write_str("comment"),
+            DeletedNode::ProcessingInstruction => f.write_str("processing instruction"),
+            DeletedNode::CData => f.write_str("CDATA"),
+            DeletedNode::Text => f.write_str("text"),
+        }
     }
 }
 
@@ -286,7 +386,7 @@ impl History {
 
     /// Undoes the last edit. Returns its label and where the change landed; `None` when there
     /// is nothing to undo.
-    pub fn undo(&mut self, src: &mut Vec<u8>) -> Option<(String, Option<Splice>)> {
+    pub fn undo(&mut self, src: &mut Vec<u8>) -> Option<(StepName, Option<Splice>)> {
         let step = self.undo.pop()?;
         let label = step.label.clone();
         let reverse = run(src, step);
@@ -298,7 +398,7 @@ impl History {
     }
 
     /// Redoes the last undone edit. Returns what [`History::undo`] returns.
-    pub fn redo(&mut self, src: &mut Vec<u8>) -> Option<(String, Option<Splice>)> {
+    pub fn redo(&mut self, src: &mut Vec<u8>) -> Option<(StepName, Option<Splice>)> {
         let step = self.redo.pop()?;
         let label = step.label.clone();
         let reverse = run(src, step);
@@ -327,13 +427,13 @@ impl History {
     }
 
     /// What Edit > Undo would undo.
-    pub fn undo_label(&self) -> Option<&str> {
-        self.undo.last().map(|s| s.label.as_str())
+    pub fn undo_label(&self) -> Option<&StepName> {
+        self.undo.last().map(|s| &s.label)
     }
 
     /// What Edit > Redo would redo.
-    pub fn redo_label(&self) -> Option<&str> {
-        self.redo.last().map(|s| s.label.as_str())
+    pub fn redo_label(&self) -> Option<&StepName> {
+        self.redo.last().map(|s| &s.label)
     }
 
     /// Whether the document differs from the file it was opened from or last saved to.
@@ -405,7 +505,7 @@ fn run(src: &mut Vec<u8>, step: Step) -> Step {
 
 /// Replaces each range of `src` (sorted, not overlapping) with its bytes and returns the step
 /// that puts the old bytes back.
-fn replace(src: &mut Vec<u8>, changes: Vec<(Range<usize>, Vec<u8>)>, label: String) -> Step {
+fn replace(src: &mut Vec<u8>, changes: Vec<(Range<usize>, Vec<u8>)>, label: StepName) -> Step {
     let mut reverse = Vec::with_capacity(changes.len());
     match changes.len() {
         1 if changes[0].0 == (0..src.len()) => {
@@ -519,13 +619,16 @@ mod tests {
     fn undo_and_redo_restore_every_byte() {
         let mut src = SRC.to_vec();
         let mut h = History::new();
-        h.apply(&mut src, Edit::new("Rename").replace(at(b"<a"), "<item"))
-            .unwrap();
+        h.apply(
+            &mut src,
+            Edit::new(StepName::Other("Rename".into())).replace(at(b"<a"), "<item"),
+        )
+        .unwrap();
         assert!(src.windows(5).any(|w| w == b"<item"));
-        assert_eq!(h.undo_label(), Some("Rename"));
+        assert_eq!(h.undo_label(), Some(&StepName::Other("Rename".into())));
         // The undo reports where its one change landed, for the index (D9).
         let (label, splice) = h.undo(&mut src).unwrap();
-        assert_eq!(label, "Rename");
+        assert_eq!(label, StepName::Other("Rename".into()));
         assert_eq!(
             splice,
             Some(Splice {
@@ -535,9 +638,12 @@ mod tests {
             })
         );
         assert_eq!(src, SRC);
-        assert_eq!(h.redo_label(), Some("Rename"));
+        assert_eq!(h.redo_label(), Some(&StepName::Other("Rename".into())));
         h.redo(&mut src);
-        assert_eq!(h.undo(&mut src).map(|(l, _)| l).as_deref(), Some("Rename"));
+        assert_eq!(
+            h.undo(&mut src).map(|(l, _)| l),
+            Some(StepName::Other("Rename".into()))
+        );
         assert_eq!(src, SRC);
         assert_eq!(h.undo(&mut src), None);
     }
@@ -547,7 +653,7 @@ mod tests {
     fn many_changes_are_one_step() {
         let mut src = SRC.to_vec();
         let mut h = History::new();
-        let edit = Edit::new("Rename a")
+        let edit = Edit::new(StepName::Other("Rename a".into()))
             .replace(at(b"</a>"), "</bb>")
             .replace(at(b"<a"), "<bb")
             .replace(at(b"\xE4"), "\u{e4}x");
@@ -586,7 +692,7 @@ mod tests {
 
             let mut src = base.clone();
             let mut h = History::new();
-            let mut edit = Edit::new("many");
+            let mut edit = Edit::new(StepName::Other("many".into()));
             for (r, b) in ranges.iter().rev() {
                 edit = edit.replace(r.clone(), b.clone());
             }
@@ -621,8 +727,11 @@ mod tests {
     fn whole_document_moves_into_the_history() {
         let mut src = SRC.to_vec();
         let mut h = History::new();
-        h.apply(&mut src, Edit::whole("Format", SRC.len(), b"<r/>".to_vec()))
-            .unwrap();
+        h.apply(
+            &mut src,
+            Edit::whole(StepName::Format, SRC.len(), b"<r/>".to_vec()),
+        )
+        .unwrap();
         assert_eq!(src, b"<r/>");
         assert_eq!(h.bytes(), SRC.len());
         h.undo(&mut src);
@@ -636,7 +745,10 @@ mod tests {
         let mut h = History::new();
         let len = SRC.len();
         assert_eq!(
-            h.apply(&mut src, Edit::new("x").replace(len - 1..len + 1, "y")),
+            h.apply(
+                &mut src,
+                Edit::new(StepName::Other("x".into())).replace(len - 1..len + 1, "y")
+            ),
             Err(EditError::OutOfRange {
                 start: len - 1,
                 end: len + 1,
@@ -646,12 +758,17 @@ mod tests {
         assert_eq!(
             h.apply(
                 &mut src,
-                Edit::new("x").replace(5..9, "y").replace(8..10, "z")
+                Edit::new(StepName::Other("x".into()))
+                    .replace(5..9, "y")
+                    .replace(8..10, "z")
             ),
             Err(EditError::Overlap(8))
         );
         assert_eq!(
-            h.apply(&mut src, Edit::new("x").replace(at(b"<r>"), "<r>")),
+            h.apply(
+                &mut src,
+                Edit::new(StepName::Other("x".into())).replace(at(b"<r>"), "<r>")
+            ),
             Err(EditError::Empty)
         );
         assert_eq!(src, SRC);
@@ -664,7 +781,11 @@ mod tests {
         let mut src = SRC.to_vec();
         let mut h = History::new();
         assert!(!h.is_modified());
-        h.apply(&mut src, Edit::new("1").replace(0..3, "")).unwrap();
+        h.apply(
+            &mut src,
+            Edit::new(StepName::Other("1".into())).replace(0..3, ""),
+        )
+        .unwrap();
         assert!(h.is_modified());
         h.undo(&mut src);
         assert!(!h.is_modified(), "back where the file was");
@@ -674,11 +795,14 @@ mod tests {
         h.undo(&mut src);
         assert!(h.is_modified(), "the file has the edit");
         // A new edit drops the redo step that led to the saved state.
-        h.apply(&mut src, Edit::new("2").replace(0..1, "x"))
-            .unwrap();
+        h.apply(
+            &mut src,
+            Edit::new(StepName::Other("2".into())).replace(0..1, "x"),
+        )
+        .unwrap();
         h.undo(&mut src);
         assert!(h.is_modified());
-        assert_eq!(h.redo_label(), Some("2"));
+        assert_eq!(h.redo_label(), Some(&StepName::Other("2".into())));
     }
 
     #[test]
@@ -689,18 +813,24 @@ mod tests {
             let len = src.len();
             h.apply(
                 &mut src,
-                Edit::whole(format!("{i}"), len, vec![b'b' + i; 100]),
+                Edit::whole(StepName::Other(format!("{i}")), len, vec![b'b' + i; 100]),
             )
             .unwrap();
         }
         assert_eq!(h.bytes(), 100);
-        assert_eq!(h.undo(&mut src).map(|(l, _)| l).as_deref(), Some("2"));
+        assert_eq!(
+            h.undo(&mut src).map(|(l, _)| l),
+            Some(StepName::Other("2".into()))
+        );
         assert_eq!(h.undo(&mut src), None);
         assert!(h.is_modified(), "the saved state was dropped");
         // A step larger than the limit is still kept.
         let mut h = History::with_limit(10);
-        h.apply(&mut src, Edit::whole("big", 100, vec![b'z'; 100]))
-            .unwrap();
-        assert_eq!(h.undo_label(), Some("big"));
+        h.apply(
+            &mut src,
+            Edit::whole(StepName::Other("big".into()), 100, vec![b'z'; 100]),
+        )
+        .unwrap();
+        assert_eq!(h.undo_label(), Some(&StepName::Other("big".into())));
     }
 }

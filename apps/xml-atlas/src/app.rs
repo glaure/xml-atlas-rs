@@ -11,7 +11,7 @@ use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::xml::{NodeId, NodeKind, ROOT};
 use xml_atlas_engine::{
     DiskChange, Document, Edit, EditError, FormatError, FormatOptions, REPARSE_INLINE_BYTES,
-    Reparsed, SaveError, Unencodable,
+    Reparsed, SaveError, StepName, Unencodable,
 };
 
 use crate::disk_watch::DiskWatch;
@@ -1048,10 +1048,11 @@ impl App {
         let chosen = open.doc.format_options(self.settings.format);
         let lang = self.lang();
         self.replace_with(
-            "Format",
+            StepName::Format,
             open.doc.format(&chosen.options),
             |options| {
-                let done = lang.status_formatted(&options.to_string());
+                let summary = crate::engine_words::format_summary(lang, &options);
+                let done = lang.status_formatted(&summary);
                 if chosen.from_document.is_empty() {
                     done
                 } else {
@@ -1088,7 +1089,7 @@ impl App {
         let result = open.doc.compact(&options);
         let lang = self.lang();
         self.replace_with(
-            "Compact",
+            StepName::Compact,
             result,
             |o| {
                 let mut s = lang.status_compacted().to_string();
@@ -1108,7 +1109,7 @@ impl App {
     /// `label` (FMT-9).
     fn replace_with(
         &mut self,
-        label: &str,
+        step: StepName,
         result: Result<Vec<u8>, FormatError>,
         notice: impl FnOnce(FormatOptions) -> String,
         options: FormatOptions,
@@ -1119,12 +1120,15 @@ impl App {
         };
         match result {
             Ok(out) => {
-                let edit = Edit::whole(label, open.doc.src.len(), out);
+                let edit = Edit::whole(step.clone(), open.doc.src.len(), out);
                 match open.edit(|doc| doc.apply(edit).map(|()| true)) {
                     Ok(_) => self.notice = Some(Note::info(notice(options))),
                     // Already formatted: the edit changes nothing.
                     Err(EditError::Empty) => self.notice = Some(Note::info(notice(options))),
-                    Err(e) => self.message = Some(lang.status_cannot_step(label, &e.to_string())),
+                    Err(e) => {
+                        let step = crate::engine_words::step_name(lang, &step);
+                        self.message = Some(lang.status_cannot_step(&step, &e.to_string()));
+                    }
                 }
             }
             Err(e) => self.message = Some(lang.status_cannot_format(&e.to_string())),
@@ -1143,7 +1147,10 @@ impl App {
             Ok(label.is_some())
         }) {
             open.cursor_to_change();
-            self.notice = label.map(|l| Note::info(lang.status_undid(&l)));
+            self.notice = label.map(|step| {
+                let step = crate::engine_words::step_name(lang, &step);
+                Note::info(lang.status_undid(&step))
+            });
         }
     }
 
@@ -1159,7 +1166,10 @@ impl App {
             Ok(label.is_some())
         }) {
             open.cursor_to_change();
-            self.notice = label.map(|l| Note::info(lang.status_redid(&l)));
+            self.notice = label.map(|step| {
+                let step = crate::engine_words::step_name(lang, &step);
+                Note::info(lang.status_redid(&step))
+            });
         }
     }
 
@@ -2258,7 +2268,7 @@ impl Open {
                 return;
             }
         };
-        let label = edit.label().to_string();
+        let label = crate::engine_words::step_name(lang, edit.label());
         self.note = Some(
             match self.edit_with(|doc| doc.apply(edit).map(|()| true), &shift) {
                 Ok(_) => Note::info(label),
@@ -2737,8 +2747,12 @@ mod tests {
         assert!(open.wraps(false));
         let out = open.doc.format(&FormatOptions::default()).unwrap();
         open.edit(|doc| {
-            doc.apply(Edit::whole("Format", doc.src.len(), out))
-                .map(|()| true)
+            doc.apply(Edit::whole(
+                xml_atlas_engine::StepName::Format,
+                doc.src.len(),
+                out,
+            ))
+            .map(|()| true)
         })
         .unwrap();
         open.formatted();
@@ -3004,8 +3018,10 @@ mod tests {
         assert!(open.references.is_none() && open.problems.is_empty());
         assert!(open.reference_preview.is_none());
         let at = src.find("</Doc>").unwrap();
-        open.type_edit(Edit::new("Type").replace(at..at, " "))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(at..at, " "),
+        )
+        .unwrap();
         assert!(open.references_due.is_none() && open.problems.is_empty());
         open.settle();
         assert!(open.problems.is_empty());
@@ -3066,7 +3082,9 @@ mod tests {
         app.docs
             .active_mut()
             .unwrap()
-            .type_edit(Edit::new("Type").replace(0..0, " "))
+            .type_edit(
+                Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(0..0, " "),
+            )
             .unwrap();
         app.rules_files.edit(&rules);
         app.rules_files.set_editor_text("{ }");
@@ -3237,7 +3255,9 @@ mod tests {
         app.docs
             .active_mut()
             .unwrap()
-            .type_edit(Edit::new("Type").replace(3..3, " "))
+            .type_edit(
+                Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(3..3, " "),
+            )
             .unwrap();
         app.undo();
         app.redo();
@@ -3274,8 +3294,10 @@ mod tests {
         // The reason is the engine's, in English until its messages are translated.
         assert!(text.starts_with("Umbenennen nicht möglich: "), "{text}");
         let end = open.doc.src.len();
-        open.type_edit(Edit::new("Type").replace(end - 4..end, ""))
-            .unwrap();
+        open.type_edit(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(end - 4..end, ""),
+        )
+        .unwrap();
         open.command(What::Delete, |_| Ok(None), Shift::None);
         let text = note(&mut open);
         assert!(
@@ -3549,6 +3571,58 @@ mod tests {
                 crate::problems_panel::show(ui, app.docs.active_mut().unwrap());
             }),
             &["Probleme", "Fehler, 0 Warnungen", "Zeile "],
+        );
+    }
+
+    /// LANG-2 and LANG-5: what real commands, Undo and Redo say names the step in German,
+    /// the kept step follows a change of language, and the bytes do not depend on it.
+    #[test]
+    fn steps_are_named_in_the_windows_language() {
+        use crate::lang::LanguageChoice::{English, German};
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.settings = Settings {
+            language: German,
+            ..Default::default()
+        };
+        let src = "\u{feff}<r>\r\n  <Größe a=\"ü\">x</Größe>\r\n</r>\r\n";
+        app.add_document(Document::from_bytes(src.as_bytes().to_vec()));
+        let open = app.docs.active_mut().unwrap();
+        open.lang = Lang::De;
+        let element = xml_atlas_engine::command::resolve(&open.doc, "/r/Größe").unwrap();
+        open.command(
+            What::Rename,
+            |d| xml_atlas_engine::command::rename(d, element, "Länge").map(Some),
+            Shift::None,
+        );
+        let said = open.note.take().unwrap().text;
+        assert_eq!(said, "<Größe> in <Länge> umbenennen");
+        let renamed = open.doc.src.to_vec();
+
+        app.undo();
+        assert_eq!(
+            app.notice.as_ref().unwrap().text,
+            "Rückgängig gemacht: <Größe> in <Länge> umbenennen"
+        );
+        assert_eq!(*app.docs.active().unwrap().doc.src, src.as_bytes());
+        // The history keeps the step, not its words.
+        app.settings.language = English;
+        app.redo();
+        assert_eq!(
+            app.notice.as_ref().unwrap().text,
+            "Redid Rename <Größe> to <Länge>"
+        );
+        assert_eq!(*app.docs.active().unwrap().doc.src, renamed);
+
+        app.settings.language = German;
+        app.format_document();
+        let said = &app.notice.as_ref().unwrap().text;
+        assert!(said.starts_with("Formatiert: Einrückung "), "{said}");
+        app.undo();
+        assert_eq!(
+            app.notice.as_ref().unwrap().text,
+            "Rückgängig gemacht: Formatieren"
         );
     }
 }

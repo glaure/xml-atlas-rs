@@ -166,8 +166,11 @@ mod tests {
         assert_eq!(summary(&status), "check OK");
 
         let here = doc.src.windows(4).position(|w| w == b"src=").unwrap();
-        doc.apply(Edit::new("Type").replace(here..here + 3, "for"))
-            .unwrap();
+        doc.apply(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into()))
+                .replace(here..here + 3, "for"),
+        )
+        .unwrap();
         assert!(status.update(&text, &doc, start).is_some());
         assert_eq!(summary(&status), "check OK", "not while typing");
         doc.reparse();
@@ -198,11 +201,15 @@ mod tests {
         let mut doc = Document::from_bytes(src.as_bytes().to_vec());
         let at = src.find("</Größe>").unwrap();
         let open_part = "<![CDATA[hi";
-        doc.apply_typed(Edit::new("Type").replace(at..at, open_part))
-            .unwrap();
+        doc.apply_typed(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(at..at, open_part),
+        )
+        .unwrap();
         let end = at + open_part.len();
-        doc.apply_typed(Edit::new("Type").replace(end..end, "]]>"))
-            .unwrap();
+        doc.apply_typed(
+            Edit::new(xml_atlas_engine::StepName::Other("Type".into())).replace(end..end, "]]>"),
+        )
+        .unwrap();
         assert!(doc.stale().is_some());
         let mut status = RulesStatus::default();
         let text: Arc<str> = RULES.into();

@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use crate::edit::Typing;
 use crate::format::FormatOptions;
-use crate::{Document, Edit};
+use crate::{Document, Edit, StepName};
 
 /// A tab is shown as this many columns (TEXT-4).
 pub const TAB_WIDTH: usize = 4;
@@ -453,14 +453,14 @@ pub fn insert(doc: &Document, sel: Selection, text: &str) -> Option<TextEdit> {
         doc,
         sel,
         line_endings(doc, text),
-        "Typing",
+        StepName::Typing,
         Some(Typing::Insert),
     )
 }
 
 /// Paste (TEXT-18): as typing, but one undo step of its own.
 pub fn paste(doc: &Document, sel: Selection, text: &str) -> Option<TextEdit> {
-    replace(doc, sel, line_endings(doc, text), "Paste", None)
+    replace(doc, sel, line_endings(doc, text), StepName::Paste, None)
 }
 
 /// Cut (TEXT-18): the selected text for the clipboard, as [`selected_text`], and the edit
@@ -471,7 +471,7 @@ pub fn cut(doc: &Document, sel: Selection) -> Option<(String, TextEdit)> {
     }
     let range = sel.range();
     let at = range.start;
-    let edit = Edit::new("Cut").replace(range, Vec::new());
+    let edit = Edit::new(StepName::Cut).replace(range, Vec::new());
     let change = TextEdit {
         edit,
         selection: Selection::cursor(at),
@@ -490,7 +490,7 @@ pub fn newline(doc: &Document, sel: Selection) -> Option<TextEdit> {
         .count();
     let mut bytes = doc.newline().to_vec();
     bytes.extend_from_slice(&doc.src[start..start + indent]);
-    replace(doc, sel, bytes, "Typing", Some(Typing::Insert))
+    replace(doc, sel, bytes, StepName::Typing, Some(Typing::Insert))
 }
 
 /// Tab (TEXT-17): one indent as the Format options give it, a tab or spaces.
@@ -500,7 +500,7 @@ pub fn tab(doc: &Document, sel: Selection, options: &FormatOptions) -> Option<Te
     } else {
         vec![b' '; options.indent_size.max(1)]
     };
-    replace(doc, sel, bytes, "Typing", Some(Typing::Insert))
+    replace(doc, sel, bytes, StepName::Typing, Some(Typing::Insert))
 }
 
 /// Backspace (TEXT-17): the selection, or the character before the cursor; with `word`
@@ -552,7 +552,7 @@ fn replace(
     doc: &Document,
     sel: Selection,
     bytes: Vec<u8>,
-    label: &str,
+    label: StepName,
     typing: Option<Typing>,
 ) -> Option<TextEdit> {
     let range = sel.range();
@@ -576,7 +576,7 @@ fn remove(range: Range<usize>) -> Option<TextEdit> {
         return None;
     }
     let at = range.start;
-    let edit = Edit::new("Delete")
+    let edit = Edit::new(StepName::Delete)
         .replace(range, Vec::new())
         .typing(Typing::Delete);
     Some(TextEdit {
@@ -891,7 +891,7 @@ mod tests {
                 for c in text.chars() {
                     let bytes = c.to_string().into_bytes();
                     let n = bytes.len();
-                    let e = Edit::new("Typing")
+                    let e = Edit::new(crate::StepName::Typing)
                         .replace(pos..pos, bytes)
                         .typing(Typing::Insert);
                     h.apply_at(src, e, t).unwrap();
@@ -916,12 +916,12 @@ mod tests {
         let p = type_text(&mut src, &mut h, p, "cd", t0 + Duration::from_millis(1500));
         h.seal();
         type_text(&mut src, &mut h, p, "ef", t0 + Duration::from_millis(1600));
-        let del = Edit::new("Delete")
+        let del = Edit::new(crate::StepName::Delete)
             .replace(p + 1..p + 2, Vec::new())
             .typing(Typing::Delete);
         h.apply_at(&mut src, del, t0 + Duration::from_millis(1700))
             .unwrap();
-        let del = Edit::new("Delete")
+        let del = Edit::new(crate::StepName::Delete)
             .replace(p..p + 1, Vec::new())
             .typing(Typing::Delete);
         h.apply_at(&mut src, del, t0 + Duration::from_millis(1800))
@@ -1001,9 +1001,9 @@ mod tests {
             "pasted with CRLF"
         );
         apply(&mut d, |d| insert(d, sel, "b"));
-        assert_eq!(d.history.undo_label(), Some("Typing"));
+        assert_eq!(d.history.undo_label(), Some(&crate::StepName::Typing));
         d.undo();
-        assert_eq!(d.history.undo_label(), Some("Paste"));
+        assert_eq!(d.history.undo_label(), Some(&crate::StepName::Paste));
         d.undo();
         assert_eq!(&d.src[gr..gr + 3], b"aGr");
         d.undo();
@@ -1020,7 +1020,7 @@ mod tests {
         assert_eq!(text, "Grüße");
         assert_eq!(change.selection, Selection::cursor(gr));
         d.apply(change.edit).unwrap();
-        assert_eq!(d.history.undo_label(), Some("Cut"));
+        assert_eq!(d.history.undo_label(), Some(&crate::StepName::Cut));
         apply(&mut d, |d| paste(d, Selection::cursor(gr), &text));
         assert_eq!(*d.src, SRC);
         d.undo();
