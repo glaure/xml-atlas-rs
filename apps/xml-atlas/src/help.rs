@@ -8,6 +8,7 @@ use egui::text::LayoutJob;
 use egui::{FontId, RichText, TextFormat, Ui};
 
 use crate::about::About;
+use crate::lang::Lang;
 
 const GUIDE: &str = include_str!("../assets/help.md");
 
@@ -34,12 +35,13 @@ enum Block {
 }
 
 /// Draws the guide while it is open; [`About`] shows itself.
-pub fn show(ctx: &egui::Context, help: &mut Help) {
+pub fn show(ctx: &egui::Context, help: &mut Help, lang: Lang) {
     // Never larger than the program's window, so the guide wraps at the window's width and
     // scrolls, however many displays the desktop spans (#178).
     let room = ctx.content_rect().size() - egui::vec2(MARGIN, MARGIN);
     let size = egui::vec2(GUIDE_SIZE.x.min(room.x), GUIDE_SIZE.y.min(room.y));
-    egui::Window::new("XML Atlas Help")
+    // The guide itself is English until it is translated (LANG-16).
+    egui::Window::new(lang.menu_help_guide())
         .id(guide_id())
         .open(&mut help.guide)
         .default_size(size)
@@ -192,7 +194,7 @@ mod tests {
                     screen_rect: Some(screen),
                     ..Default::default()
                 };
-                ctx.run_pass(input, |ctx| show(ctx, &mut help))
+                ctx.run_pass(input, |ctx| show(ctx, &mut help, Lang::En))
                     .drop_without_applying_deltas();
             }
             let rect = ctx

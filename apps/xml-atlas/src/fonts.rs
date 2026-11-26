@@ -16,6 +16,8 @@ use skrifa::MetadataProvider;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::string::StringId;
 
+use crate::lang::Lang;
+
 /// The text view's size when none is chosen, in points.
 pub const DEFAULT_SIZE: u8 = 13;
 
@@ -66,6 +68,22 @@ pub struct FontDialog {
     rx: Option<Receiver<Vec<Family>>>,
 }
 
+/// Why a font cannot be used.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FontError {
+    NotFound(String),
+    NotMonospaced(String),
+}
+
+impl FontError {
+    pub fn text(&self, lang: Lang) -> String {
+        match self {
+            FontError::NotFound(name) => lang.font_not_found(name),
+            FontError::NotMonospaced(name) => lang.font_not_monospaced(name),
+        }
+    }
+}
+
 /// What the dialog's buttons asked for.
 pub enum Answer {
     Use(TextFont),
@@ -88,12 +106,12 @@ impl Face {
         Self::ALL.into_iter().find(|f| f.name() == name)
     }
 
-    fn label(self) -> &'static str {
+    fn label(self, lang: Lang) -> &'static str {
         match self {
-            Face::Regular => "Regular",
-            Face::Bold => "Bold",
-            Face::Italic => "Italic",
-            Face::BoldItalic => "Bold Italic",
+            Face::Regular => lang.font_regular(),
+            Face::Bold => lang.font_bold(),
+            Face::Italic => lang.font_italic(),
+            Face::BoldItalic => lang.font_bold_italic(),
         }
     }
 
@@ -165,7 +183,7 @@ impl TextFont {
 /// Gives egui the chosen font, behind egui's own monospaced fonts for characters it lacks,
 /// and notes where it was found in `font.file`. A font that cannot be found or read leaves
 /// egui's fonts as they are and says why.
-pub fn apply(ctx: &egui::Context, font: &mut TextFont) -> Result<(), String> {
+pub fn apply(ctx: &egui::Context, font: &mut TextFont) -> Result<(), FontError> {
     let Some(name) = font.family.clone() else {
         ctx.set_fonts(FontDefinitions::default());
         font.file = None;
@@ -180,13 +198,13 @@ pub fn apply(ctx: &egui::Context, font: &mut TextFont) -> Result<(), String> {
         Some(found) => found,
         None => {
             let (data, index, path) =
-                load(&name, font.face).ok_or_else(|| format!("font {name} not found"))?;
+                load(&name, font.face).ok_or_else(|| FontError::NotFound(name.clone()))?;
             font.file = path.map(|p| (p, index));
             (data, index)
         }
     };
     if !is_monospace(&data, index) {
-        return Err(format!("font {name} is not monospaced"));
+        return Err(FontError::NotMonospaced(name));
     }
     let mut defs = FontDefinitions::default();
     let mut data = FontData::from_owned(data);
@@ -242,7 +260,7 @@ impl FontDialog {
     }
 
     /// Draws the dialog; returns what its buttons asked for.
-    pub fn show(&mut self, ctx: &egui::Context) -> Option<Answer> {
+    pub fn show(&mut self, ctx: &egui::Context, lang: Lang) -> Option<Answer> {
         if let Some(found) = self.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.families = Some(found);
             self.rx = None;
@@ -251,16 +269,18 @@ impl FontDialog {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         let mut answer = None;
-        egui::Window::new("Font")
+        egui::Window::new(lang.font_title())
+            // Its own id: the title changes with the language.
+            .id(egui::Id::unique("font-dialog"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label("The font of the text view. Only monospaced fonts are listed.");
+                ui.label(lang.font_intro());
                 ui.add_space(6.0);
-                self.family_choice(ui);
-                self.face_choice(ui);
+                self.family_choice(ui, lang);
+                self.face_choice(ui, lang);
                 ui.horizontal(|ui| {
-                    ui.label("Size");
+                    ui.label(lang.font_size());
                     ui.add(
                         egui::DragValue::new(&mut self.draft.size)
                             .range(SIZES)
@@ -269,20 +289,20 @@ impl FontDialog {
                     );
                 });
                 ui.add_space(6.0);
-                ui.label("Preview");
+                ui.label(lang.font_preview());
                 ui.label(
                     RichText::new("<order id=\"1\">Grüße &amp; 0O 1lI</order>")
                         .font(self.preview_font()),
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(lang.dialog_ok()).clicked() {
                         answer = Some(Answer::Use(self.draft.clone()));
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(lang.dialog_cancel()).clicked() {
                         answer = Some(Answer::Cancel);
                     }
-                    if ui.button("Default").clicked() {
+                    if ui.button(lang.font_default()).clicked() {
                         self.draft = TextFont::default();
                     }
                 });
@@ -290,20 +310,20 @@ impl FontDialog {
         answer
     }
 
-    fn family_choice(&mut self, ui: &mut Ui) {
+    fn family_choice(&mut self, ui: &mut Ui, lang: Lang) {
         let shown = self
             .draft
             .family
             .clone()
-            .unwrap_or_else(|| "Hack (built in)".into());
+            .unwrap_or_else(|| lang.font_built_in().into());
         ui.horizontal(|ui| {
-            ui.label("Font");
+            ui.label(lang.font_family());
             egui::ComboBox::from_id_salt("text-font-family")
                 .selected_text(shown)
                 .width(240.0)
                 .show_ui(ui, |ui| {
                     if ui
-                        .selectable_label(self.draft.family.is_none(), "Hack (built in)")
+                        .selectable_label(self.draft.family.is_none(), lang.font_built_in())
                         .clicked()
                     {
                         self.draft.family = None;
@@ -314,7 +334,7 @@ impl FontDialog {
                         None => {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label("Looking for fonts…");
+                                ui.label(lang.font_looking());
                             });
                         }
                         Some(families) => {
@@ -334,7 +354,7 @@ impl FontDialog {
         });
     }
 
-    fn face_choice(&mut self, ui: &mut Ui) {
+    fn face_choice(&mut self, ui: &mut Ui, lang: Lang) {
         let faces: Vec<Face> = match &self.draft.family {
             None => vec![Face::Regular],
             Some(name) => self
@@ -344,11 +364,11 @@ impl FontDialog {
                 .map_or_else(|| vec![self.draft.face], |f| f.faces.clone()),
         };
         ui.horizontal(|ui| {
-            ui.label("Style");
+            ui.label(lang.font_style());
             for face in Face::ALL {
                 ui.add_enabled_ui(faces.contains(&face), |ui| {
                     if ui
-                        .radio_value(&mut self.draft.face, face, face.label())
+                        .radio_value(&mut self.draft.face, face, face.label(lang))
                         .changed()
                     {
                         self.draft.file = None;

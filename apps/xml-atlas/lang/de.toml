@@ -419,3 +419,81 @@ install_why_differs = "Der Download weicht von den Angaben bei GitHub ab; nichts
 install_why_mark = "Die Datei kann nicht als heruntergeladen gekennzeichnet werden: {error}"
 install_why_open = "Das Installationsprogramm für {path} kann nicht geöffnet werden: {error}"
 install_why_start = "Der Download kann nicht gestartet werden: {error}"
+
+# What several dialogs share.
+dialog_ok = "OK"
+dialog_cancel = "Abbrechen"
+
+# The question about unsaved changes (OPEN-7).
+unsaved_title = "Nicht gespeicherte Änderungen"
+unsaved_question = "Änderungen an {name} speichern?"
+unsaved_the_document = "dem Dokument"
+unsaved_save = "Speichern"
+unsaved_discard = "Nicht speichern"
+
+# Saving what the file's encoding cannot hold (OPEN-8).
+encoding_title = "Speichern in dieser Kodierung nicht möglich"
+encoding_char = "{character} in Zeile {line}, Spalte {column} lässt sich in {encoding}, der Kodierung der Datei, nicht schreiben. Nichts wurde gespeichert."
+encoding_lossy = "Die Datei enthält Bytes, die in {encoding} ungültig sind. Sie werden als {mark} angezeigt und lassen sich nicht zurückschreiben. Nichts wurde gespeichert."
+encoding_note = "„Als UTF-8 speichern“ schreibt die Datei in UTF-8 und gibt das in ihrer Deklaration an."
+encoding_save_utf8 = "Als UTF-8 speichern"
+encoding_show = "Anzeigen"
+
+# Tools > Format options… (FMT-10 to FMT-13).
+format_title = "Formatierungsoptionen"
+format_overrides = "Der Einstellungskommentar dieser Datei hat Vorrang bei: {names}."
+format_defaults = "Standardwerte"
+
+# The font dialog (TEXT-25).
+font_title = "Schrift"
+font_intro = "Die Schrift der Textansicht. Aufgeführt sind nur Schriften mit fester Zeichenbreite."
+font_family = "Schriftart"
+font_built_in = "Hack (integriert)"
+font_looking = "Schriften werden gesucht…"
+font_style = "Stil"
+font_regular = "Normal"
+font_bold = "Fett"
+font_italic = "Kursiv"
+font_bold_italic = "Fett kursiv"
+font_size = "Größe"
+font_preview = "Vorschau"
+font_default = "Standard"
+font_not_found = "Schrift {name} nicht gefunden"
+font_not_monospaced = "Schrift {name} hat keine feste Zeichenbreite"
+
+# The names of file types, in the system's file dialogs.
+files_all = "Alle Dateien"
+files_svg = "SVG-Bild"
+
+# The rules editor (REF-15).
+editor_title = "Regeln bearbeiten"
+editor_save = "Speichern"
+editor_save_tip = "{key}, solange die Tastatureingaben in den Text gehen"
+editor_revert = "Zurücksetzen"
+editor_revert_tip = "Der zuletzt gespeicherte Text"
+editor_insert = "Einfügen"
+editor_close = "Schließen"
+editor_changed = "Die Datei wurde auf dem Datenträger geändert."
+editor_overwrite = "Überschreiben"
+editor_reload = "Neu laden und meine Änderungen verwerfen"
+editor_unsaved_title = "Nicht gespeicherte Regeln"
+editor_save_rules = "Regeln speichern"
+editor_checking = "Wird geprüft…"
+editor_errors = { one = "1 Fehler", other = "{count} Fehler" }
+editor_warnings = { one = "1 Warnung", other = "{count} Warnungen" }
+editor_summary = "{errors}, {warnings}"
+editor_count_large = "In diesem großen Dokument zählen"
+editor_count_large_tip = "Dann wartet jede Tipppause auf die Zählung"
+editor_finding = "Zeile {line}, Spalte {column}: {message}"
+editor_places = "Stellen im angezeigten Dokument:"
+editor_template_includes = "Einbindungen"
+editor_template_one_include = "Eine Einbindung"
+editor_template_attributes = "Attributverweise"
+editor_template_context_path = "Kontext nach Pfad"
+editor_template_context_nearest = "Kontext nach nächstem Element"
+editor_template_runtime = "Laufzeitkontexte"
+editor_template_variables = "Variablen"
+editor_template_repeat = "Wiederholung"
+editor_in_outer = "In den äußeren {{ }}"
+editor_in_includes = "In includes [ ]"
+editor_in_contexts = "In contexts {{ }}"

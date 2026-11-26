@@ -2,8 +2,8 @@
 
 The language of the window's texts: English and German now, French and Spanish later
 (`docs/decisions.md`, D45; issue #183). Step 2 of the order of work is built: German in the
-menus, the right-click menus, the toolbar and Settings; of step 3, the bars and the status
-bar. A rule that covers more than that stays `[planned]`.
+menus, the right-click menus, the toolbar and Settings; of step 3, the bars, the status
+bar and the dialogs. A rule that covers more than that stays `[planned]`.
 
 ## Rules
 
@@ -152,7 +152,12 @@ English texts.
       number or an edit is refused, undo step names, Format's summary of its settings, and why
       a reference finds nothing. Why GitHub's answer to the update check cannot be read is
       still English too.
-   2. Dialogs.
+   2. Dialogs: unsaved changes, saving in the file's encoding, *Format options*, *Font*, the
+      rules editor with its own question, the guide's title, and the file types the program
+      names in the system's file dialogs; also why a font cannot be used, which the first
+      part left in English. Built. A test draws each dialog in German and finds nothing cut
+      off. The engine's words in them stay English until step 4 (what the rules editor
+      finds and counts, why a file cannot be read or saved), and the guide until step 5.
    3. Panes and what is left: the problems list, notices above the views, the grid's and
       diagram's other texts, the SVG export.
 4. The engine's messages made into values the window can translate, a part at a time

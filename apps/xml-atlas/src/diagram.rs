@@ -365,7 +365,7 @@ pub fn show(ui: &mut Ui, open: &mut Open, lang: Lang) {
         d.layout = Some(layout);
     }
     if std::mem::take(&mut d.export) {
-        export(ui, open.doc.path.as_deref(), d);
+        export(ui, lang, open.doc.path.as_deref(), d);
     }
     // The marked box: the selected element's, found again when the selection changes.
     let selection = (open.selected, Arc::as_ptr(&open.doc.index) as usize);
@@ -612,7 +612,7 @@ fn update_hits(open: &mut Open, structure: &Arc<Structure>) {
 }
 
 /// Asks for a file name and writes the diagram as laid out, in the window's colours.
-fn export(ui: &Ui, document: Option<&std::path::Path>, d: &mut Diagram) {
+fn export(ui: &Ui, lang: Lang, document: Option<&std::path::Path>, d: &mut Diagram) {
     let Some(layout) = &d.layout else {
         return;
     };
@@ -637,7 +637,7 @@ fn export(ui: &Ui, document: Option<&std::path::Path>, d: &mut Diagram) {
         .and_then(|p| p.file_stem())
         .map_or("diagram".into(), |s| s.to_string_lossy().into_owned());
     let mut dialog = rfd::FileDialog::new()
-        .add_filter("SVG image", &["svg"])
+        .add_filter(lang.files_svg(), &["svg"])
         .set_file_name(format!("{stem}-structure.svg"));
     if let Some(dir) = document.and_then(|p| p.parent()) {
         dialog = dialog.set_directory(dir);

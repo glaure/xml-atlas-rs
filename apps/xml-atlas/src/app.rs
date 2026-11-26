@@ -418,7 +418,8 @@ impl App {
             disk_watch: DiskWatch::start(cc.egui_ctx.clone()),
         };
         if let Err(e) = crate::fonts::apply(&cc.egui_ctx, &mut app.settings.text_font) {
-            log::warn!("{e}; the text view uses the built-in font");
+            // Logs are in English (LANG-3).
+            log::warn!("{}; the text view uses the built-in font", e.text(Lang::En));
             app.settings.text_font.family = None;
         }
         for path in paths {
@@ -771,26 +772,27 @@ impl App {
             return;
         };
         let ctx = ui.ctx().clone();
+        let lang = self.lang();
         let name = self
             .docs
             .active()
             .and_then(|o| o.doc.path.as_deref())
             .map(file_name)
-            .unwrap_or_else(|| "the document".into());
+            .unwrap_or_else(|| lang.unsaved_the_document().into());
         let mut answer = None;
         let modal = egui::Modal::new(egui::Id::unique("save-changes")).show(&ctx, |ui| {
             ui.set_width(360.0);
-            ui.heading("Unsaved changes");
-            ui.label(format!("Save the changes to {name}?"));
+            ui.heading(lang.unsaved_title());
+            ui.label(lang.unsaved_question(&name));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
+                if ui.button(lang.unsaved_save()).clicked() {
                     answer = Some(Answer::Save);
                 }
-                if ui.button("Don't save").clicked() {
+                if ui.button(lang.unsaved_discard()).clicked() {
                     answer = Some(Answer::Discard);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(lang.dialog_cancel()).clicked() {
                     answer = Some(Answer::Cancel);
                 }
             });
@@ -830,6 +832,7 @@ impl App {
             self.unencodable = None;
             return;
         };
+        let lang = self.lang();
         let text = match &error {
             Unencodable::Char {
                 offset,
@@ -838,30 +841,28 @@ impl App {
             } => {
                 let line = open.doc.line_of(*offset as u64);
                 let column = xml_atlas_engine::text::column(&open.doc, *offset) + 1;
-                format!(
-                    "{ch} on line {}, column {column}, cannot be written in {encoding}, the \
-                     file's encoding. Nothing was saved.",
-                    line + 1
+                lang.encoding_char(
+                    &ch.to_string(),
+                    &(line + 1).to_string(),
+                    &column.to_string(),
+                    encoding,
                 )
             }
-            Unencodable::Lossy { encoding } => format!(
-                "The file has bytes that are not valid {encoding}; they are shown as \u{FFFD} \
-                 and cannot be written back. Nothing was saved."
-            ),
+            Unencodable::Lossy { encoding } => lang.encoding_lossy(encoding, "\u{FFFD}"),
         };
         let (mut show, mut utf8, mut cancel) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::unique("unencodable")).show(&ctx, |ui| {
             ui.set_width(420.0);
-            ui.heading("Cannot save in this encoding");
+            ui.heading(lang.encoding_title());
             ui.label(text);
-            ui.label("Save as UTF-8 writes the file in UTF-8, and its declaration says so.");
+            ui.label(lang.encoding_note());
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                utf8 = ui.button("Save as UTF-8").clicked();
+                utf8 = ui.button(lang.encoding_save_utf8()).clicked();
                 if matches!(error, Unencodable::Char { .. }) {
-                    show = ui.button("Show it").clicked();
+                    show = ui.button(lang.encoding_show()).clicked();
                 }
-                cancel = ui.button("Cancel").clicked();
+                cancel = ui.button(lang.dialog_cancel()).clicked();
             });
         });
         if utf8 {
@@ -1024,7 +1025,7 @@ impl App {
                     "xml", "xsd", "xsl", "xslt", "svg", "config", "csproj", "plist",
                 ],
             )
-            .add_filter("All files", &["*"]);
+            .add_filter(self.lang().files_all(), &["*"]);
         if let Some(paths) = dialog.pick_files() {
             for path in paths {
                 self.open_file(ctx, path);
@@ -1172,28 +1173,25 @@ impl App {
         let mut close = None;
         let modal = egui::Modal::new(egui::Id::unique("format-options")).show(ctx, |ui| {
             ui.set_width(380.0);
-            ui.heading("Format options");
+            ui.heading(lang.format_title());
             ui.add_space(6.0);
             crate::settings_window::format_options(ui, lang, &mut edit);
             if !overrides.is_empty() {
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new(format!(
-                        "This file's settings comment overrides: {}.",
-                        overrides.join(", ")
-                    ))
-                    .color(ui.visuals().warn_fg_color),
+                    RichText::new(lang.format_overrides(&overrides.join(", ")))
+                        .color(ui.visuals().warn_fg_color),
                 );
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
+                if ui.button(lang.dialog_ok()).clicked() {
                     close = Some(true);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(lang.dialog_cancel()).clicked() {
                     close = Some(false);
                 }
-                if ui.button("Defaults").clicked() {
+                if ui.button(lang.format_defaults()).clicked() {
                     edit = FormatOptions::default();
                 }
             });
@@ -1414,7 +1412,8 @@ impl App {
             match crate::fonts::apply(ctx, &mut font) {
                 Ok(()) => self.settings.text_font = font,
                 Err(e) => {
-                    self.message = Some(self.lang().status_cannot_font(&e.to_string()));
+                    let lang = self.lang();
+                    self.message = Some(lang.status_cannot_font(&e.text(lang)));
                     self.settings.text_font = before.text_font;
                 }
             }
@@ -1478,10 +1477,11 @@ impl App {
 
     /// View > Font… (TEXT-25): the text view takes the font chosen with OK.
     fn font_dialog(&mut self, ctx: &egui::Context) {
+        let lang = self.lang();
         let Some(dialog) = &mut self.font_dialog else {
             return;
         };
-        match dialog.show(ctx) {
+        match dialog.show(ctx, lang) {
             None => {}
             Some(crate::fonts::Answer::Cancel) => self.font_dialog = None,
             Some(crate::fonts::Answer::Use(mut font)) => {
@@ -1489,8 +1489,7 @@ impl App {
                 match crate::fonts::apply(ctx, &mut font) {
                     Ok(()) => self.settings.text_font = font,
                     Err(e) => {
-                        let message = self.lang().status_cannot_font(&e.to_string());
-                        self.message = Some(message);
+                        self.message = Some(lang.status_cannot_font(&e.text(lang)));
                     }
                 }
             }
@@ -1841,7 +1840,7 @@ impl eframe::App for App {
         if keys::consume(&ctx, &keys::HELP) {
             self.help.guide = true;
         }
-        crate::help::show(&ctx, &mut self.help);
+        crate::help::show(&ctx, &mut self.help, lang);
         let checking = self.updates.running();
         if let Some(crate::about::Request::CheckForUpdates) =
             self.help.about.show(&ctx, lang, checking)
@@ -3285,5 +3284,180 @@ mod tests {
             text.starts_with("Löschen nicht möglich: das Dokument ist nicht wohlgeformt ("),
             "{text}"
         );
+    }
+
+    /// Draws what `show` draws until it has its size, in the program's own window size, and
+    /// checks that nothing is cut off or lies over another text. Gives the texts. With
+    /// `front`, the title of a dialog that lies over another window, only that dialog's.
+    fn whole_in_the_window(
+        app: &mut App,
+        front: Option<&str>,
+        show: fn(&mut App, &mut Ui),
+    ) -> Vec<String> {
+        let ctx = egui::Context::default();
+        ctx.set_os(egui::os::OperatingSystem::Nix);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 820.0));
+        let mut texts = Vec::new();
+        for _ in 0..6 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| show(app, ui));
+            out.textures_delta.clear();
+            texts = out
+                .shapes
+                .into_iter()
+                .filter_map(|s| match s.shape {
+                    egui::Shape::Text(t) => {
+                        let rect = t.galley.rect.translate(t.pos.to_vec2());
+                        Some((t.galley.text().to_owned(), rect, s.clip_rect))
+                    }
+                    _ => None,
+                })
+                .collect();
+        }
+        if let Some(title) = front {
+            // Drawn last, so its texts come after all of the other window's.
+            let first = texts.iter().position(|(t, ..)| t == title);
+            texts.drain(..first.unwrap_or_else(|| panic!("no {title}: {texts:?}")));
+        }
+        for (i, (text, rect, clip)) in texts.iter().enumerate() {
+            let shown = clip.intersect(screen).expand(1.0);
+            // Sideways: the rules editor's text and check scroll downwards.
+            assert!(
+                shown.left() <= rect.left() && rect.right() <= shown.right(),
+                "{text:?} is cut: {rect:?} in {shown:?}"
+            );
+            for (other, o, _) in &texts[i + 1..] {
+                let shared = rect.intersect(*o);
+                assert!(
+                    shared.width() <= 1.0 || shared.height() <= 1.0,
+                    "{text:?} lies over {other:?}"
+                );
+            }
+        }
+        texts.into_iter().map(|(text, ..)| text).collect()
+    }
+
+    /// LANG-1 and LANG-15: every dialog in German, each alone.
+    #[test]
+    fn the_dialogs_are_german_and_whole() {
+        let dir = std::env::temp_dir().join(format!("xml-atlas-dialogs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::new(&cc, Vec::new(), None);
+        app.settings = Settings {
+            language: crate::lang::LanguageChoice::German,
+            ..Default::default()
+        };
+        let src = "\u{feff}<r>\r\n  <a>Größe €</a>\r\n</r>\r\n";
+        let mut doc = Document::from_bytes(src.as_bytes().to_vec());
+        doc.path = Some(dir.join("Bestellungen-Größe-und-Lieferungen-2026.xml"));
+        app.add_document(doc);
+        let check = |texts: Vec<String>, wanted: &[&str]| {
+            for part in wanted {
+                assert!(texts.iter().any(|t| t.contains(part)), "{part}: {texts:?}");
+            }
+        };
+
+        app.confirm = Some(Action::Quit);
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.confirm_dialog(ui)),
+            &[
+                "Nicht gespeicherte Änderungen",
+                "Änderungen an Bestellungen-Größe",
+                "Speichern",
+                "Nicht speichern",
+                "Abbrechen",
+            ],
+        );
+        app.confirm = None;
+
+        let error = Unencodable::Char {
+            offset: src.find('€').unwrap(),
+            ch: '€',
+            encoding: "ISO-8859-1".into(),
+        };
+        app.unencodable = Some((dir.join("a.xml"), error));
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.encoding_dialog(ui)),
+            &[
+                "Speichern in dieser Kodierung nicht möglich",
+                "in Zeile 2",
+                "Als UTF-8 speichern",
+                "Anzeigen",
+                "Abbrechen",
+            ],
+        );
+        app.unencodable = Some((
+            dir.join("a.xml"),
+            Unencodable::Lossy {
+                encoding: "UTF-16".into(),
+            },
+        ));
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.encoding_dialog(ui)),
+            &["ungültig sind"],
+        );
+        app.unencodable = None;
+
+        app.format_dialog = Some(FormatOptions::default());
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                app.format_dialog(&ui.ctx().clone())
+            }),
+            &["Formatierungsoptionen", "OK", "Abbrechen", "Standardwerte"],
+        );
+        app.format_dialog = None;
+
+        app.font_dialog = Some(crate::fonts::FontDialog::new(&app.settings.text_font));
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| app.font_dialog(&ui.ctx().clone())),
+            &[
+                "Schriftart",
+                "Hack (integriert)",
+                "Fett kursiv",
+                "Größe",
+                "Vorschau",
+                "Standard",
+            ],
+        );
+        app.font_dialog = None;
+
+        let rules = dir.join("Größe.json");
+        std::fs::write(&rules, "{}").unwrap();
+        app.rules_files.edit(&rules);
+        app.rules_files.set_editor_text("{\"nein\": 1}");
+        // Changed behind its back, so that the editor offers what to do.
+        std::fs::write(&rules, "{ \"anders\": true }").unwrap();
+        app.rules_files.refresh();
+        check(
+            whole_in_the_window(&mut app, None, |app, ui| {
+                app.rules_editor(&ui.ctx().clone())
+            }),
+            &[
+                "Regeln bearbeiten",
+                "Speichern",
+                "Zurücksetzen",
+                "Einfügen",
+                "Schließen",
+                "Die Datei wurde auf dem Datenträger geändert.",
+                "Überschreiben",
+                "Neu laden und meine Änderungen verwerfen",
+                "Fehler",
+                "Zeile 1, Spalte",
+            ],
+        );
+        assert!(!app.rules_files.may_quit());
+        let title = "Nicht gespeicherte Regeln";
+        check(
+            whole_in_the_window(&mut app, Some(title), |app, ui| {
+                app.rules_editor(&ui.ctx().clone())
+            }),
+            &[title, "Regeln speichern", "Nicht speichern", "Abbrechen"],
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
