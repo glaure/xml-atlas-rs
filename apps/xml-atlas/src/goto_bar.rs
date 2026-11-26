@@ -1,4 +1,4 @@
-//! Edit > Go to line… (`docs/spec/text.md`, TEXT-27).
+//! Navigate > Go to line… (`docs/spec/text.md`, TEXT-27).
 //!
 //! Ctrl+G opens a one-field bar. Enter moves the text cursor to `12` or `12:5` (line and
 //! column, from 1) and gives the keyboard back to the text; Escape closes it. What the

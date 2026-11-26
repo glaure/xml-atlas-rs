@@ -23,7 +23,7 @@ Format makes the nesting visible without changing what the document means.
   element siblings, so this holds also when Remove comments took comments out.
 - **FMT-9** `[done]` Format and Compact can be undone and redone (EDIT-1). XML Marker cannot
   undo Indent (XM-57).
-- **FMT-10** `[done]` Indent size and tabs or spaces are settings (Edit > Format options).
+- **FMT-10** `[done]` Indent size and tabs or spaces are settings (Tools > Format options).
   The default is four spaces, as in XML Marker (XM-50). With tabs, each level is one tab. The
   status bar says which options Format used.
 - **FMT-11** `[done]` A setting "maximum attributes in a tag line", default 6, as in XML
@@ -32,7 +32,7 @@ Format makes the nesting visible without changing what the document means.
   attribute. Only the whitespace between attributes changes; names, values, quotes and the
   spacing around `=` stay as written (FMT-4). This applies to empty elements and to elements
   with text too (their content stays exact), but not inside `xml:space="preserve"` (FMT-3).
-- **FMT-12** `[done]` A setting "remove comments", off by default (Edit > Format options,
+- **FMT-12** `[done]` A setting "remove comments", off by default (Tools > Format options,
   `--remove-comments`). It removes comments where Format controls the layout: outside the root
   element and between elements. It keeps the settings comment (FMT-15), so the file still says
   how to format it, and comments inside mixed content or `xml:space="preserve"`, which are
@@ -42,7 +42,7 @@ Format makes the nesting visible without changing what the document means.
   `<t>  padded  </t>` becomes `<t>padded</t>`, an element of only whitespace becomes empty.
   Mixed content (`Hello <b>big</b> world`), CDATA and `xml:space="preserve"` are never
   trimmed: that would join words or change literal text. Entities stay as written.
-- **FMT-14** `[done]` Compact (Edit > Compact, `xml-atlas-cli compact`): the opposite of Format.
+- **FMT-14** `[done]` Compact (Tools > Compact, `xml-atlas-cli compact`): the opposite of Format.
   It leaves out the whitespace Format would add or change, so the document is one line,
   ending with one line break in the file's style. A start tag that spans lines is joined with
   one space between attributes. Everything FMT-2 to FMT-5 protect is kept. Remove comments

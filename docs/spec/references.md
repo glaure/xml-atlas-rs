@@ -79,7 +79,7 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   at the reference. Skipped references, those known only at run time and those whose `nearest`
   context has nothing around them (they resolve where they are imported) are not. After
   typing, the check waits for a pause (TEXT-22); after any other edit it runs at once.
-- **REF-5** `[built]` View > Preview with references resolved (under *Resolve references*,
+- **REF-5** `[built]` Tools > References > Preview with references resolved (under *Resolve references*,
   REF-12): a read-only pane beside the
   text shows the selected element as it reads with its references resolved. An import is
   replaced by the elements it finds, re-indented to where it stands, or by the value; an
@@ -111,7 +111,7 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   The choice applies to the preview and to F12, not to the problems list (REF-4), which
   still asks whether any section has it. It is kept per tab, follows edits as the selection
   does, and goes when its section is deleted.
-- **REF-10** `[built]` The preview as a tree: View > *Preview tree* (off by default,
+- **REF-10** `[built]` The preview as a tree: Tools > References > *Preview tree* (off by default,
   remembered, also in Settings > Views) shows a pane right of the preview, so the window
   reads main tree | text | preview text | preview tree. It is the preview's text indexed as
   a document of its own when the preview is made again, drawn with the main tree's rows,
@@ -139,7 +139,8 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   5.9 MiB file of the owner's: three elements of count 8 became copies 0 to 7, those of
   count 0 went, and no count attribute was left. The owner checked it in the window with
   their rules (2026-11-19).
-- **REF-12** `[built]` View > *Resolve references*, also in Settings > References, switches
+- **REF-12** `[built]` Tools > References > *Resolve references*, also in Settings >
+  References, switches
   references on and off for every tab; off by default and remembered (WIN-3). Off, no rules
   file is looked for, read or checked: no reference warnings (REF-4), no *Go to reference
   target* in the tree's menu, F12 says where to turn them on, and neither preview pane shows.
@@ -202,7 +203,7 @@ Resolved, `Box` reads `<Box N="8">` with `<P1/>` and `<P2/>` in place of the `In
   the preview names it and resolves. Switch it off: preview and warnings go, in every tab.
   A document beside which an `xml-atlas-references.json` lies gets no rules from it.
 - With a fresh settings file open a document that has rules: no reference warnings, no
-  preview, F12 says references are off. Turn on View > Resolve references: the warnings
+  preview, F12 says references are off. Turn on Tools > References > Resolve references: the warnings
   appear and F12 works; turn on the preview and its tree, then Resolve references off: both
   panes and the warnings go. On again: both panes are back.
 - A `Unit` with `General/Var` and two `Sub` sections whose `Var` differ: choosing

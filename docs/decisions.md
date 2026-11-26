@@ -1644,8 +1644,12 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
 - **Built, step 1:** aligned keys (WIN-13), Ctrl+Q and Ctrl+I with them as they move no
   entry; Grid and Diagram exclude each other (WIN-1); *Word wrap in this tab* and *Word wrap
   in every tab* (TEXT-13). One rule added to the proposal: switching the diagram off brings
-  back the grid it replaced, so that its key pressed twice changes nothing. Steps 2 and 3 are
-  not built.
+  back the grid it replaced, so that its key pressed twice changes nothing.
+- **Built, steps 2 and 3:** the six menus (WIN-14), in `apps/xml-atlas/src/app/menus.rs`.
+  Two entries are newer than the proposal: *Expand the tree on a click in the text* stands
+  with the tree's options in View, and Go to line, which was to come to Navigate later,
+  moved there from Edit, beside the bookmarks that were already there. Tested headless, with
+  clicks and arrow keys on the drawn menus.
 
 ## D38: The layout options, next to XML Marker 2.2's
 

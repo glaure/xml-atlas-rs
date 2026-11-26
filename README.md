@@ -39,7 +39,7 @@ Things to try:
    scroll bar to the end.
 2. Select an element with many children. The grid shows them as rows, with attributes and
    child elements as columns; click a header to sort, edit a cell, and the text follows.
-3. Edit > XPath: `//order[@status='shipped']`. The query is checked as you type and the
+3. Tools > XPath: `//order[@status='shipped']`. The query is checked as you type and the
    matches are a list to step through. Try `count(//order)`.
 4. Delete a closing tag. The file still opens up to the error and past it, with markers and
    a problems list.
@@ -70,7 +70,7 @@ Version 1.4, for Windows, Linux and macOS. What it does:
 - Several documents as tabs, recent files, light and dark theme, a notice when a file changes
   on disk.
 - Save is atomic: a crash while saving leaves the old file intact.
-- XPath 1.0 queries (Edit > XPath, and `xml-atlas-cli xpath`): checked as you type, the
+- XPath 1.0 queries (Tools > XPath, and `xml-atlas-cli xpath`): checked as you type, the
   nodes in a list to step through, or a count, sum or text; well under a second on a
   300 MiB file. Agents have them too.
 - A diagram of the document's structure (View > Diagram): one box per path of element
@@ -129,11 +129,11 @@ A file can point from one part to another with conventions of its own, such as
 `<Include src="Shared:Parts/*"/>`. A rules file says what is a reference
 (`docs/spec/references.md`). In File > Settings > References import one or make a new one,
 switch it on, fill in *Use for* with the documents it is for (`catalog*.xml`), and turn on
-Resolve references (off by default). Rules files are kept in the configuration folder; one
+Tools > References > Resolve references (off by default). Rules files are kept in the configuration folder; one
 lying beside an XML file is not used (until 1.2 it was: import it once). *Edit…* opens one
 with a check beside it. Then F12 goes to what the selected reference finds, the ones
-that find nothing are listed as problems, and View > Preview with references resolved shows
-the selected element with them resolved. The file is never changed.
+that find nothing are listed as problems, and Tools > References > Preview with references
+resolved shows the selected element with them resolved. The file is never changed.
 
 ```sh
 cargo run --release -p xml-atlas-cli -- references file.xml          # check them all

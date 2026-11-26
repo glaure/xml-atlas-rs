@@ -18,6 +18,18 @@ All three show the same document, and a change in one shows in the others.
 - A minified file, its elements on one long line, opens with word wrap on and a notice that
   offers to format it.
 
+## The menus
+
+- File: new, open, save, close, Settings and quit.
+- Edit: undo and redo, the clipboard, Find and Replace, and Element for Rename, Delete,
+  Duplicate and Move up and down.
+- View: the layout, which panes are shown, the tree's options, word wrap, the toolbar, the
+  font and the theme.
+- Navigate: drill up and down, go to a reference's target or to a line, switch tabs, and
+  bookmarks.
+- Tools: XPath, Format and Compact, and References.
+- An entry that does not apply is greyed out; resting the pointer on it says why.
+
 ## The toolbar
 
 Under the menu: New, Open, Save, Cut, Copy, Paste, Undo, Redo, Find, XPath, Drill Up, Drill Down,
@@ -31,7 +43,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 - Arrow keys move and expand; Home, End, Page Up and Page Down jump. Alt+Up and Alt+Down
   drill up to the parent and down into the selection.
 - Right-click an element for Rename (F2), Delete (Del), Duplicate (Ctrl+D), and Move up and
-  down (Alt+Shift+Up and Alt+Shift+Down).
+  down (Alt+Shift+Up and Alt+Shift+Down). Edit > Element has the same commands.
 
 ## The grid
 
@@ -70,7 +82,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 ## References
 
 - For files with references of their own, described in rules files. Off until you turn on
-  View > Resolve references.
+  Tools > References > Resolve references.
 - File > Settings > References lists the rules files. Import one or make a new one, switch it
   on and say in Use for which documents it is for: `catalog*.xml` by name, `*/XML/*catalog.xml`
   by path, `*` for every document. Of several for one document the upper one is used.
@@ -85,7 +97,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
   attribute that says where to; `contexts` gives the names before the colon a place.
 - Then F12 goes to what the selected reference finds, and references that find nothing are
   listed as problems.
-- View > Preview with references resolved shows the selected element resolved; Preview tree
+- Tools > References > Preview with references resolved shows the selected element resolved; Preview tree
   shows that as a tree. The file is never changed.
 
 ## Find and Replace
@@ -98,7 +110,7 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 
 ## XPath
 
-- Edit > XPath (Ctrl+Shift+X) opens a query bar for an XPath 1.0 expression, such as
+- Tools > XPath (Ctrl+Shift+X) opens a query bar for an XPath 1.0 expression, such as
   `//order[@status='open']`, `count(//item)` or `//order[@id='42']/customer/name`. Enter
   runs it; the list button holds the expressions run before. In the empty field, Tab takes
   the example it shows. While you type, the bar says
@@ -113,10 +125,10 @@ Format and Diagram. Resting the pointer on a button names it. View > Toolbar hid
 
 ## Formatting
 
-- Edit > Format (Ctrl+I) indents the document; it changes only whitespace between tags. Text, mixed
-  content and `xml:space="preserve"` stay as they are.
-- Edit > Compact puts the document on one line.
-- Edit > Format options sets the indent, tabs, attributes per line, and whether to remove
+- Tools > Format (Ctrl+I) indents the document; it changes only whitespace between tags.
+  Text, mixed content and `xml:space="preserve"` stay as they are.
+- Tools > Compact puts the document on one line.
+- Tools > Format options sets the indent, tabs, attributes per line, and whether to remove
   comments and trim text.
 - Each of these is one undo step.
 
@@ -184,4 +196,4 @@ the download page opens instead.
 
 The layout, theme, view options, text font, format options and recent files are remembered in
 `xml-atlas/settings.toml` in the system's configuration folder. So are the sizes of the
-window and of the panes; View > Reset layout gives the panes their first sizes again.
+window and of the panes; View > Layout > Reset layout gives the panes their first sizes again.

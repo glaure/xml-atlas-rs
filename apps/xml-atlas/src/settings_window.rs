@@ -16,7 +16,7 @@ use crate::theme_preview::choice;
 
 /// Under the Views section.
 /// Under the Format section.
-const FORMAT_NOTE: &str = "Edit > Format options… changes the same settings. A file's own \
+const FORMAT_NOTE: &str = "Tools > Format options… changes the same settings. A file's own \
                            settings comment comes first.";
 
 /// Under the Updates section: what the check sends, and what it does not do.
@@ -127,6 +127,12 @@ impl Section {
 
 impl SettingsWindow {
     /// Whether the list of rules files is in view.
+    /// Opens the window on `section`, as Tools > References > Rules files… does.
+    pub fn show_section(&mut self, section: Section) {
+        self.open = true;
+        self.section = section;
+    }
+
     pub fn shows_references(&self) -> bool {
         self.open && self.section == Section::References
     }
@@ -182,7 +188,7 @@ impl SettingsWindow {
     }
 }
 
-/// The Format settings (FMT-10 to FMT-13), shared by Settings and Edit > Format options….
+/// The Format settings (FMT-10 to FMT-13), shared by Settings and Tools > Format options….
 pub fn format_options(ui: &mut Ui, edit: &mut FormatOptions) {
     egui::Grid::new("format-options-grid")
         .num_columns(2)

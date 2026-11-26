@@ -29,6 +29,9 @@ pub const OPEN: KeyboardShortcut = command(Key::O);
 pub const SAVE: KeyboardShortcut = command(Key::S);
 pub const SAVE_AS: KeyboardShortcut = command_shift(Key::S);
 pub const CLOSE: KeyboardShortcut = command(Key::W);
+/// Ctrl+Page Down and Ctrl+Page Up switch tabs too.
+pub const NEXT_TAB: KeyboardShortcut = command(Key::Tab);
+pub const PREVIOUS_TAB: KeyboardShortcut = command_shift(Key::Tab);
 pub const SETTINGS: KeyboardShortcut = command(Key::Comma);
 pub const QUIT: KeyboardShortcut = command(Key::Q);
 pub const UNDO: KeyboardShortcut = command(Key::Z);

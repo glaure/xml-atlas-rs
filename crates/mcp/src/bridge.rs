@@ -131,8 +131,8 @@ impl WindowClient {
     /// Connects to the window that wrote `file`.
     pub fn connect(file: &Path) -> Result<Self, String> {
         let no_window = || {
-            "no XML Atlas window lets agents in: open XML Atlas and turn on View > Allow AI \
-             agents (MCP)"
+            "no XML Atlas window lets agents in: open XML Atlas and turn on Allow AI \
+             agents (MCP) in File > Settings"
                 .to_string()
         };
         let text = std::fs::read_to_string(file).map_err(|_| no_window())?;

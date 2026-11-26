@@ -30,7 +30,7 @@ pub enum Tool {
     Undo,
     Redo,
     Find,
-    /// Edit > XPath… (XP-1).
+    /// Tools > XPath… (XP-1).
     XPath,
     DrillUp,
     DrillDown,

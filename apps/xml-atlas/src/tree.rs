@@ -727,7 +727,7 @@ fn is_reference(doc: &Document, rules: &Rules, row: Row) -> bool {
 }
 
 /// Whether element `id` has an element sibling before or after it, so it can move there.
-fn has_sibling(doc: &Document, id: NodeId, direction: Direction) -> bool {
+pub fn has_sibling(doc: &Document, id: NodeId, direction: Direction) -> bool {
     let idx = &doc.index;
     let is_element = |c: NodeId| idx.node(c).kind == NodeKind::Element;
     match direction {

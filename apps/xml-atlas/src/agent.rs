@@ -1,5 +1,5 @@
 //! Agents in the open window (`docs/decisions.md`, D28): the MCP tools of `xml-atlas-mcp` on
-//! the tabs, while View > Allow AI agents (MCP) is on.
+//! the tabs, while Settings > Allow AI agents (MCP) is on.
 //!
 //! The calls arrive through `xml_atlas_mcp::bridge` and run here between two frames, on the
 //! window's thread. A change goes through the tab's own edit path, as a menu command's does:
@@ -21,7 +21,7 @@ pub struct WindowDocs<'a> {
     pub next_id: &'a mut u64,
     /// View > Attributes in the tree, for a tab an agent opens.
     pub tree_attributes: bool,
-    /// The rules files while View > Resolve references is on (REF-12), for the same.
+    /// The rules files while Tools > References > Resolve references is on (REF-12), for the same.
     pub references: Option<Arc<Library>>,
 }
 
@@ -157,7 +157,7 @@ mod tests {
         let again = call(&mut w, "open", json!({"path": path})).unwrap();
         assert_eq!(again["document"], 2);
         assert_eq!(w.docs.iter().count(), 2);
-        // The agent's tab follows View > Resolve references (REF-12).
+        // The agent's tab follows Tools > References > Resolve references (REF-12).
         assert!(w.docs.active().unwrap().resolves_references());
 
         w.docs.select(0);

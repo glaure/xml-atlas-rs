@@ -386,7 +386,7 @@ fn mark(c: &mut Cached, row: Row) {
 pub fn go_to_target(open: &mut Open) {
     if !open.resolves_references() {
         open.note = Some(Note::refused(
-            "References are off: turn on View > Resolve references",
+            "References are off: turn on Tools > References > Resolve references",
         ));
         return;
     }

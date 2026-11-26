@@ -17,7 +17,6 @@ use xml_atlas_engine::{
 use crate::disk_watch::DiskWatch;
 use crate::installer::{self, Installer};
 use crate::keys;
-use crate::menu_keys::{MenuPick, choose, flip};
 use crate::settings::{Layout, LightStyle, Settings, ThemeChoice};
 use crate::sizes::Split;
 use crate::tabs::Tabs;
@@ -28,6 +27,8 @@ use xml_atlas_engine::grid::Grid;
 use xml_atlas_engine::problems::{Problem, Severity};
 use xml_atlas_engine::references::{self, Rules};
 use xml_atlas_engine::rules_folder::Library;
+
+mod menus;
 
 /// The rules a tab uses, with their file, or that file and why it cannot be used.
 pub type TabRules = Result<(PathBuf, Arc<Rules>), (PathBuf, String)>;
@@ -70,7 +71,7 @@ pub struct App {
     /// Alt tapped on its own opens the menu bar for the keyboard (#167).
     menu_keys: crate::menu_keys::MenuKeys,
     find: crate::find_bar::FindBar,
-    /// Edit > XPath… (D35).
+    /// Tools > XPath… (D35).
     xpath: crate::xpath_bar::XPathBar,
     goto: crate::goto_bar::GoToBar,
     /// Files being opened, in the order asked for.
@@ -91,7 +92,7 @@ pub struct App {
     update_notice: Option<Notice>,
     /// The newer version on its way to the system's installer (PKG-8, D43).
     installer: Installer,
-    /// Agents' calls, while View > Allow AI agents (MCP) is on (D28).
+    /// Agents' calls, while Settings > Allow AI agents (MCP) is on (D28).
     agent: Option<xml_atlas_mcp::bridge::Listener>,
     message: Option<String>,
     /// A note about the last command, shown in the status bar until the next one.
@@ -559,7 +560,7 @@ impl App {
             .then(|| self.rules_files.library().cloned().unwrap_or_default())
     }
 
-    /// Lets agents in while View > Allow AI agents (MCP) is on, and runs their calls on the
+    /// Lets agents in while Settings > Allow AI agents (MCP) is on, and runs their calls on the
     /// tabs (D28).
     fn serve_agents(&mut self, ctx: &egui::Context) {
         if self.settings.agents != self.agent.is_some() {
@@ -926,21 +927,23 @@ impl App {
 
     /// Ctrl+W closes the tab shown; Ctrl+Tab and Ctrl+Page Down show the next tab,
     /// Ctrl+Shift+Tab and Ctrl+Page Up the one before (OPEN-5).
+    /// The next tab, or the previous one.
+    fn switch_tab(&mut self, back: bool) {
+        self.docs.cycle(back);
+        self.notice = None;
+    }
+
     fn tab_shortcuts(&mut self, ctx: &egui::Context) {
-        let pressed = |modifiers, key| {
-            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
+        let pressed = |key| {
+            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, key)))
         };
-        let back = Modifiers::COMMAND | Modifiers::SHIFT;
+        // Back first: Ctrl+Tab would match Ctrl+Shift+Tab too.
         if keys::consume(ctx, &keys::CLOSE) {
             self.close_tab(ctx);
-        } else if pressed(back, Key::Tab) || pressed(Modifiers::COMMAND, Key::PageUp) {
-            self.docs.cycle(true);
-            self.notice = None;
-        } else if pressed(Modifiers::COMMAND, Key::Tab)
-            || pressed(Modifiers::COMMAND, Key::PageDown)
-        {
-            self.docs.cycle(false);
-            self.notice = None;
+        } else if keys::consume(ctx, &keys::PREVIOUS_TAB) || pressed(Key::PageUp) {
+            self.switch_tab(true);
+        } else if keys::consume(ctx, &keys::NEXT_TAB) || pressed(Key::PageDown) {
+            self.switch_tab(false);
         }
     }
 
@@ -1012,7 +1015,7 @@ impl App {
         }
     }
 
-    /// Edit > Compact (FMT-14): the document on one line.
+    /// Tools > Compact (FMT-14): the document on one line.
     fn compact_document(&mut self) {
         // Typing may have left the index behind the text: read it first (D19).
         if let Some(open) = self.docs.active_mut() {
@@ -1096,7 +1099,7 @@ impl App {
         }
     }
 
-    /// Edit > Format options: indent and attribute wrapping for this session.
+    /// Tools > Format options: indent and attribute wrapping for this session.
     fn format_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut edit) = self.format_dialog else {
             return;
@@ -1288,484 +1291,6 @@ impl App {
                 open.minified_notice = false;
             }
         });
-    }
-
-    /// File > Open Recent (OPEN-12): newest first, the file name with its folder beside it.
-    fn recent_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) -> bool {
-        let enabled = !self.settings.recent.is_empty();
-        let mut chosen = None;
-        let mut clear = false;
-        let mut submenu_open = false;
-        ui.add_enabled_ui(enabled, |ui| {
-            let button = ui.menu_button("Open Recent", |ui| {
-                for (i, path) in self.settings.recent.iter().enumerate() {
-                    let folder = path
-                        .parent()
-                        .map(|d| d.display().to_string())
-                        .unwrap_or_default();
-                    let name = RichText::new(format!("{}  {}", i + 1, file_name(path)));
-                    let folder = RichText::new(format!("   {}", shorten_left(&folder, 48))).weak();
-                    let button = ui
-                        .add(
-                            egui::Button::new((name, folder)).wrap_mode(egui::TextWrapMode::Extend),
-                        )
-                        .on_hover_text(path.display().to_string());
-                    if button.picked() {
-                        chosen = Some(path.clone());
-                    }
-                }
-                ui.separator();
-                if ui.button("Clear list").picked() {
-                    clear = true;
-                }
-            });
-            // Left and Right are the submenu's while it is open.
-            let id = egui::containers::menu::SubMenu::id_from_widget_id(button.response.id);
-            submenu_open = button.response.has_focus() || egui::Popup::is_id_open(ctx, id);
-        });
-        if let Some(path) = chosen {
-            ui.close();
-            self.open_file(ctx, path);
-        }
-        if clear {
-            ui.close();
-            self.settings.recent.clear();
-        }
-        submenu_open
-    }
-
-    fn menu(&mut self, ui: &mut Ui) {
-        let ctx = ui.ctx().clone();
-        // A menu does not stay open behind another window (#167).
-        if !ctx.input(|i| i.focused) {
-            egui::Popup::close_all(&ctx);
-        }
-        let mut in_submenu = false;
-        self.menu_keys.before(&ctx);
-        egui::MenuBar::new().ui(ui, |ui| {
-            let file = ui.menu_button("File", |ui| {
-                if ui
-                    .add(egui::Button::new("New").shortcut_text(keys::text(&ctx, &keys::NEW)))
-                    .picked()
-                {
-                    ui.close();
-                    self.new_document();
-                }
-                if ui
-                    .add(egui::Button::new("Open…").shortcut_text(keys::text(&ctx, &keys::OPEN)))
-                    .picked()
-                {
-                    ui.close();
-                    self.pick_file(&ctx);
-                }
-                in_submenu = self.recent_menu(ui, &ctx);
-                let can_save = self.docs.active().is_some_and(|o| o.doc.is_modified());
-                if ui
-                    .add_enabled(
-                        can_save,
-                        egui::Button::new("Save").shortcut_text(keys::text(&ctx, &keys::SAVE)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.save();
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Save As…")
-                            .shortcut_text(keys::text(&ctx, &keys::SAVE_AS)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.save_as();
-                }
-                if self
-                    .docs
-                    .active()
-                    .is_some_and(|o| o.doc.encoding().is_some())
-                    && ui.button("Save as UTF-8").picked()
-                {
-                    ui.close();
-                    self.save_as_utf8(None);
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Close").shortcut_text(keys::text(&ctx, &keys::CLOSE)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.close_tab(&ctx);
-                }
-                ui.separator();
-                if ui
-                    .add(
-                        egui::Button::new("Settings…")
-                            .shortcut_text(keys::text(&ctx, &keys::SETTINGS)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.settings_window.open = true;
-                }
-                ui.separator();
-                if ui
-                    .add(egui::Button::new("Quit").shortcut_text(keys::text(&ctx, &keys::QUIT)))
-                    .picked()
-                {
-                    ui.close();
-                    self.request(&ctx, Action::Quit);
-                }
-            });
-            let edit = ui.menu_button("Edit", |ui| {
-                let history = self.docs.active().map(|o| &o.doc.history);
-                let undo = history.and_then(|h| h.undo_label()).map(str::to_owned);
-                let redo = history.and_then(|h| h.redo_label()).map(str::to_owned);
-                let text = |what: &str, label: &Option<String>| match label {
-                    Some(l) => format!("{what} {l}"),
-                    None => what.to_owned(),
-                };
-                if ui
-                    .add_enabled(
-                        undo.is_some(),
-                        egui::Button::new(text("Undo", &undo))
-                            .shortcut_text(keys::text(&ctx, &keys::UNDO)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.undo();
-                }
-                if ui
-                    .add_enabled(
-                        redo.is_some(),
-                        egui::Button::new(text("Redo", &redo))
-                            .shortcut_text(keys::text(&ctx, &keys::REDO)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.redo();
-                }
-                ui.separator();
-                self.clipboard_menu(ui);
-                ui.separator();
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Find…")
-                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.find.open(self.docs.active_mut());
-                }
-                let selected = self.docs.active().is_some_and(|o| o.selected.is_some());
-                if ui
-                    .add_enabled(
-                        selected,
-                        egui::Button::new("Find in element…")
-                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN_WITHIN)),
-                    )
-                    .on_hover_text("Find only inside the element selected in tree or grid")
-                    .picked()
-                {
-                    ui.close();
-                    if let Some(open) = self.docs.active_mut() {
-                        self.find.open_within(open);
-                    }
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Go to line…")
-                            .shortcut_text(keys::text(&ctx, &crate::goto_bar::OPEN)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.goto.open();
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Replace…")
-                            .shortcut_text(keys::text(&ctx, &crate::find_bar::OPEN_REPLACE)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.find.open_replace();
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("XPath…")
-                            .shortcut_text(keys::text(&ctx, &crate::xpath_bar::OPEN)),
-                    )
-                    .on_hover_text("Select nodes with an XPath 1.0 expression")
-                    .picked()
-                {
-                    ui.close();
-                    self.xpath.open();
-                }
-                if ui
-                    .add_enabled(
-                        !self.docs.is_empty(),
-                        egui::Button::new("Format").shortcut_text(keys::text(&ctx, &keys::FORMAT)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.format_document();
-                }
-                if ui
-                    .add_enabled(!self.docs.is_empty(), egui::Button::new("Compact"))
-                    .picked()
-                {
-                    ui.close();
-                    self.compact_document();
-                }
-                if ui.button("Format options…").picked() {
-                    ui.close();
-                    self.format_dialog = Some(self.settings.format);
-                }
-            });
-            let view = ui.menu_button("View", |ui| {
-                ui.add_enabled_ui(!self.docs.is_empty(), |ui| {
-                    let mut show = self.docs.active().is_none_or(|o| o.tree.options.attributes);
-                    let check = ui.checkbox(&mut show, "Attributes in the tree");
-                    if check.changed() | flip(&check, &mut show) {
-                        // A view setting: for every tab.
-                        for open in self.docs.iter_mut() {
-                            open.tree.set_attributes(show);
-                        }
-                        self.settings.tree_attributes = show;
-                    }
-                    if ui.button("Collapse the tree").picked() {
-                        ui.close();
-                        if let Some(open) = self.docs.active_mut() {
-                            open.tree.collapse_all(&open.doc);
-                        }
-                    }
-                });
-                let mut grid = self.settings.grid;
-                let grid_check = ui
-                    .checkbox(&mut grid, "Grid")
-                    .on_hover_text("Hidden, the text and the reference preview take its place");
-                if grid_check.changed() | flip(&grid_check, &mut grid) {
-                    self.settings.show_grid(grid);
-                }
-                let mut diagram = self.settings.diagram;
-                let key = keys::text(ui.ctx(), &crate::diagram::TOGGLE);
-                let diagram_check = ui
-                    .add(egui::Checkbox::new(
-                        &mut diagram,
-                        ("Diagram", egui::Atom::grow(), RichText::new(key).weak()),
-                    ))
-                    .on_hover_text(
-                        "The structure of the document in the grid's place: one box per path \
-                         of element names, with how many there are (D36)",
-                    );
-                if diagram_check.changed() | flip(&diagram_check, &mut diagram) {
-                    self.settings.show_diagram(diagram);
-                }
-                let cell_pane = ui
-                    .add_enabled(
-                        self.settings.grid,
-                        egui::Checkbox::new(
-                            &mut self.settings.cell_pane,
-                            "Cell pane beside the grid (experiment)",
-                        ),
-                    )
-                    .on_disabled_hover_text("Show the grid first");
-                flip(&cell_pane, &mut self.settings.cell_pane);
-                let toolbar = ui.checkbox(&mut self.settings.toolbar, "Toolbar");
-                flip(&toolbar, &mut self.settings.toolbar);
-                let expand = ui
-                    .checkbox(
-                        &mut self.settings.expand_on_text_click,
-                        "Expand the tree on a click in the text",
-                    )
-                    .on_hover_text(
-                        "Off, a click in the text selects the closest element the tree shows \
-                         and opens nothing",
-                    );
-                flip(&expand, &mut self.settings.expand_on_text_click);
-                crate::ref_preview::switches(ui, &mut self.settings);
-                if ui.button("Font…").picked() {
-                    ui.close();
-                    self.font_dialog =
-                        Some(crate::fonts::FontDialog::new(&self.settings.text_font));
-                }
-                let setting = self.settings.word_wrap;
-                let mut wrap = self.docs.active().map_or(setting, |o| o.wraps(setting));
-                // A tab with a choice of its own (a minified file, TEXT-23) is named so:
-                // the entry then switches that tab alone.
-                let own = self.docs.active().is_some_and(|o| o.wrap.is_some());
-                let label = if own {
-                    "Word wrap in this tab"
-                } else {
-                    "Word wrap"
-                };
-                let key = keys::text(ui.ctx(), &keys::WORD_WRAP);
-                let wrap_check = ui.add(egui::Checkbox::new(
-                    &mut wrap,
-                    (label, egui::Atom::grow(), RichText::new(key).weak()),
-                ));
-                if wrap_check.changed() || wrap_check.released_over() {
-                    self.toggle_wrap();
-                }
-                ui.separator();
-                ui.label("Theme");
-                for (value, label) in [
-                    (ThemeChoice::System, "Follow system"),
-                    (ThemeChoice::Light, "Light"),
-                    (ThemeChoice::Dark, "Dark"),
-                ] {
-                    let radio = ui.radio_value(&mut self.settings.theme, value, label);
-                    choose(&radio, &mut self.settings.theme, value);
-                }
-                ui.separator();
-                ui.label("Layout");
-                for (value, label) in [
-                    (Layout::GridAbove, "Grid above text"),
-                    (Layout::TextAbove, "Text above grid (as in XML Marker)"),
-                ] {
-                    let radio = ui.radio_value(&mut self.settings.layout, value, label);
-                    choose(&radio, &mut self.settings.layout, value);
-                }
-                if ui
-                    .button("Reset layout")
-                    .on_hover_text("The panes' first sizes again")
-                    .picked()
-                {
-                    ui.close();
-                    self.settings.panes = Default::default();
-                }
-            });
-            let navigate = ui.menu_button("Navigate", |ui| self.navigate_menu(ui));
-            let help = ui.menu_button("Help", |ui| {
-                if ui
-                    .add(
-                        egui::Button::new("XML Atlas Help")
-                            .shortcut_text(keys::text(&ctx, &keys::HELP)),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.help.guide = true;
-                }
-                if ui
-                    .add_enabled(
-                        !self.updates.running(),
-                        egui::Button::new("Check for updates now"),
-                    )
-                    .picked()
-                {
-                    ui.close();
-                    self.check_for_updates_now(ui.ctx());
-                }
-                if ui.button("About XML Atlas").picked() {
-                    ui.close();
-                    self.help.about = true;
-                }
-            });
-            let bar = [
-                file.response,
-                edit.response,
-                view.response,
-                navigate.response,
-                help.response,
-            ];
-            self.menu_keys.bar(&ctx, &bar, in_submenu);
-        });
-    }
-
-    /// Navigate: the bookmarks (TREE-15).
-    fn navigate_menu(&mut self, ui: &mut Ui) {
-        let marks = self.docs.active().map_or(0, |o| o.doc.bookmarks.len());
-        let has_document = !self.docs.is_empty();
-        type Item<'a> = (&'a str, Option<KeyboardShortcut>, bool, fn(&mut Open));
-        let items: [Item; 4] = [
-            (
-                "Toggle Bookmark",
-                Some(crate::bookmarks::TOGGLE),
-                has_document,
-                crate::bookmarks::toggle,
-            ),
-            (
-                "Next Bookmark",
-                Some(crate::bookmarks::NEXT),
-                marks > 0,
-                |open| crate::bookmarks::step(open, true),
-            ),
-            (
-                "Last Bookmark",
-                Some(crate::bookmarks::PREVIOUS),
-                marks > 0,
-                |open| crate::bookmarks::step(open, false),
-            ),
-            (
-                "Clear all Bookmarks",
-                None,
-                marks > 0,
-                crate::bookmarks::clear,
-            ),
-        ];
-        for (label, shortcut, enabled, run) in items {
-            let mut button = egui::Button::new(label);
-            if let Some(shortcut) = shortcut {
-                button = button.shortcut_text(keys::text(ui.ctx(), &shortcut));
-            }
-            let button = ui.add_enabled(enabled, button);
-            if button.picked() {
-                ui.close();
-                if let Some(open) = self.docs.active_mut() {
-                    run(open);
-                }
-            }
-        }
-    }
-
-    /// Edit > Cut, Copy, Paste and Select All (TEXT-17, TEXT-18). They act in the text view:
-    /// it gets the keyboard back, and egui hands it the same events the keys make, on the
-    /// next frame.
-    fn clipboard_menu(&mut self, ui: &mut Ui) {
-        let sel = self.docs.active().and_then(|o| o.text_sel);
-        let selected = sel.is_some_and(|s| !s.is_empty());
-        let open = !self.docs.is_empty();
-        let items = [
-            (
-                ("Cut", keys::CUT),
-                selected,
-                Some(egui::ViewportCommand::RequestCut),
-            ),
-            (
-                ("Copy", keys::COPY),
-                selected,
-                Some(egui::ViewportCommand::RequestCopy),
-            ),
-            (
-                ("Paste", keys::PASTE),
-                open,
-                Some(egui::ViewportCommand::RequestPaste),
-            ),
-            (("Select All", keys::SELECT_ALL), open, None),
-        ];
-        for ((label, shortcut), enabled, command) in items {
-            let text = keys::text(ui.ctx(), &shortcut);
-            let button = egui::Button::new(label).shortcut_text(text);
-            if !ui.add_enabled(enabled, button).picked() {
-                continue;
-            }
-            ui.close();
-            self.clipboard(ui.ctx(), command);
-        }
     }
 
     /// Cut, Copy, Paste (`command`) or, without one, Select All, in the text view: it gets

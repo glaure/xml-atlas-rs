@@ -24,8 +24,8 @@ pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key
 pub const OPEN_WITHIN: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
 pub const OPEN_REPLACE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
-const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
-const PREVIOUS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::SHIFT, Key::F3);
+pub const NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F3);
+pub const PREVIOUS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::SHIFT, Key::F3);
 
 #[derive(Default)]
 pub struct FindBar {
@@ -103,6 +103,18 @@ impl FindBar {
         }
     }
 
+    /// Whether there is something to find.
+    pub fn has_query(&self) -> bool {
+        !self.query.is_empty()
+    }
+
+    /// Shows the bar and goes to the next match in `direction`: F3, Shift+F3 and their
+    /// entries in the Edit menu.
+    pub fn step(&mut self, open: &mut Open, direction: Direction) {
+        self.visible = true;
+        self.find(open, direction);
+    }
+
     /// Global shortcuts; call once per frame before the panels are drawn.
     pub fn shortcuts(&mut self, ctx: &egui::Context, open: Option<&mut Open>) {
         let Some(open) = open else {
@@ -125,11 +137,9 @@ impl FindBar {
         }
         // Shift+F3 first: the plain F3 shortcut would also match it.
         if ctx.input_mut(|i| i.consume_shortcut(&PREVIOUS)) {
-            self.visible = true;
-            self.find(open, Direction::Backward);
+            self.step(open, Direction::Backward);
         } else if ctx.input_mut(|i| i.consume_shortcut(&NEXT)) {
-            self.visible = true;
-            self.find(open, Direction::Forward);
+            self.step(open, Direction::Forward);
         }
     }
 
