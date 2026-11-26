@@ -2050,7 +2050,10 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   is kept as a value and worded when drawn: what a search said, why a query or a download
   failed. Found: in German the Find bar's row does not fit beside the tree in the program's
   own window size, so what a search says then goes under the bar.
-- **Next:** step 3, dialogs, then panes and the rest.
+- **Built, step 3, second part:** the dialogs. Why a font cannot be used is now a value,
+  worded when shown and in English in the log. The font window has an id of its own, as its
+  title changes with the language.
+- **Next:** step 3, panes and the rest.
 
 ## Open questions
 

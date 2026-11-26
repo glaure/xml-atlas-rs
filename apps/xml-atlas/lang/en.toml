@@ -419,3 +419,81 @@ install_why_differs = "The download differs from what GitHub lists for it; nothi
 install_why_mark = "Cannot mark the file as downloaded: {error}"
 install_why_open = "Cannot open the installer for {path}: {error}"
 install_why_start = "Cannot start the download: {error}"
+
+# What several dialogs share.
+dialog_ok = "OK"
+dialog_cancel = "Cancel"
+
+# The question about unsaved changes (OPEN-7).
+unsaved_title = "Unsaved changes"
+unsaved_question = "Save the changes to {name}?"
+unsaved_the_document = "the document"
+unsaved_save = "Save"
+unsaved_discard = "Don't save"
+
+# Saving what the file's encoding cannot hold (OPEN-8).
+encoding_title = "Cannot save in this encoding"
+encoding_char = "{character} on line {line}, column {column}, cannot be written in {encoding}, the file's encoding. Nothing was saved."
+encoding_lossy = "The file has bytes that are not valid {encoding}; they are shown as {mark} and cannot be written back. Nothing was saved."
+encoding_note = "Save as UTF-8 writes the file in UTF-8, and its declaration says so."
+encoding_save_utf8 = "Save as UTF-8"
+encoding_show = "Show it"
+
+# Tools > Format options… (FMT-10 to FMT-13).
+format_title = "Format options"
+format_overrides = "This file's settings comment overrides: {names}."
+format_defaults = "Defaults"
+
+# The font dialog (TEXT-25).
+font_title = "Font"
+font_intro = "The font of the text view. Only monospaced fonts are listed."
+font_family = "Font"
+font_built_in = "Hack (built in)"
+font_looking = "Looking for fonts…"
+font_style = "Style"
+font_regular = "Regular"
+font_bold = "Bold"
+font_italic = "Italic"
+font_bold_italic = "Bold Italic"
+font_size = "Size"
+font_preview = "Preview"
+font_default = "Default"
+font_not_found = "font {name} not found"
+font_not_monospaced = "font {name} is not monospaced"
+
+# The names of file types, in the system's file dialogs.
+files_all = "All files"
+files_svg = "SVG image"
+
+# The rules editor (REF-15).
+editor_title = "Edit rules"
+editor_save = "Save"
+editor_save_tip = "{key}, while the text has the keys"
+editor_revert = "Revert"
+editor_revert_tip = "The text as last saved"
+editor_insert = "Insert"
+editor_close = "Close"
+editor_changed = "The file changed on disk."
+editor_overwrite = "Overwrite"
+editor_reload = "Load it, losing my changes"
+editor_unsaved_title = "Unsaved rules"
+editor_save_rules = "Save rules"
+editor_checking = "Checking…"
+editor_errors = { one = "1 error", other = "{count} errors" }
+editor_warnings = { one = "1 warning", other = "{count} warnings" }
+editor_summary = "{errors}, {warnings}"
+editor_count_large = "Count in this large document"
+editor_count_large_tip = "Each pause in typing then waits for the count"
+editor_finding = "Line {line}, column {column}: {message}"
+editor_places = "Places in the document shown:"
+editor_template_includes = "Includes"
+editor_template_one_include = "One include"
+editor_template_attributes = "Attribute references"
+editor_template_context_path = "Context by path"
+editor_template_context_nearest = "Context by nearest element"
+editor_template_runtime = "Run-time contexts"
+editor_template_variables = "Variables"
+editor_template_repeat = "Repeat"
+editor_in_outer = "In the outer {{ }}"
+editor_in_includes = "In includes [ ]"
+editor_in_contexts = "In contexts {{ }}"

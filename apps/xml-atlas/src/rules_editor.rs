@@ -22,46 +22,49 @@ pub(crate) const COUNT_AT_MOST: usize = 16 * 1024 * 1024;
 /// Height of the check below the text.
 const CHECK_HEIGHT: f32 = 120.0;
 
+/// A text of the Insert menu, in the window's language.
+type Words = fn(Lang) -> &'static str;
+
 /// What Insert puts at the cursor: the menu's name, where it belongs, and the text.
-const TEMPLATES: [(&str, &str, &str); 8] = [
+const TEMPLATES: [(Words, Words, &str); 8] = [
     (
-        "Includes",
-        "In the outer { }",
+        Lang::editor_template_includes,
+        Lang::editor_in_outer,
         "\"includes\": [\n    {\"element\": \"Include\", \"attribute\": \"src\"}\n  ]",
     ),
     (
-        "One include",
-        "In includes [ ]",
+        Lang::editor_template_one_include,
+        Lang::editor_in_includes,
         "{\"element\": \"Include\", \"attribute\": \"src\"}",
     ),
     (
-        "Attribute references",
-        "In the outer { }",
+        Lang::editor_template_attributes,
+        Lang::editor_in_outer,
         "\"attribute_references\": {\"skip_names_with\": \"-Later\"}",
     ),
     (
-        "Context by path",
-        "In contexts { }",
+        Lang::editor_template_context_path,
+        Lang::editor_in_contexts,
         "\"Shared\": {\"path\": \"/Doc/Shared\"}",
     ),
     (
-        "Context by nearest element",
-        "In contexts { }",
+        Lang::editor_template_context_nearest,
+        Lang::editor_in_contexts,
         "\"Var\": {\"nearest\": \"Var\", \"up_to\": \"Unit\"}",
     ),
     (
-        "Run-time contexts",
-        "In the outer { }",
+        Lang::editor_template_runtime,
+        Lang::editor_in_outer,
         "\"runtime_contexts\": [\"Live\"]",
     ),
     (
-        "Variables",
-        "In the outer { }",
+        Lang::editor_template_variables,
+        Lang::editor_in_outer,
         "\"variables\": {\"$PARENT\": \"parent_name\"}",
     ),
     (
-        "Repeat",
-        "In the outer { }",
+        Lang::editor_template_repeat,
+        Lang::editor_in_outer,
         "\"repeat\": {\"count\": \"Count\", \"index\": [\"[Index]\"]}",
     ),
 ];
@@ -215,7 +218,7 @@ impl RulesEditor {
         let mut close = false;
         let screen = ctx.content_rect().size();
         let default = egui::vec2((screen.x - 80.0).min(720.0), (screen.y - 120.0).min(520.0));
-        egui::Window::new("Edit rules")
+        egui::Window::new(lang.editor_title())
             .id(window_id)
             .open(&mut open)
             .collapsible(false)
@@ -235,36 +238,37 @@ impl RulesEditor {
                 ui.horizontal(|ui| {
                     let can = f.is_modified() && !f.changed_on_disk;
                     save |= ui
-                        .add_enabled(can, egui::Button::new("Save"))
-                        .on_hover_text(format!(
-                            "{}, while the text has the keys",
-                            crate::keys::text(ui.ctx(), lang, &SAVE)
-                        ))
+                        .add_enabled(can, egui::Button::new(lang.editor_save()))
+                        .on_hover_text(lang.editor_save_tip(&crate::keys::text(
+                            ui.ctx(),
+                            lang,
+                            &SAVE,
+                        )))
                         .clicked();
                     if ui
-                        .add_enabled(f.is_modified(), egui::Button::new("Revert"))
-                        .on_hover_text("The text as last saved")
+                        .add_enabled(f.is_modified(), egui::Button::new(lang.editor_revert()))
+                        .on_hover_text(lang.editor_revert_tip())
                         .clicked()
                     {
                         f.text = f.disk.text().to_owned();
                         f.due = Some(Instant::now());
                     }
-                    ui.menu_button("Insert", |ui| {
+                    ui.menu_button(lang.editor_insert(), |ui| {
                         for (name, belongs, text) in TEMPLATES {
-                            if ui.button(name).on_hover_text(belongs).clicked() {
+                            if ui.button(name(lang)).on_hover_text(belongs(lang)).clicked() {
                                 ui.close();
                                 f.insert(ui.ctx(), text_id, text);
                             }
                         }
                     });
-                    close = ui.button("Close").clicked();
+                    close = ui.button(lang.editor_close()).clicked();
                 });
                 let red = ui.visuals().error_fg_color;
                 if f.changed_on_disk {
                     ui.horizontal(|ui| {
-                        ui.colored_label(red, "The file changed on disk.");
-                        overwrite = ui.button("Overwrite").clicked();
-                        reload = ui.button("Load it, losing my changes").clicked();
+                        ui.colored_label(red, lang.editor_changed());
+                        overwrite = ui.button(lang.editor_overwrite()).clicked();
+                        reload = ui.button(lang.editor_reload()).clicked();
                     });
                 }
                 if let Some(e) = &self.error {
@@ -274,7 +278,7 @@ impl RulesEditor {
                 let height = (ui.available_height() - CHECK_HEIGHT - 20.0).max(60.0);
                 f.editor(ui, text_id, height);
                 ui.separator();
-                f.findings(ui);
+                f.findings(ui, lang);
             });
 
         let mut written = false;
@@ -290,7 +294,7 @@ impl RulesEditor {
                 self.file = None;
             }
         }
-        written | self.ask(ctx)
+        written | self.ask(ctx, lang)
     }
 
     fn load(&mut self, path: &Path) {
@@ -333,7 +337,7 @@ impl RulesEditor {
     }
 
     /// "Save the changes?" while something waits for it. True when that wrote the file.
-    fn ask(&mut self, ctx: &egui::Context) -> bool {
+    fn ask(&mut self, ctx: &egui::Context, lang: Lang) -> bool {
         if self.leaving.is_none() {
             return false;
         }
@@ -347,14 +351,14 @@ impl RulesEditor {
             .into_owned();
         let modal = egui::Modal::new(Id::unique("save-rules")).show(ctx, |ui| {
             ui.set_width(360.0);
-            ui.heading("Unsaved rules");
-            ui.label(format!("Save the changes to {name}?"));
+            ui.heading(lang.editor_unsaved_title());
+            ui.label(lang.unsaved_question(&name));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 for (label, a) in [
-                    ("Save rules", Answer::Save),
-                    ("Don't save", Answer::Discard),
-                    ("Cancel", Answer::Cancel),
+                    (lang.editor_save_rules(), Answer::Save),
+                    (lang.unsaved_discard(), Answer::Discard),
+                    (lang.dialog_cancel(), Answer::Cancel),
                 ] {
                     if ui.button(label).clicked() {
                         answer = Some(a);
@@ -474,19 +478,22 @@ impl Editing {
             });
     }
 
-    fn findings(&mut self, ui: &mut Ui) {
+    fn findings(&mut self, ui: &mut Ui, lang: Lang) {
         let report = &self.report;
         let warnings = report.findings.len() - report.errors();
         let summary = if self.due.is_some() {
-            "Checking…".to_owned()
+            lang.editor_checking().to_owned()
         } else {
-            format!("{} error(s), {warnings} warning(s)", report.errors())
+            lang.editor_summary(
+                &lang.editor_errors(report.errors() as u64),
+                &lang.editor_warnings(warnings as u64),
+            )
         };
         ui.horizontal(|ui| {
             ui.label(RichText::new(summary).strong());
             if self.large {
-                ui.checkbox(&mut self.count_large, "Count in this large document")
-                    .on_hover_text("Each pause in typing then waits for the count");
+                ui.checkbox(&mut self.count_large, lang.editor_count_large())
+                    .on_hover_text(lang.editor_count_large_tip());
             }
         });
         let mut go = None;
@@ -500,13 +507,14 @@ impl Editing {
                         Severity::Error => ui.visuals().error_fg_color,
                         Severity::Warning => ui.visuals().warn_fg_color,
                     };
-                    let text = format!("Line {}, column {}: {}", f.line, f.column, f.message);
+                    let text =
+                        lang.editor_finding(&f.line.to_string(), &f.column.to_string(), &f.message);
                     if ui.link(RichText::new(text).color(colour)).clicked() {
                         go = Some((f.line, f.column));
                     }
                 }
                 if !report.counts.is_empty() {
-                    ui.label(RichText::new("Places in the document shown:").weak());
+                    ui.label(RichText::new(lang.editor_places()).weak());
                 }
                 for c in &report.counts {
                     let text = format!("{}: {}", c.rule, c.places);
