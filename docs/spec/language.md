@@ -187,7 +187,13 @@ English texts.
       stay (LANG-3). A test gets the errors from the engine and holds the window's English to
       its. Where the XPath bar has no room for why a query failed, it goes under the bar
       (LANG-15), as in the Find bar.
-   5. References and rules files.
+   5. References and rules files, in two parts:
+      1. Why a reference stands for nothing, in the problems list and when going to its
+         target. Built. The preview's comments stay English (LANG-3). A test gets every
+         reason from the engine and holds the window's English to its. With this, no
+         warning of the problems list is left in English.
+      2. Rules files: why one cannot be used, read or saved, and what the check finds and
+         counts.
 5. The German guide (LANG-16).
 
 ## Acceptance tests

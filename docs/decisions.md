@@ -2083,7 +2083,11 @@ TEXT-10, TEXT-16 to TEXT-22 in `docs/spec/text.md`.
   100 MB took about 4% longer; every step of an evaluation returns a result with room for
   the error. A test holds its size. Found: in German a run's reason could cover the bar's
   close button, so without room it goes under the bar.
-- **Next:** step 4, references and rules files.
+- **Built, step 4, fifth part, first half:** why a reference stands for nothing, as a
+  `references::Reason`, whose own words stay the CLI's, the MCP tools' and the preview
+  comments' English. The part is split in two because the rules files' messages are about
+  three times as many.
+- **Next:** step 4, the rules files' messages.
 
 ## Open questions
 

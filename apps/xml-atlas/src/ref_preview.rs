@@ -425,6 +425,7 @@ pub fn go_to_target(open: &mut Open) {
         }
         Resolution::Skipped => Note::info(lang.status_reference_skipped(&r.expr)),
         Resolution::Runtime(why) | Resolution::Elsewhere(why) | Resolution::Unresolved(why) => {
+            let why = crate::engine_words::reference_reason(lang, &why);
             Note::refused(format!("{}: {why}", r.expr))
         }
     });
@@ -670,6 +671,30 @@ mod tests {
         assert!(settings.references && !settings.shows_preview());
         click(&mut settings, "Preview with references resolved");
         assert!(settings.shows_preview());
+    }
+
+    /// LANG-2 and LANG-3: why Go to reference target finds nothing is German, while the
+    /// preview's comment, which is part of its text, stays English.
+    #[test]
+    fn a_missing_target_is_said_in_the_windows_language() {
+        let (mut open, dir) = opened("german-reason");
+        open.lang = crate::lang::Lang::De;
+        let missing = command::resolve(&open.doc, "/Doc/Use/Include[2]").unwrap();
+        open.select(missing);
+        go_to_target(&mut open);
+        assert_eq!(
+            open.note.take().unwrap().text,
+            "Shared:Fehlt: findet nichts"
+        );
+        let library = library(RULES);
+        let rules = library.for_document(open.doc.path.as_deref()).unwrap();
+        let rules = rules.rules.as_ref().unwrap();
+        let root = open.doc.index.root_element().unwrap();
+        let preview =
+            references::preview_with(&open.doc, rules, root, references::PREVIEW_LIMIT, &[]);
+        let text = &preview.text;
+        assert!(text.contains("<!-- XML Atlas: finds nothing -->"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A tab with references on (REF-12).

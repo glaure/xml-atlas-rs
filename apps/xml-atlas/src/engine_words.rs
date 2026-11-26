@@ -5,6 +5,7 @@
 
 use xml_atlas_engine::command::CommandError;
 use xml_atlas_engine::problems::Message;
+use xml_atlas_engine::references::{PathPart, Reason};
 use xml_atlas_engine::text::GoToError;
 use xml_atlas_engine::xml::{IllFormedError, ParseError, ParseReason, SyntaxError};
 use xml_atlas_engine::xpath::{
@@ -132,8 +133,9 @@ pub fn problem(lang: Lang, message: &Message) -> String {
         // The mark comes from here: the fonts lack it (LANG-15's test of the texts).
         Message::InvalidBytes { encoding } => lang.problem_invalid_bytes(encoding, "\u{FFFD}"),
         Message::SavedAsUtf8 { declared } => lang.problem_saved_as_utf8(declared),
-        // Still the engine's English: references are translated with the rules files.
-        Message::Reference(words) => words.clone(),
+        Message::Reference { reference, why } => {
+            lang.problem_reference(&escaped(reference), &reference_reason(lang, why))
+        }
     }
 }
 
@@ -226,6 +228,39 @@ fn xpath_syntax(lang: Lang, reason: &SyntaxReason) -> String {
     }
 }
 
+/// Why a reference stands for nothing, as the status bar and the problems list say it. The
+/// reference preview's own comments stay English (LANG-3).
+pub fn reference_reason(lang: Lang, reason: &Reason) -> String {
+    match reason {
+        Reason::FindsNothing => lang.ref_finds_nothing().into(),
+        Reason::RuntimeOnly(name) => lang.ref_runtime(name),
+        Reason::UnknownContext(name) => lang.ref_unknown_context(name),
+        Reason::NothingAtContext { context, path } => lang.ref_nothing_at_context(context, path),
+        Reason::LookedForInside { context, up_to } => lang.ref_looked_for_inside(context, up_to),
+        Reason::UnclosedVariable => lang.ref_unclosed_variable().into(),
+        Reason::AttributeBeforeLastStep => lang.ref_attribute_before_last().into(),
+        Reason::EmptyPath => lang.ref_empty_path().into(),
+        Reason::UnreadablePath(path) => lang.ref_unreadable_path(&escaped(path)),
+        Reason::BracketNotOpened => lang.ref_bracket_not_opened().into(),
+        Reason::Unclosed(path) => lang.ref_unclosed(&escaped(path)),
+        Reason::CannotRead { part, path } => {
+            let part = match part {
+                PathPart::AttributeStep(step) => lang.ref_attribute_step(&escaped(step)),
+                PathPart::Step(step) => lang.ref_step(&escaped(step)),
+                PathPart::Condition(condition) => lang.ref_condition(condition),
+            };
+            lang.ref_cannot_read(&part, &escaped(path))
+        }
+    }
+}
+
+/// `text` as it stands between the quotes in the engine's words, which write it as Rust
+/// writes a string.
+fn escaped(text: &str) -> String {
+    let quoted = format!("{text:?}");
+    quoted[1..quoted.len() - 1].to_owned()
+}
+
 /// What is wrong, without where.
 fn parse_reason(lang: Lang, reason: &ParseReason) -> String {
     match reason {
@@ -282,6 +317,7 @@ fn ill_formed_error(lang: Lang, error: &IllFormedError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xml_atlas_engine::references::{self, Resolution, Rules};
 
     /// A step of every kind, with non-ASCII names.
     fn every_step() -> Vec<StepName> {
@@ -447,7 +483,7 @@ mod tests {
         );
     }
 
-    /// Every problem there is but a reference's, which is still the engine's words.
+    /// Every problem of a file's text and encoding.
     #[test]
     fn xml_problems_and_encoding_warnings() {
         let name = || "Größe".to_owned();
@@ -528,12 +564,83 @@ mod tests {
         ] {
             refusal(problem, Message::Parse(reason), given);
         }
-        // What is not known, or not translated yet, is shown as it comes (LANG-4).
-        for message in [
-            Message::Parse(ParseReason::Library("something new".into())),
-            Message::Reference("Reference \"Maß\" finds nothing".into()),
+        // An error of the library that is not known is shown as it comes (LANG-4).
+        let message = Message::Parse(ParseReason::Library("something new".into()));
+        assert_eq!(problem(Lang::De, &message), message.to_string());
+    }
+
+    /// Every reason a reference stands for nothing, got from the engine, in a file with a
+    /// byte order mark, CRLF and non-ASCII names: the window's English is the engine's, and
+    /// so is every warning in the problems list.
+    #[test]
+    fn why_references_find_nothing() {
+        let rules = Rules::parse(
+            r#"{
+                "includes": [{"element": "Use", "attribute": "src"}],
+                "contexts": {"Weg": {"path": "/Doc/Nirgends"},
+                             "Nah": {"nearest": "General", "up_to": "Maß"}},
+                "runtime_contexts": ["Rt"]
+            }"#,
+        )
+        .unwrap();
+        let paths = [
+            "Fehlt",
+            "Rt:x",
+            "Nirgendwo:x",
+            "Weg:x",
+            "Nah:x",
+            "${abc",
+            "$Anders/x",
+            "@a/b",
+            " ",
+            "a//",
+            "a]",
+            "a[@x='1'",
+            "a/@1bad",
+            "a/b c",
+            "a[Größe]",
+            "a[1]x",
+            "Größe\\x",
+        ];
+        let uses: String = paths
+            .iter()
+            .map(|p| format!("  <Use src=\"{}\"/>\r\n", p.replace('<', "&lt;")))
+            .collect();
+        let source = format!("\u{feff}<Doc>\r\n{uses}</Doc>\r\n");
+        let document = xml_atlas_engine::Document::from_bytes(source.into_bytes());
+        let root = document.index.root_element().unwrap();
+        let mut reasons = Vec::new();
+        for r in references::references(&document, &rules, root) {
+            match references::resolve(&document, &rules, &r, r.site).resolution {
+                Resolution::Runtime(why)
+                | Resolution::Elsewhere(why)
+                | Resolution::Unresolved(why) => reasons.push(why),
+                other => panic!("{}: {other:?}", r.expr),
+            }
+        }
+        assert_eq!(reasons.len(), paths.len());
+        for why in &reasons {
+            refusal(reference_reason, why.clone(), &[]);
+        }
+        let warnings = references::problems(&document, &rules);
+        assert!(warnings.len() > 10);
+        for p in warnings {
+            assert_eq!(problem(Lang::En, &p.message), p.message.to_string());
+            let german = problem(Lang::De, &p.message);
+            assert!(german.starts_with("Verweis „"), "{german}");
+        }
+        let german: Vec<_> = reasons
+            .iter()
+            .map(|why| reference_reason(Lang::De, why))
+            .collect();
+        for wanted in [
+            "findet nichts",
+            "Rt ist erst zur Laufzeit bekannt",
+            "verwendet den Kontext Weg, aber unter /Doc/Nirgends ist nichts",
+            "enthält „${“ ohne „}“",
+            "enthält in „a/b c“ den Schritt „b c“; die Vorschau kann das nicht lesen",
         ] {
-            assert_eq!(problem(Lang::De, &message), message.to_string());
+            assert!(german.iter().any(|g| g == wanted), "{wanted}: {german:#?}");
         }
     }
 

@@ -8,6 +8,7 @@ use std::fmt;
 
 use xml_atlas_xml::ParseReason;
 
+use crate::references::Reason;
 use crate::{Document, IgnoredEncoding, encoding};
 
 /// Encoding names that need no conversion.
@@ -39,8 +40,8 @@ pub enum Message {
     InvalidBytes { encoding: String },
     /// The declaration names another encoding than the UTF-8 the document is saved in.
     SavedAsUtf8 { declared: String },
-    /// A reference that finds nothing (REF-4), already in words.
-    Reference(String),
+    /// A reference that finds nothing (REF-4).
+    Reference { reference: String, why: Reason },
 }
 
 impl fmt::Display for Message {
@@ -57,7 +58,7 @@ impl fmt::Display for Message {
                 f,
                 "The declaration says encoding {declared}, but the document is saved as UTF-8"
             ),
-            Self::Reference(words) => f.write_str(words),
+            Self::Reference { reference, why } => write!(f, "Reference {reference:?} {why}"),
         }
     }
 }
