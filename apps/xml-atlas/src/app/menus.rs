@@ -1269,4 +1269,40 @@ mod tests {
             grid.at(entry);
         }
     }
+
+    /// A menu opens when the button goes down (#167), and letting go on its name leaves it
+    /// there: once on screen it is in every frame, however long the button was held. egui
+    /// takes the release as the click that closes it, and a menu closed for one frame is
+    /// laid out unseen again: it flickered.
+    #[test]
+    fn a_click_on_a_menu_does_not_make_it_flicker() {
+        for held in [0, 1, 2, 3, 8] {
+            let mut bar = Bar::new();
+            bar.settle();
+            let pos = bar.at("File");
+            let button = |pressed| Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            bar.frame(vec![Event::PointerMoved(pos)]);
+            let mut frames = vec![vec![button(true)]];
+            frames.extend(std::iter::repeat_with(Vec::new).take(held));
+            frames.push(vec![button(false)]);
+            frames.extend(std::iter::repeat_with(Vec::new).take(6));
+            let shown: Vec<bool> = frames
+                .into_iter()
+                .map(|events| {
+                    bar.frame(events);
+                    bar.shows("Save As…")
+                })
+                .collect();
+            let first = shown.iter().position(|&s| s).expect("the menu opens");
+            assert!(
+                shown[first..].iter().all(|&s| s),
+                "held for {held} frames: {shown:?}"
+            );
+        }
+    }
 }
